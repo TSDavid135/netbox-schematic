@@ -1,0 +1,154 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetBox Схематика — {{ canvas_title }}</title>
+<!-- Material Design Icons: тот же шрифт, что использует сам NetBox (локально, без CDN) -->
+<link rel="stylesheet" href="{% static 'netbox-external.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/theme.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/schematic.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/panels.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/ipam.css' %}">
+<script>
+  // Применяем сохранённую тему до отрисовки, чтобы не мигало. Дефолт — тёмная.
+  if (localStorage.getItem("schematic-theme") === "light")
+    document.documentElement.classList.add("light");
+</script>
+</head>
+<body data-canvas="{{ canvas }}">
+<form style="display:none">{% csrf_token %}</form>
+
+<div id="topbar">
+  <a id="backlink" href="/"><i class="mdi mdi-arrow-left"></i> NetBox</a>
+  <span class="brand">NetBox <small class="side-head brand-schem">Схематика</small><span class="brand-canvas"> · {{ canvas_title }}</span></span>
+  <span id="status">не подключено</span>
+  <span class="topbar-spacer"></span>
+  <div id="devsearch" title="Поиск устройства по имени">
+    <i class="mdi mdi-magnify ds-icon"></i>
+    <input id="devsearch-inp" type="text" autocomplete="off" spellcheck="false" placeholder="Поиск устройства…">
+    <button id="devsearch-clear" title="Очистить" tabindex="-1"><i class="mdi mdi-close"></i></button>
+    <div id="devsearch-results"></div>
+  </div>
+  <button id="cancelconn"><i class="mdi mdi-close"></i> Отмена привязки</button>
+  <button id="syncbtn" title="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
+  <button id="themetoggle" title="Светлая / тёмная тема"><i class="mdi mdi-white-balance-sunny"></i></button>
+</div>
+
+<div id="layout">
+  <nav id="sidebar">
+    <div id="side-infra" class="side-block">
+      <button class="modebtn modeswitch compact ms-corner" data-mode="tree" aria-pressed="false" title="Правка дерева: создание регионов/площадок/серверных/стоек и перенос"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
+      <div class="side-head">Инфраструктура</div>
+      <div id="tree"><div class="placeholder">Подключись —<br>появятся серверные</div></div>
+    </div>
+    <div id="side-ipam" class="side-block">
+      <div class="side-head">Места и сети</div>
+      <div id="ipam-tree-side"><div class="placeholder">Загружаю…</div></div>
+    </div>
+    <div id="canvasnav">
+      <div class="side-head">Схематика</div>
+      <a class="cnav" data-c="infra" href="{% url 'plugins:netbox_schematic:schematic' %}">Инфраструктура</a>
+      <a class="cnav" data-c="network" href="{% url 'plugins:netbox_schematic:network' %}">Сети</a>
+      <a class="cnav" data-c="virtualization" href="{% url 'plugins:netbox_schematic:virtualization' %}">Виртуализация</a>
+      <a class="cnav" data-c="vpn" href="{% url 'plugins:netbox_schematic:vpn' %}">Туннели</a>
+    </div>
+  </nav>
+  <section id="rackpane">
+    <p class="pane-title"><span class="pt-label">Стойки</span><button class="modebtn modeswitch compact ms-intitle" data-mode="rack" aria-pressed="false" title="Правка стоек: раскрыть свёрнутые юниты и добавлять устройства кликом"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button></p>
+    <div class="placeholder">Выбери серверную или стойку слева</div>
+  </section>
+  <div id="resizer" title="Потяни, чтобы изменить ширину"></div>
+  <div id="schempwrap">
+    <section id="schempane">
+      <p class="pane-title"><span class="pt-label">Схема соединений</span></p>
+      <div class="placeholder">Каждая стойка — пунктирный блок,<br>устройства — прямоугольники,<br>порты — точки по краям</div>
+    </section>
+    <div id="schemoverlay"></div>
+  </div>
+  <aside id="detail"><div class="placeholder">Кликни по имени устройства<br>на схеме — тут его паспорт</div></aside>
+
+  <!-- Холст «Сеть / IPAM»: облака-сети с локациями внутри. Дерево слева
+       (сети + непривязанные локации), облака в центре, детали справа.
+       Показывается только для canvas=network (body.ipam-mode). -->
+  <div id="ipam">
+    <div id="ipam-main">
+      <p class="pane-title"><span class="pt-label">Адресное пространство</span>
+        <button class="modebtn modeswitch ms-intitle" data-mode="ipam" aria-pressed="false" title="Просмотр / Редактирование: перетаскивание сетей между местами, создание"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
+      </p>
+      <div id="ipam-clouds" class="placeholder">Загружаю сети…</div>
+    </div>
+    <aside id="ipam-detail"><div class="placeholder">Кликни по облаку сети —<br>детали, локации, свободные адреса.<br><br>Перетащи локацию из дерева<br>в облако — привяжется к сети.</div></aside>
+  </div>
+</div>
+
+<div id="wip">
+  <div class="wip-card">
+    <div class="wip-title">{{ canvas_title }}</div>
+    <p>Этот холст ещё в разработке.<br>Пока доступна «Инфраструктура» — стойки, устройства и кабельные трассы.</p>
+    <a href="{% url 'plugins:netbox_schematic:schematic' %}"><i class="mdi mdi-arrow-right"></i> Открыть «Инфраструктуру»</a>
+  </div>
+</div>
+
+<svg id="holdring" viewBox="0 0 30 30">
+  <circle class="bg" cx="15" cy="15" r="13"></circle>
+  <circle class="fg" cx="15" cy="15" r="13"></circle>
+</svg>
+
+<div id="tip"></div>
+<div id="linkmenu">
+  <button class="x" title="Удалить связь"><i class="mdi mdi-close"></i></button>
+  <button class="up" title="Удалить и перевесить на другой порт"><i class="mdi mdi-subdirectory-arrow-right"></i> перевесить</button>
+</div>
+
+<div id="cablepop">
+  <div class="cp-head">Тип кабеля</div>
+  <div class="cp-where"></div>
+  <select class="cp-type"></select>
+  <div class="cp-btns">
+    <button class="cp-cancel">Отмена</button>
+    <button class="cp-ok primary"><i class="mdi mdi-check"></i> Проложить</button>
+  </div>
+</div>
+
+<div id="ipform">
+  <div class="if-main">
+    <div class="if-head">Назначить IP</div>
+    <div class="if-where">Порт: <span class="if-port"></span> · <span class="if-dev"></span></div>
+    <label class="if-lbl">Сеть</label>
+    <select class="if-prefix"></select>
+    <label class="if-lbl">Адрес</label>
+    <div class="if-addr-row">
+      <input class="if-oct" inputmode="numeric" maxlength="3" aria-label="октет 1">
+      <span class="if-sep">.</span>
+      <input class="if-oct" inputmode="numeric" maxlength="3" aria-label="октет 2">
+      <span class="if-sep">.</span>
+      <input class="if-oct" inputmode="numeric" maxlength="3" aria-label="октет 3">
+      <span class="if-sep">.</span>
+      <input class="if-oct" inputmode="numeric" maxlength="3" aria-label="октет 4">
+      <span class="if-mask">/?</span>
+      <span class="if-dot" title=""></span>
+      <button class="if-list-btn" title="Список адресов сети"><i class="mdi mdi-format-list-bulleted"></i></button>
+    </div>
+    <div class="if-btns">
+      <button class="if-cancel">Отмена</button>
+      <button class="if-ok primary"><i class="mdi mdi-check"></i> Назначить</button>
+    </div>
+  </div>
+  <div class="if-list"></div>
+</div>
+
+<div id="modal-bg"><div id="modal">
+  <h3 id="modal-title"></h3>
+  <div id="modal-where" style="font-size:12px;color:var(--muted)"></div>
+  <div id="modal-fields"></div>
+  <div class="btns">
+    <button id="m-cancel">Отмена</button>
+    <button id="m-create" class="primary">Создать</button>
+  </div>
+</div></div>
+
+<script type="module" src="{% static 'netbox_schematic/main.js' %}"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+/* Токены темы схематики. Подключается ДО schematic.css.
+   Тёмная — по умолчанию (:root); светлая — класс .light на <html>,
+   переключается кнопкой #themetoggle, выбор хранится в localStorage. */
+:root {
+  --bg: #14181d;
+  --panel: #1c232b;
+  --panel-2: #232c36;
+  --line: #303b47;
+  --text: #e8edf2;
+  --muted: #93a1af;
+  --accent: #4fc3e8;
+  --power: #e8a34f;
+  --ok: #6fbf8a;
+  --err: #e07a6a;
+  --front: #b8c4d0;
+  --rear: #8fa8c8;
+  --console: #b58fd6;
+  --wireless: #b98cff;   /* радио-линки (слой Wireless) */
+  --circuit: #4fc3e8;    /* выход в WAN (слой Circuits) */
+  --mono: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  /* Плавающие оверлеи (легенда, UI-панель) и подложки — темизируемые */
+  --overlay-bg: rgba(20, 24, 29, 0.92);
+  --overlay-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --dev-badge-bg: rgba(13, 17, 22, 0.85);
+  --node-bg: var(--panel);
+  /* Тёмная тема: цифра занятого порта — ТЁМНАЯ (на светлой заливке),
+     свободного — светлая (--text). */
+  --port-ink: #10161d;
+  --scroll-thumb: #2a333e;
+  --scroll-thumb-hover: #3a4653;
+  /* тёмная тема: свечение подсветки — темнее-зелёное */
+  --hl-glow: rgba(63, 140, 90, 0.85);
+  /* Цвета проводов по семейству типа кабеля (см. cableFamily в core.js) */
+  --cbl-default: #6c7a89;  /* тип не указан / неизвестен */
+  --cbl-copper: #6fbf8a;   /* медь · витая пара */
+  --cbl-dac: #d6b25a;      /* DAC (twinax) */
+  --cbl-coax: #c98a4b;     /* коаксиал */
+  --cbl-mmf: #d98cc0;      /* оптика многомод */
+  --cbl-smf: #f0e05a;      /* оптика одномод */
+  --cbl-aoc: #8f7fe0;      /* активная оптика */
+  --cbl-power: #e8a34f;    /* питание */
+  --cbl-usb: #5abfd6;      /* USB */
+}
+:root.light {
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --panel-2: #e9edf1;
+  --line: #d3dae1;
+  --text: #1c2530;
+  --muted: #5a6b7b;
+  --accent: #1789b0;
+  --power: #c77d1a;
+  --ok: #3f9d62;
+  --err: #c0503c;
+  --front: #5a6b7b;
+  --rear: #3f5878;
+  --console: #7d4fb0;
+  --wireless: #7d4fb0;   /* радио-линки (слой Wireless) — светлая тема */
+  --circuit: #1789b0;    /* выход в WAN (слой Circuits) — светлая тема */
+  --overlay-bg: rgba(255, 255, 255, 0.95);
+  --overlay-shadow: 0 4px 16px rgba(70, 90, 110, 0.22);
+  --dev-badge-bg: rgba(28, 37, 48, 0.06);
+  --node-bg: #ffffff;
+  /* Светлая тема: цифра занятого порта — СВЕТЛАЯ (на насыщенной заливке),
+     свободного — тёмная (--text). */
+  --port-ink: #ffffff;
+  /* светлый скроллбар — не мозолит глаза */
+  --scroll-thumb: #c3ccd5;
+  --scroll-thumb-hover: #a9b4bf;
+  /* светлая тема: свечение подсветки — ярче-зелёное */
+  --hl-glow: rgba(52, 199, 110, 0.95);
+  /* Провода по семейству — на светлом фоне темнее/насыщеннее для контраста */
+  --cbl-default: #7b8a99;
+  --cbl-copper: #2f9d5b;
+  --cbl-dac: #b58a1a;
+  --cbl-coax: #b06a1f;
+  --cbl-mmf: #b3468f;
+  --cbl-smf: #b09400;
+  --cbl-aoc: #5b47c0;
+  --cbl-power: #c77d1a;
+  --cbl-usb: #1789b0;
+}
