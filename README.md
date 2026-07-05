@@ -1,67 +1,67 @@
 # netbox-schematic
 
-Визуальный конструктор стоек и кабельных трасс для [NetBox](https://netbox.dev):
-серверные, стойки, устройства, порты и кабели — на одной интерактивной
-2D-схеме. Смотри, как сигнал проходит от сервера через патч-панели до
-core-коммутатора, и строй инфраструктуру кликами — без форм и таблиц.
+**English** · [Русский](README.ru.md)
 
-## Возможности
+A visual builder for racks and cable paths in [NetBox](https://netbox.dev):
+sites, racks, devices, ports and cables on a single interactive 2D schematic.
+Watch a signal travel from a server through patch panels to the core switch,
+and build your infrastructure with clicks — no forms, no tables.
 
-- Дерево «регион → площадка → серверная → стойка» с drag-and-drop
-  (перетаскивание узлов между родителями, как папки в ОС) и стойки с юнитами.
-- 2D-схема: устройства прямоугольниками, порты точками (front/rear
-  патч-панелей раздельно), кабели линиями без пересечений.
-- Трассировка: клик по занятому порту подсвечивает весь путь сигнала
-  насквозь через патч-панели.
-- Режим стройки: создание площадок, серверных, стоек, устройств (кликом
-  по юниту), кабелей (кликом по двум портам), сетей и IP-адресов.
-- Панорамирование полотна, кастомные тултипы, демо-анимация трафика.
-- Схема нигде не хранится — всегда вычисляется из данных NetBox.
+## Features
 
-## Установка (плагин)
+- A "region → site → room → rack" tree with drag-and-drop (move nodes between
+  parents like folders in an OS) and racks with units.
+- 2D schematic: devices as rectangles, ports as dots (front/rear of patch
+  panels shown separately), cables as non-crossing lines.
+- Path tracing: clicking an occupied port highlights the whole signal path
+  end-to-end through patch panels.
+- Build mode: create sites, rooms, racks, devices (by clicking a unit), cables
+  (by clicking two ports), prefixes and IP addresses.
+- Canvas panning, custom tooltips, a demo traffic animation.
+- The schematic is never stored — it is always computed from NetBox data.
 
-Требования: NetBox 4.x.
+## Installation (plugin)
+
+Requirements: NetBox 4.x.
 
 ```bash
-pip install -e .          # из корня этого репозитория, в venv NetBox
+pip install -e .          # from the repository root, inside the NetBox venv
 ```
 
-В `configuration.py`:
+In `configuration.py`:
 
 ```python
 PLUGINS = ['netbox_schematic']
 ```
 
-Перезапусти NetBox — в меню появится **Plugins → Схематика**
-(`/plugins/schematic/`). Аутентификация — обычная сессия NetBox,
-токены и CORS не нужны.
+Restart NetBox — a **Plugins → Схематика** entry appears in the menu
+(`/plugins/schematic/`). Authentication is the regular NetBox session;
+no tokens or CORS required.
 
-## Структура репозитория
+## Repository layout
 
 ```text
 netbox-schematic/
-├── README.md                     — этот файл
-├── DESIGN.md                     — дизайн-док, алгоритмы, задачи
-├── pyproject.toml                — пакет плагина
-└── netbox_schematic/             — плагин NetBox
+├── README.md                     — this file (EN)
+├── README.ru.md                  — Russian version
+├── LICENSE                       — MIT license
+├── pyproject.toml                — plugin package
+└── netbox_schematic/             — NetBox plugin
     ├── __init__.py               — PluginConfig
-    ├── navigation.py             — пункт меню
-    ├── views.py                  — вьюха (LoginRequired)
+    ├── navigation.py             — menu entry
+    ├── views.py                  — view (LoginRequired)
     ├── urls.py
     ├── templates/netbox_schematic/
-    │   └── schematic.html        — тонкий каркас: {% static %} + {% csrf_token %}
-    └── static/netbox_schematic/
-        ├── schematic.css         — все стили
-        └── schematic.js          — вся логика
+    │   └── schematic.html        — thin shell: {% static %} + {% csrf_token %}
+    └── static/netbox_schematic/  — client-side logic (JS modules) and styles (CSS)
 ```
 
-Технология: чистый DOM + SVG + `fetch`, без зависимостей и сборки.
-Аутентификация — сессия NetBox + CSRF (`X-CSRFToken` из скрытой формы).
+Tech: plain DOM + SVG + `fetch`, no dependencies and no build step.
+Authentication is the NetBox session + CSRF (`X-CSRFToken` from a hidden form).
 
-## Разработка
+## Development
 
-Роадмап и постановка задач — в [DESIGN.md](./DESIGN.md).
-Плагин ставится editable (`pip install -e .`); правки шаблона
-подхватываются dev-сервером сразу. После правок в `static/` запусти
-`manage.py collectstatic` (или обнови с отключённым кэшем — dev-сервер
-при `DEBUG=True` отдаёт статику приложений напрямую).
+The plugin installs editable (`pip install -e .`); template edits are picked up
+by the dev server immediately. After changing files in `static/`, run
+`manage.py collectstatic` (or reload with caching disabled — with `DEBUG=True`
+the dev server serves app static files directly).
