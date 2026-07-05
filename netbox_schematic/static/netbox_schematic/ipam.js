@@ -10,8 +10,9 @@
 // местах → рисуется в обоих (норма). Дерево слева — та же иерархия мест + сети.
 // Режимы edit/view — класс body.ipam-edit (view: смотреть; edit: драг+создание).
 
-import { $, state, mk } from "./core.js";
+import { $, state, mk, modeBtn } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
+import { Mode } from "./modes.js";
 
 // CIDR-утилиты (uint32)
 function parseCidr(cidr) {
@@ -34,6 +35,38 @@ export class IpamCanvas {
   constructor(app) {
     this.app = app;
     this.drag = null;
+    this.dragged = false;   // был перенос → подавить click после mouseup
+    this._lastNet = null;   // открытые детали {n, place} — для перерисовки
+    // Призрак «Сюда» при переносе сети: mouseover всплывает → closest(".place")
+    // даёт самое ВЛОЖЕННОЕ место под курсором (регион ⊃ площадка ⊃ локация).
+    this._dragOver = e => {
+      if (!this.drag) return;
+      this._setDropTarget(e.target.closest ? e.target.closest(".place, .it-node") : null);
+    };
+    // Смена режима → перерисовать открытые детали (кнопки edit-действий).
+    Mode.onChange("ipam", () => {
+      if (this._lastNet) this._showNet(this._lastNet.n, this._lastNet.place);
+    });
+  }
+
+  // Подсветка цели дропа при переносе сети (одна активная за раз):
+  //  · место (.place на холсте) — рамка .drop-ok + серый призрак «Сюда» в теле;
+  //  · узел дерева (.it-node) — акцентная полоска .drop-hl.
+  // Как на «Инфраструктуре»: видно, куда ляжет объект при отпускании.
+  _setDropTarget(el) {
+    if (this._dropEl === el) return;
+    document.querySelectorAll(".place.drop-ok, .it-node.drop-hl")
+      .forEach(x => x.classList.remove("drop-ok", "drop-hl"));
+    if (this._ghost) { this._ghost.remove(); this._ghost = null; }
+    this._dropEl = el || null;
+    if (!el) return;
+    if (el.classList.contains("it-node")) {
+      el.classList.add("drop-hl");
+    } else {
+      el.classList.add("drop-ok");
+      const body = el.querySelector(":scope > .place-body");
+      if (body) { this._ghost = mk("div", { className: "net-ghost", text: "Сюда" }); body.appendChild(this._ghost); }
+    }
   }
 
   edit() { return document.body.classList.contains("ipam-edit"); }
@@ -50,6 +83,7 @@ export class IpamCanvas {
       this._build();
       this.renderTree();
       this.render();
+      if (this._lastNet) this._refreshDetail();   // данные сети могли измениться
       setStatus(`${prefixes.length} сетей · ${locations.length} локаций · ${sites.length} площадок`, "ok");
     } catch (e) {
       setStatus("ошибка IPAM: " + e.message, "err");
@@ -141,13 +175,24 @@ export class IpamCanvas {
 
   _treeNode(node, depth) {
     const icon = { region: "map-marker-radius", sitegroup: "folder-network", site: "office-building", location: "server" }[node.kind] || "";
+    // Узел-место: клик — фокус; при переносе сети — drop-таргет (подсветка
+    // .drop-hl, отпустил ЛКМ на узле → сеть привязывается к этому месту).
     const row = mk("div", { className: "it-node k-" + node.kind, style: { paddingLeft: (8 + depth * 14) + "px" },
       html: `<i class="mdi mdi-${icon}"></i><span class="it-name">${node.name}</span>`,
-      on: { click: () => this._focusPlace(node), contextmenu: e => this._menu(e, node) } });
+      on: {
+        click: () => { if (!this.dragged) this._focusPlace(node); },
+        contextmenu: e => this._menu(e, node),
+      } });
+    row._placeNode = node;   // цель дропа сети (подсветка/дроп — _setDropTarget/onUp)
     const wrap = mk("div", {}, row);
-    for (const n of node.nets)
-      wrap.appendChild(mk("div", { className: "it-net", style: { paddingLeft: (8 + (depth + 1) * 14) + "px" },
-        text: n.p.prefix, on: { click: () => this._showNet(n, node) } }));
+    for (const n of node.nets) {
+      // Сеть в дереве: клик — детали; в правке перетаскивается на узлы-места
+      // (та же механика, что помещения на «Инфраструктуре»).
+      const netEl = mk("div", { className: "it-net", style: { paddingLeft: (8 + (depth + 1) * 14) + "px" },
+        text: n.p.prefix, on: { click: () => { if (!this.dragged) this._showNet(n, node); } } });
+      this._makeNetDraggable(netEl, n, node);
+      wrap.appendChild(netEl);
+    }
     for (const ch of node.children) wrap.appendChild(this._treeNode(ch, depth + 1));
     return wrap;
   }
@@ -182,11 +227,8 @@ export class IpamCanvas {
     const body = mk("div", { className: "place-body" });
     for (const ch of node.children) body.appendChild(this._place(ch));
     for (const n of node.nets) body.appendChild(this._netBlock(n, node));
-    if (this.edit()) {
-      const addBtn = mk("button", { className: "place-add", html: `<i class="mdi mdi-plus"></i> сеть`,
-        on: { click: e => { e.stopPropagation(); this._createNet(node); } } });
-      body.appendChild(addBtn);
-    }
+    // Кнопок «+ сеть» на холсте нет: правка = перетаскивание сетей, создание —
+    // по ПКМ в дереве «Места и сети» (см. _menu).
     el.appendChild(body);
     // drop-таргет: сеть привязывается к этому месту
     this._makeDrop(el, node);
@@ -199,16 +241,24 @@ export class IpamCanvas {
     const cap = mk("div", { className: "nb-cap" },
       mk("span", { className: "nb-cidr", text: n.p.prefix }),
       mk("span", { className: "nb-count", text: `${n.used} занято · ${n.freeCount} свободно` }));
-    this._makeNetDraggable(cap, n, place);
     el.appendChild(cap);
+    // В правке весь блок — ручка переноса (зажал ЛКМ и потянул).
+    this._makeNetDraggable(el, n, place);
     const addrs = mk("div", { className: "nb-addrs" });
-    for (const ip of n.occupied.slice(0, 24))
+    // Максимум 5 занятых адресов на блоке; остальные — счётчиком «ещё N занято».
+    for (const ip of n.occupied.slice(0, 5))
       addrs.appendChild(mk("span", { className: "addr used", text: ip.address.split("/")[0], title: ip.address }));
-    if (n.occupied.length > 24)
-      addrs.appendChild(mk("span", { className: "addr more", text: `+${n.occupied.length - 24}` }));
+    if (n.occupied.length > 5)
+      addrs.appendChild(mk("span", { className: "addr more", text: `ещё ${n.occupied.length - 5} занято` }));
     if (n.freeCount) addrs.appendChild(mk("span", { className: "addr free-note", text: `${n.freeCount} свободно` }));
     el.appendChild(addrs);
-    el.addEventListener("click", e => { e.stopPropagation(); this._showNet(n, place); });
+    // В правке блок сети НЕ кликабелен (клик мешал переносу); детали — из
+    // дерева или в режиме просмотра. После переноса click подавляется.
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      if (this.dragged || this.edit()) return;
+      this._showNet(n, place);
+    });
     return el;
   }
 
@@ -220,35 +270,57 @@ export class IpamCanvas {
     return chip;
   }
 
-  // drag: сеть → место (PATCH prefix.scope)
+  // drag: сеть → место (PATCH prefix.scope). Перенос стартует по СМЕЩЕНИЮ
+  // мыши >6px (как в дереве Инфраструктуры) — простой клик остаётся кликом,
+  // а не «переносом в то же место». mousemove/mouseup всегда снимаются на
+  // отпускании, состояние чистится целиком — нода не «прилипает» к курсору.
   _makeNetDraggable(handle, n, fromPlace) {
     handle.addEventListener("mousedown", e => {
       if (e.button !== 0 || !this.edit()) return;
       e.preventDefault();
-      this.drag = { n, fromPlace, handle };
-      handle.classList.add("dragging");
-      document.body.classList.add("ipam-dragging");
-      const onUp = () => {
+      const sx = e.clientX, sy = e.clientY;
+      let started = false;
+      const onMove = ev => {
+        if (started || Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) <= 6) return;
+        started = true;
+        this.drag = { n, fromPlace, handle };
+        this.dragged = true;   // подавить click, который придёт после mouseup
+        handle.classList.add("dragging");
+        document.body.classList.add("ipam-dragging");
+        document.addEventListener("mouseover", this._dragOver);
+      };
+      const onUp = ev => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        // Дроп определяем ЗДЕСЬ по элементу под курсором (место/узел дерева) —
+        // единый обработчик, поэтому mouseup всегда доходит (никаких
+        // stopPropagation на местах, из-за которых нода «залипала»).
+        if (started && this.drag) {
+          const tgt = ev.target.closest && ev.target.closest(".place, .it-node");
+          const node = tgt && tgt._placeNode;
+          if (node) this._assignNet(this.drag.n, node);   // async — не ждём, cleanup ниже
+        }
+        // cleanup в setTimeout: click по этому же элементу диспатчится синхронно
+        // до таймера → this.dragged ещё true и подавит его.
         setTimeout(() => {
           handle.classList.remove("dragging");
           document.body.classList.remove("ipam-dragging");
-          document.querySelectorAll(".place.drop-ok").forEach(c => c.classList.remove("drop-ok"));
+          this._setDropTarget(null);
+          document.removeEventListener("mouseover", this._dragOver);
           this.drag = null;
+          this.dragged = false;
         }, 0);
-        document.removeEventListener("mouseup", onUp);
       };
+      document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     });
   }
 
+  // Место — потенциальная цель дропа. Подсветку/призрак и сам дроп ведёт единый
+  // маршрут (_setDropTarget / onUp) по элементу под курсором; здесь лишь
+  // привязываем узел к DOM-элементу.
   _makeDrop(placeEl, node) {
-    placeEl.addEventListener("mouseenter", () => { if (this.drag) placeEl.classList.add("drop-ok"); });
-    placeEl.addEventListener("mouseleave", () => placeEl.classList.remove("drop-ok"));
-    placeEl.addEventListener("mouseup", async e => {
-      if (!this.drag) return;
-      e.stopPropagation();
-      await this._assignNet(this.drag.n, node);
-    });
+    placeEl._placeNode = node;
   }
 
   // Привязать сеть к месту (PATCH scope по типу места).
@@ -270,29 +342,54 @@ export class IpamCanvas {
     } catch (e) { setStatus("не удалось: " + e.message, "err"); }
   }
 
-  // контекст-меню места: создать сеть
+  // ПКМ по узлу-месту в дереве — меню в стиле Инфраструктуры (.treectx),
+  // работает в любом режиме. Здесь создаём ТОЛЬКО сети (сами места —
+  // на холсте «Инфраструктура»).
   _menu(e, node) {
     e.preventDefault();
-    if (!this.edit()) return;
-    document.querySelectorAll(".ipam-menu").forEach(m => m.remove());
-    const menu = mk("div", { className: "ipam-menu", style: { left: e.clientX + "px", top: e.clientY + "px" } });
-    menu.appendChild(mk("button", { text: "Добавить сеть сюда", on: { click: () => { menu.remove(); this._createNet(node); } } }));
+    this._closeMenu();
+    const menu = mk("div", { className: "treectx" });
+    menu.appendChild(mk("div", { className: "tc-item", html: `<span>Добавить сеть</span>`,
+      on: { click: ev => { ev.stopPropagation(); this._closeMenu(); this._createNet(node); } } }));
     document.body.appendChild(menu);
-    const close = ev => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener("mousedown", close, true); } };
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.max(4, Math.min(e.clientX, innerWidth - w - 8)) + "px";
+    menu.style.top = Math.max(4, Math.min(e.clientY, innerHeight - h - 8)) + "px";
+    this._ctxMenu = menu;
+    const close = ev => {
+      if (!menu.contains(ev.target)) { this._closeMenu(); document.removeEventListener("mousedown", close, true); }
+    };
     setTimeout(() => document.addEventListener("mousedown", close, true), 0);
   }
+  _closeMenu() { if (this._ctxMenu) { this._ctxMenu.remove(); this._ctxMenu = null; } }
 
-  // Создать сеть и сразу привязать к месту (scope).
-  async _createNet(place) {
-    const cidr = prompt(`Новая сеть в «${place.name}» (CIDR):`, "");
-    if (!cidr) return;
+  // Создать сеть и сразу привязать к месту (scope). Модалка — как на
+  // Инфраструктуре (общий app.openModal), а не prompt().
+  _createNet(place) {
     const scopeType = { region: "dcim.region", sitegroup: "dcim.sitegroup", site: "dcim.site", location: "dcim.location" }[place.kind];
-    try {
-      await api("/ipam/prefixes/", "POST",
-        { prefix: cidr.trim(), status: "active", scope_type: scopeType, scope_id: place.obj.id });
-      setStatus(`сеть ${cidr} создана в «${place.name}»`, "ok");
-      await this.load();
-    } catch (e) { setStatus("не удалось создать: " + e.message, "err"); }
+    this.app.openModal("Новая сеть", "Место: " + place.name,
+      [{ id: "cidr", label: "Сеть (CIDR)", placeholder: "10.10.0.0/24" }],
+      async v => {
+        if (!v.cidr) throw new Error("укажи CIDR");
+        await api("/ipam/prefixes/", "POST",
+          { prefix: v.cidr.trim(), status: "active", scope_type: scopeType, scope_id: place.obj.id });
+        setStatus(`сеть ${v.cidr} создана в «${place.name}»`, "ok");
+        await this.load();
+      });
+  }
+
+  // Перерисовать открытые детали СВЕЖИМ объектом сети (после load() старые
+  // ссылки мертвы — ищем по id префикса в новых roots/freeNets).
+  _refreshDetail() {
+    const id = this._lastNet.n.p.id;
+    let found = null, foundPlace = null;
+    const walk = node => {
+      for (const nn of node.nets) if (nn.p.id === id) { found = nn; foundPlace = node; }
+      node.children.forEach(walk);
+    };
+    this.roots.forEach(walk);
+    if (!found) { found = this.freeNets.find(x => x.p.id === id) || null; foundPlace = null; }
+    if (found) this._showNet(found, foundPlace);
   }
 
   _focusPlace(node) {
@@ -310,14 +407,18 @@ export class IpamCanvas {
 
   // детали сети справа
   async _showNet(n, place) {
+    this._lastNet = { n, place };
     const panel = $("#ipam-detail");
     if (!panel) return;
     const p = n.p;
-    panel.innerHTML = `<h2>${p.prefix}</h2>
+    // Кнопка режима — только при открытых деталях; та же .modebtn[data-mode=
+    // ipam], что в заголовках, синхронизируется через Mode.toggle/syncButtons.
+    panel.innerHTML = `${modeBtn("ipam", "compact ms-corner")}<h2>${p.prefix}</h2>
       <div class="sub">Сеть${p.status ? " · " + (p.status.label || p.status.value) : ""}${place ? " · " + place.name : ""}</div>
       <div class="id-row"><span>Размер</span><b>${n.cidr.size.toLocaleString("ru")} адр.</b></div>
       <div class="id-row"><span>Занято</span><b>${n.used}</b></div>
       <div class="id-row"><span>Свободно</span><b>${n.freeCount.toLocaleString("ru")}</b></div>`;
+    Mode.syncButtons("ipam");
     if (place && this.edit())
       panel.appendChild(mk("button", { className: "id-btn danger", html: `<i class="mdi mdi-close"></i> убрать из «${place.name}»`,
         on: { click: () => this._unassignNet(n) } }));
