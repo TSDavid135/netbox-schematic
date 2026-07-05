@@ -15,6 +15,13 @@ export class RackManager {
   constructor(app) {
     this.app = app;
     Mode.onChange("rack", () => this._rerender());   // раскрытие/свёртка при смене режима
+    // Сворачивание блока «Стойки»: ◄ в его заголовке прячет блок (body.rack-
+    // collapsed), ► слева от «Схема соединений» возвращает. Делегируем на
+    // document — кнопки пересоздаются при каждой перерисовке заголовков.
+    document.addEventListener("click", ev => {
+      if (ev.target.closest("#rack-collapse")) document.body.classList.add("rack-collapsed");
+      else if (ev.target.closest("#rack-expand")) document.body.classList.remove("rack-collapsed");
+    });
   }
 
   _rerender() {
@@ -55,7 +62,7 @@ export class RackManager {
     const pane = $("#rackpane");
     const loc = currentLocationName();
     const title = loc ? `Стойки : ${loc}` : "Стойки";
-    pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}</p><div id="racks"></div>`;
+    pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></p><div id="racks"></div>`;
     Mode.syncButtons("rack");
     const wrap = $("#racks");
     for (const rack of group) {

@@ -135,8 +135,12 @@
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.13em;
     color: var(--muted); font-weight: 700; padding: 0 14px 6px;
   }
-  /* Заголовок статичен, скролл — внутри #racks */
+  /* Заголовок статичен, скролл — внутри #racks. Стартовая ширина — в одну
+     стойку (280px рамка + паддинги #racks 42+20): по умолчанию колонка одна,
+     список идёт вниз. Ресайзер (drag #resizer) расширяет до 900px — тогда
+     #racks (flex-wrap) добавляет вторую+ стойку справа. */
   #rackpane {
+    width: 360px;
     flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
     border-right: 1px solid var(--line);
   }
@@ -169,6 +173,22 @@
     display: inline-block; background: var(--bg);
     padding: 5px 12px; border-radius: 8px;
   }
+  /* Кнопки сворачивания/разворота блока «Стойки» (◄ в его заголовке / ► слева
+     от «Схема соединений»). Свёрнутый блок и его ресайзер скрыты — схема шире. */
+  .pane-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; line-height: 1; font-size: 16px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel-2); color: var(--muted); cursor: pointer;
+  }
+  .pane-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  #rack-collapse { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); }
+  #rackpane .pane-title .ms-intitle { right: 46px; }   /* уступить место кнопке сворачивания */
+  #rack-expand { display: none; margin-right: 8px; vertical-align: middle; }
+  body.rack-collapsed #rackpane, body.rack-collapsed #resizer { display: none; }
+  body.rack-collapsed #rack-expand { display: inline-flex; }
+  /* Кнопка «Синхронизировать порты с типом» в паспорте устройства (правка). */
+  .sync-comp-btn { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 10px; font-size: 12px; }
 
   /* дерево */
   .tree-add {
@@ -221,6 +241,18 @@
   .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
   .tree-panel.on-schema:hover, .tree-feed.on-schema:hover {
     background: color-mix(in srgb, var(--muted) 32%, transparent);
+  }
+  /* Потомки-стойки/щитки/фидеры выбранной области — синий (accent) текст:
+     видно, что «эта стойка/щиток на схеме». Корень остаётся .scope-active
+     (accent + полоска слева), поэтому не путается с потомками. */
+  .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema {
+    color: var(--accent); font-weight: 600;
+  }
+  /* Shift-мультивыбор узлов дерева — акцентная заливка + полоска слева. */
+  .tree-region.multi-sel, .tree-sitegroup.multi-sel, .tree-site.multi-sel,
+  .tree-loc.multi-sel, .tree-rack.multi-sel, .tree-panel.multi-sel, .tree-feed.multi-sel {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent);
   }
   .tree-loc {
     display: block; width: 100%; text-align: left; background: none; border: none;
@@ -430,6 +462,7 @@
   .pb-feed .pf-va { color: var(--muted); margin-left: auto; }
   .pb-feed.empty .pf-name { color: var(--muted); font-weight: 400; font-style: italic; }
   .port.p-feed { border-color: var(--power); }
+  .port.used.p-feed { background: var(--power); }
   /* Зелёный «+»-порт: создать wireless-интерфейс / фидер прямо со схемы. */
   .port.addport {
     border-color: var(--ok); background: var(--ok); color: #fff;
@@ -439,8 +472,8 @@
   .pb-feed.addfeed { cursor: pointer; }
   .pb-feed.addfeed .pf-name { color: var(--ok); font-weight: 600; }
   .pb-feed.addfeed:hover .pf-name { filter: brightness(1.15); }
-  /* Линия питания щитка (фидер → PDU) — та же, что power-кабель, но пунктир. */
-  #wires path.feedwire { stroke-dasharray: 5 4; }
+  /* Линия питания щитка (фидер → PDU) — сплошная, как обычный power-кабель. */
+  #wires path.feedwire { stroke-dasharray: none; }
   /* Сетевой режим: щитки питания и их линии — это физическое электричество,
      делаем менее заметными (не скрываем полностью). */
   body.view-net .node.powerbox { opacity: 0.32; }
@@ -702,17 +735,17 @@
   #ipform .if-prefix { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 13px; }
   #ipform .if-addr-row { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
   #ipform .if-oct {
-    width: 38px; text-align: center; background: var(--bg); color: var(--text);
+    width: 34px; text-align: center; background: var(--bg); color: var(--text);
     border: 1px solid var(--line); border-radius: 6px; padding: 6px 2px; font-family: var(--mono); font-size: 13px;
   }
   #ipform .if-oct:focus { border-color: var(--accent); outline: none; }
   #ipform .if-sep { color: var(--muted); font-weight: 600; }
-  #ipform .if-mask { color: var(--muted); font-family: var(--mono); font-size: 13px; margin: 0 4px; min-width: 32px; }
+  #ipform .if-mask { color: var(--muted); font-family: var(--mono); font-size: 13px; margin: 0 3px; min-width: 26px; }
   #ipform .if-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); flex-shrink: 0; }
   #ipform .if-dot.ok { border-color: var(--ok); background: var(--ok); }
   #ipform .if-dot.busy { border-color: var(--err); background: var(--err); }
   #ipform .if-dot.out { border-color: var(--power); background: transparent; }
-  #ipform .if-list-btn { margin-left: 4px; padding: 5px 8px; border-radius: 6px; font-size: 13px; }
+  #ipform .if-list-btn { margin-left: 2px; padding: 5px 7px; border-radius: 6px; font-size: 13px; flex-shrink: 0; }
   #ipform .if-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 12px; }
   #ipform .if-btns button { padding: 4px 11px; font-size: 13px; border-radius: 6px; }
   #ipform .if-cancel:hover { border-color: var(--err); color: var(--err); }

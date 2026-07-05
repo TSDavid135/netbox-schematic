@@ -254,7 +254,7 @@ export class SchemaManager {
     this._computePads(pane);
     const loc = currentLocationName();
     const title = loc ? `Схема соединений : ${loc}` : "Схема соединений";
-    pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span></p>
+    pane.innerHTML = `<p class="pane-title"><button id="rack-expand" class="pane-toggle" title="Показать блок стоек"><i class="mdi mdi-chevron-right"></i></button><span class="pt-label">${title}</span></p>
       <div id="schema"><svg id="wires" class="${state.wiresAbovePorts ? "above-ports" : ""}"></svg></div>
       <div id="zoomhint">масштаб 100% · Ctrl+колесо или колесо</div>`;
     $("#schemoverlay").innerHTML = `
@@ -587,6 +587,11 @@ export class SchemaManager {
       });
       box.insertAdjacentHTML("beforeend",
         `<span class="nm">${panel.name}</span><span class="mdl">силовой щит · ${feeds.length} фид.</span>`);
+      // Клик по названию щитка → его «паспорт» справа (как у устройств).
+      box.querySelector(".nm").addEventListener("click", e => {
+        e.stopPropagation();
+        this.app.device.showPanel(panel);
+      });
       // Фидеры списком; у каждого — порт на ЛЕВОЙ границе карточки (кружок,
       // как у портов устройств). Наведение на порт даёт маршрут/тултип.
       const list = mk("div", { className: "pb-feeds" });
@@ -643,6 +648,10 @@ export class SchemaManager {
     const port = { el: dot, item: feed, dev, otype: kind.otype, ep: kind.ep, side: "l" };
     dot.addEventListener("mouseenter", () => this._portHover(port, true));
     dot.addEventListener("mouseleave", () => this._portHover(port, false));
+    // Соединение как у обычных портов: клик — выбрать/привязать (фидер ↔ power-
+    // port PDU), двойной — трасса. COMPAT разрешает powerfeed↔powerport.
+    dot.addEventListener("click", ev => { ev.stopPropagation(); this._onPortClick(kind, feed, dev, dot, ev); });
+    dot.addEventListener("dblclick", ev => { ev.stopPropagation(); ev.preventDefault(); this._onPortDblClick(kind, feed); });
     box.appendChild(dot);
     state.ports[portKey(kind.otype, feed.id)] = port;
   }
@@ -710,7 +719,28 @@ export class SchemaManager {
       const [fx, fy] = center(feedP.el), [px2, py] = center(port.el);
       const midY = (fy + py) / 2;
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      p.setAttribute("d", cubicPath(px2, py, fx, fy, midY, midY));
+      // Стиль как у обычных проводов:
+      //  · «Круглые» — вертикальный кубик;
+      //  · «Углы» + «Короткий» — скруглённая угольная трасса через середину;
+      //  · «Углы» + «Расширенный» — у фидера своей колонки нет, но у PDU (его
+      //    power-порт) есть → ведём боковым коридором ЕГО колонки, в обход нод.
+      let d;
+      if (state.wireStyle !== "angular") {
+        d = cubicPath(px2, py, fx, fy, midY, midY);
+      } else if (state.wirePath === "extend" && state.devCol[port.dev.id] != null) {
+        const col = state.devCol[port.dev.id];
+        const corr = this.LEFT_PAD + (col + 1) * (COL_W + COL_GAP) - COL_GAP / 2 - 52;
+        // Горизонтальный переход ведём НАД щитками (верхний край самого верхнего
+        // щитка − отступ), чтобы линия не резала их боксы, затем коридором
+        // колонки PDU вверх к его порту. state.powerBoxEls — боксы щитков.
+        const tops = Object.values(state.powerBoxEls || {}).map(el => el.offsetTop);
+        const overPanels = (tops.length ? Math.min(...tops) : fy) - 24;
+        const pOut = py + 16;
+        d = smoothPath([[fx, fy], [fx, overPanels], [corr, overPanels], [corr, pOut], [px2, pOut], [px2, py]], 10);
+      } else {
+        d = smoothPath([[px2, py], [px2, midY], [fx, midY], [fx, fy]], 10);
+      }
+      p.setAttribute("d", d);
       p.setAttribute("class", "wire cbl-power feedwire");
       p.dataset.cable = c.id;
       svg.appendChild(p);
@@ -946,6 +976,10 @@ export class SchemaManager {
     for (const c of state.cables) {
       const aT = (c.a_terminations || [])[0], bT = (c.b_terminations || [])[0];
       if (!aT || !bT) continue;
+      // Линии фидер↔PDU рисует отдельный проход (_drawFeedWires): у щитка нет
+      // геометрии узла (колонки/индекса) для общего роутера углов → иначе NaN
+      // в трассе. Здесь пропускаем.
+      if (aT.object_type === "dcim.powerfeed" || bT.object_type === "dcim.powerfeed") continue;
       const a = state.ports[termKey(aT)], b = state.ports[termKey(bT)];
       if (!a || !b) continue;
       const [ax, ay] = center(a.el), [bx, by] = center(b.el);

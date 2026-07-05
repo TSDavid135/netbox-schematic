@@ -18,6 +18,7 @@ export class TreeManager {
     this.app = app;
     this.dropTargets = [];
     this.hold = { delay: null, timer: null, raf: null, el: null, drag: null };
+    this.selection = new Set();   // Shift-мультивыбор узлов дерева (см. _toggleSelect)
     this._wireGlobal();
   }
 
@@ -26,6 +27,7 @@ export class TreeManager {
     const nav = $("#tree");
     nav.innerHTML = "";
     this.dropTargets.length = 0;   // старые узлы удалены — сбрасываем таргеты
+    this.selection.clear();        // старые DOM-узлы больше не валидны
     this._addBtn(nav, "+ регион (город)", "", () => this._createRegion());
 
     const groups = [
@@ -405,6 +407,91 @@ export class TreeManager {
       }, "Переместить");
   }
 
+  // Shift-мультивыбор: переключить узел, снять весь выбор, групповые операции.
+  _toggleSelect(node) {
+    if (!this._nodeInfo(node)) return;   // не-узел (напр. «— без региона —»)
+    if (this.selection.has(node)) { this.selection.delete(node); node.classList.remove("multi-sel"); }
+    else { this.selection.add(node); node.classList.add("multi-sel"); }
+  }
+  _clearSelection() {
+    if (!this.selection.size) return;
+    this.selection.forEach(n => n.classList.remove("multi-sel"));
+    this.selection.clear();
+  }
+  // Меню для группы выбранных: «Переместить (N)» (только если все одного
+  // перемещаемого типа) и «Удалить (N)».
+  _openGroupMenu(x, y) {
+    this._closeContextMenu();
+    const infos = [...this.selection].map(n => this._nodeInfo(n)).filter(Boolean);
+    if (!infos.length) return;
+    const sameKind = new Set(infos.map(i => i.kind)).size === 1;
+    const items = [];
+    if (sameKind && this._movable(infos[0]))
+      items.push({ label: `Переместить (${infos.length})`, fn: () => this._moveMany(infos) });
+    items.push({ label: `Удалить (${infos.length})`, danger: true, fn: () => this._deleteMany(infos) });
+    const menu = mk("div", { className: "treectx" });
+    for (const it of items) {
+      const row = mk("div", { className: "tc-item" + (it.danger ? " danger" : ""), html: `<span>${it.label}</span>` });
+      row.addEventListener("click", e => { e.stopPropagation(); this._closeContextMenu(); it.fn(); });
+      menu.appendChild(row);
+    }
+    document.body.appendChild(menu);
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.max(4, Math.min(x, innerWidth - w - 8)) + "px";
+    menu.style.top = Math.max(4, Math.min(y, innerHeight - h - 8)) + "px";
+    this._ctxMenu = menu;
+  }
+  _deleteMany(infos) {
+    this.app.openModal(`Удалить объектов: ${infos.length}?`,
+      infos.map(i => i.name).join(", ") + " — и всё вложенное. Действие необратимо.", [],
+      async () => {
+        for (const info of infos) {
+          try { await api(this.API_PATH[info.kind] + info.id + "/", "DELETE"); }
+          catch (e) { setStatus("не удалить «" + info.name + "»: " + e.message, "err"); }
+        }
+        setStatus(`удалено объектов: ${infos.length}`, "ok");
+        if (state.scope && infos.some(i => i.kind === state.scope.type && i.id === state.scope.id))
+          state.scope = null;
+        this._clearSelection();
+        await this.reload();
+      }, "Удалить");
+  }
+  _moveMany(infos) {
+    const kind = infos[0].kind;
+    let field, opts;
+    if (kind === "site") {
+      field = "region";
+      opts = [{ value: "", label: "— без региона —" },
+        ...state.regions.map(r => ({ value: String(r.id), label: r.name }))];
+    } else if (kind === "location") {
+      field = "site";
+      opts = state.sites.map(s => ({ value: String(s.id), label: s.name }));
+    } else if (kind === "rack" || kind === "panel") {
+      field = "location";
+      opts = state.locations.map(l => ({ value: String(l.id),
+        label: (l.site ? l.site.name + " · " : "") + l.name }));
+    } else if (kind === "feed") {
+      field = "power_panel";
+      opts = state.powerPanels.map(p => ({ value: String(p.id), label: p.name }));
+    } else { setStatus("эти элементы нельзя перемещать", "err"); return; }
+    this.app.openModal(`Переместить объектов: ${infos.length}`, "Выбери нового родителя",
+      [{ id: "parent", label: "Куда", type: "select", options: opts }],
+      async v => {
+        for (const info of infos) {
+          const body = { [field]: v.parent ? +v.parent : null };
+          if ((info.kind === "rack" || info.kind === "panel") && v.parent) {
+            const loc = this._loc(+v.parent);
+            if (loc && loc.site) body.site = loc.site.id;
+          }
+          try { await api(this.API_PATH[info.kind] + info.id + "/", "PATCH", body); }
+          catch (e) { setStatus("не переместить «" + info.name + "»: " + e.message, "err"); }
+        }
+        setStatus(`перемещено объектов: ${infos.length}`, "ok");
+        this._clearSelection();
+        await this.reload();
+      }, "Переместить");
+  }
+
   // Выбор области / перезагрузка
   // Клик по любому уровню иерархии (регион / площадка / серверная) грузит
   // ТОЛЬКО его и потомков. state.scope = откуда загружена схема → показывается
@@ -575,7 +662,7 @@ export class TreeManager {
   _makeDraggable(el, type, id, name) {
     el._dragInfo = { type, id, name };
     el.addEventListener("mousedown", ev => {
-      if (ev.button !== 0) return;
+      if (ev.button !== 0 || ev.shiftKey) return;   // Shift — мультивыбор, не перенос
       this.hold.el = el;
       const x = ev.clientX, y = ev.clientY;
       this.hold.sx = x; this.hold.sy = y;   // старт — для порога смещения (drag по движению)
@@ -617,6 +704,18 @@ export class TreeManager {
     document.addEventListener("click", ev => {
       if (this.hold.dragged) { ev.stopPropagation(); ev.preventDefault(); this.hold.dragged = false; }
     }, true);
+    // Shift-мультивыбор: в capture-фазе перехватываем клик ДО навигационного
+    // обработчика узла (selectScope). Shift+клик — переключить выбор узла;
+    // обычный клик без Shift — снять мультивыбор (и дать навигации сработать).
+    document.addEventListener("click", ev => {
+      const node = ev.target.closest(TREE_NODE_SEL);
+      if (ev.shiftKey && node && $("#tree").contains(node)) {
+        ev.preventDefault(); ev.stopPropagation();
+        this._toggleSelect(node);
+      } else if (!ev.shiftKey) {
+        this._clearSelection();
+      }
+    }, true);
     // ПКМ по узлу дерева → контекстное меню. Делегирование на document, чтобы
     // переживать перестройку дерева (build чистит innerHTML). ПКМ по пустому
     // месту всего блока «Инфраструктура» (#side-infra) → корневое меню создания
@@ -627,7 +726,11 @@ export class TreeManager {
         const info = this._nodeInfo(el);
         if (!info) return;
         ev.preventDefault();
-        this._openContextMenu(info, ev.clientX, ev.clientY);
+        // ПКМ по одному из выбранных (мультивыбор ≥2) → групповое меню.
+        if (this.selection.size >= 2 && this.selection.has(el))
+          this._openGroupMenu(ev.clientX, ev.clientY);
+        else
+          this._openContextMenu(info, ev.clientX, ev.clientY);
       } else if (ev.target.closest("#side-infra")) {
         ev.preventDefault();
         this._openContextMenu({ kind: "root" }, ev.clientX, ev.clientY);

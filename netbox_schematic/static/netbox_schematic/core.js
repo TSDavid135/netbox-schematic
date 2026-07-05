@@ -61,6 +61,7 @@ export const COMPAT = {
   "dcim.consoleserverport": ["dcim.consoleport", "dcim.frontport", "dcim.rearport"],
   "dcim.powerport":   ["dcim.poweroutlet", "dcim.powerfeed"],
   "dcim.poweroutlet": ["dcim.powerport"],
+  "dcim.powerfeed":   ["dcim.powerport"],
 };
 
 // Типы кабеля

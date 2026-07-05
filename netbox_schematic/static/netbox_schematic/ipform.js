@@ -57,7 +57,7 @@ export class IpForm {
     this.pop.querySelector(".if-port").innerHTML =
       `<span class="if-iftype">${pn.type}</span>` +
       (labels ? ` · ${labels}` : "") +
-      (num ? ` <span class="c-portdot">${num}</span>` : "");
+      (num ? ` · <span class="c-portdot p-iface">${num}</span>` : "");
     this.pop.querySelector(".if-dev").textContent = dev.name;
     this.octs.forEach(o => o.value = "");
     this._setFree(null);
@@ -79,14 +79,30 @@ export class IpForm {
   _candidatePrefixes(dev, iface) {
     const all = state.prefixes || [];
     const siteId = dev.site && dev.site.id;
-    const auto = new Set();
+    const locId = dev.location && dev.location.id;
+    // Регион/группа устройства — через полный сайт из state (в dev.site их нет).
+    const fullSite = siteId && (state.sites || []).find(s => s.id === siteId);
+    const regionId = fullSite && fullSite.region && fullSite.region.id;
+    const groupId = fullSite && fullSite.group && fullSite.group.id;
     // VLAN интерфейса → префиксы этого VLAN.
     const vlanIds = new Set();
     if (iface.untagged_vlan) vlanIds.add(iface.untagged_vlan.id);
     for (const v of iface.tagged_vlans || []) vlanIds.add(v.id);
+    // Префикс привязан к области устройства через холст «Сети» (prefix.scope) —
+    // локация/сайт/регион/группа. Это и есть «влияние схемы СЕТИ» на выбор.
+    const scopeMatch = p => {
+      if (!p.scope_type || !p.scope_id) return false;
+      if (p.scope_type === "dcim.location") return p.scope_id === locId;
+      if (p.scope_type === "dcim.site") return p.scope_id === siteId;
+      if (p.scope_type === "dcim.region") return p.scope_id === regionId;
+      if (p.scope_type === "dcim.sitegroup") return p.scope_id === groupId;
+      return false;
+    };
+    const auto = new Set();
     for (const p of all) {
-      if (p.vlan && vlanIds.has(p.vlan.id)) auto.add(p.id);
-      else if (siteId && p.site && p.site.id === siteId) auto.add(p.id);
+      if ((p.vlan && vlanIds.has(p.vlan.id)) ||
+          (siteId && p.site && p.site.id === siteId) ||
+          scopeMatch(p)) auto.add(p.id);
     }
     const tagged = all.map(p => ({ ...p, _auto: auto.has(p.id) }));
     // Авто — вперёд, затем по префиксу.

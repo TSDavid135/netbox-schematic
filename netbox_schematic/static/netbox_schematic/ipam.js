@@ -296,8 +296,16 @@ export class IpamCanvas {
   }
 
   _focusPlace(node) {
+    // Заголовок холста показывает, какая область выбрана (Region/Site/группа/
+    // Location) — как «Стойки : …» / «Схема соединений : …» на Инфраструктуре.
+    this._setScopeTitle(node.name);
     const el = $(`.place[data-place="${node.id}"]`);
     if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
+  }
+
+  _setScopeTitle(name) {
+    const lbl = $("#ipam-main .pt-label");
+    if (lbl) lbl.textContent = "Схема адресного пространства" + (name ? " : " + name : "");
   }
 
   // детали сети справа
