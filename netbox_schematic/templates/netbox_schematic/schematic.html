@@ -7,10 +7,10 @@
 <title>NetBox Схематика — {{ canvas_title }}</title>
 <!-- Material Design Icons: тот же шрифт, что использует сам NetBox (локально, без CDN) -->
 <link rel="stylesheet" href="{% static 'netbox-external.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/theme.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/schematic.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/panels.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/ipam.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/theme.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/schematic.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/panels.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/ipam.css' %}">
 <script>
   // Применяем сохранённую тему до отрисовки, чтобы не мигало. Дефолт — тёмная.
   if (localStorage.getItem("schematic-theme") === "light")
@@ -150,6 +150,6 @@
   </div>
 </div></div>
 
-<script type="module" src="{% static 'netbox_schematic/main.js' %}"></script>
+<script type="module" src="{% static 'netbox_schematic/js/main.js' %}"></script>
 </body>
 </html>
