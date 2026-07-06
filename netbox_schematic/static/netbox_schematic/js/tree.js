@@ -17,9 +17,9 @@ const TREE_NODE_SEL = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-r
 // (и будущие устройства) живут в location → один уровень «location». Так выбор
 // не привязан к типу, но остаётся в пределах одного слоя иерархии.
 const NODE_LEVEL = {
-  region: "root", sitegroup: "root",
-  site: "region",
-  location: "site",
+  region: "region", sitegroup: "sitegroup",
+  site: "site",
+  location: "location",
   rack: "location", panel: "location",
   feed: "panel",
 };
@@ -30,84 +30,126 @@ export class TreeManager {
     this.dropTargets = [];
     this.hold = { delay: null, timer: null, raf: null, el: null, drag: null };
     this.selection = new Set();   // Shift-мультивыбор узлов дерева (см. _toggleSelect)
+    this.collapsed = new Set();   // id свёрнутых групп (переживает build/reload)
     this._wireGlobal();
   }
 
-  // DOM-построение
+  // DOM-построение. Единое дерево-ПАПКИ: группы мест (вложенные) → площадки →
+  // серверные → стойки/щиты. Region — НЕ уровень дерева (у SiteGroup нет региона),
+  // а метка на площадке. Площадки без группы — в секции «Без группы».
   build() {
     const nav = $("#tree");
     nav.innerHTML = "";
     this.dropTargets.length = 0;   // старые узлы удалены — сбрасываем таргеты
     this.selection.clear();        // старые DOM-узлы больше не валидны
-    this._addBtn(nav, "+ регион (город)", "", () => this._createRegion());
-
-    const groups = [
-      ...state.regions.map(r => ({ region: r, sites: state.sites.filter(s => s.region && s.region.id === r.id) })),
-      { region: null, sites: state.sites.filter(s => !s.region) },
-    ];
-    for (const g of groups) {
-      if (g.region === null && !g.sites.length) continue;
-      const rh = mk("div", {
-        className: "tree-region" + (g.region ? " clickable" : ""),
-        text: g.region ? g.region.name : "— без региона —",
-        dataset: g.region ? { region: g.region.id } : {},
-      });
-      // Клик по региону грузит ВСЕ стойки его площадок (см. selectScope).
-      if (g.region) rh.addEventListener("click", () => this.selectScope("region", g.region.id, g.region.name));
-      this._makeDropTarget(rh, "site", g.region ? g.region.id : null);
-      nav.appendChild(rh);
-      this._addBtn(nav, "+ площадка", "lvl1", () =>
-        this._createSite(g.region ? { id: g.region.id, name: g.region.name } : null));
-      for (const site of g.sites) this._buildSiteNode(nav, site);
-    }
-    this._buildSiteGroups(nav);
+    this._buildGroupsTree(nav);
+    this._buildUngrouped(nav);
   }
 
-  // Группы площадок (Site Group) — независимая от регионов ось
-  // Отдельная секция внизу дерева: группа → входящие в неё площадки. Клик по
-  // группе грузит все стойки её площадок (selectScope "sitegroup"); клик по
-  // площадке — саму площадку. Площадка может быть и в регионе, и в группе —
-  // как в самом NetBox (две независимые классификации).
-  _buildSiteGroups(nav) {
-    const groups = state.siteGroups || [];
-    if (!groups.length) return;
-    nav.appendChild(mk("div", { className: "tree-groups-head", text: "Группы мест" }));
-    for (const grp of groups) {
-      const gEl = mk("div", { className: "tree-sitegroup", text: grp.name, dataset: { sitegroup: grp.id } });
-      gEl.addEventListener("click", () => this.selectScope("sitegroup", grp.id, grp.name));
-      this._makeDropTarget(gEl, "site", grp.id, "group");   // перетащить площадку в группу
-      nav.appendChild(gEl);
-      this._addBtn(nav, "+ площадка", "lvl2", () => this._createSiteInGroup(grp));
-      const grpSites = state.sites.filter(s => s.group && s.group.id === grp.id);
-      for (const site of grpSites) {
-        const sEl = mk("div", { className: "tree-site sg-member",
-          text: site.name, dataset: { site: site.id, sitegroup: grp.id } });
-        sEl.addEventListener("click", () => this.selectScope("site", site.id, site.name));
-        this._makeDraggable(sEl, "site", site.id, site.name);
-        nav.appendChild(sEl);
-      }
-      if (!grpSites.length)
-        nav.appendChild(mk("div", { className: "tree-empty", text: "нет площадок" }));
+  // Дерево групп мест (Site Group — вложенная модель по parent). Заголовок —
+  // ещё и drop-таргет «в корень» (вынести группу из вложенности).
+  _buildGroupsTree(nav) {
+    const head = mk("div", { className: "tree-groups-head", text: "Группы мест" });
+    this._makeDropTarget(head, "sitegroup", null, "parent");
+    nav.appendChild(head);
+    this._addBtn(nav, "+ группа мест", "", () => this._createSiteGroup(null));
+    const childrenOf = {};
+    for (const g of (state.siteGroups || [])) {
+      const pid = (g.parent && g.parent.id) ?? "root";
+      (childrenOf[pid] = childrenOf[pid] || []).push(g);
     }
+    for (const g of (childrenOf.root || [])) this._buildGroupNode(nav, g, childrenOf, 0);
+  }
+  // Площадки без группы (group=null) — отдельная секция; заголовок принимает
+  // площадку → снять группу (group:null).
+  _buildUngrouped(nav) {
+    const orphans = state.sites.filter(s => !s.group);
+    if (!orphans.length) return;
+    const head = mk("div", { className: "tree-groups-head", text: "Без группы" });
+    this._makeDropTarget(head, "site", null, "group");
+    nav.appendChild(head);
+    this._addBtn(nav, "+ площадка", "", () => this._createSite(null));
+    for (const site of orphans) this._buildSiteNode(nav, site, 30);
+  }
+  // Один узел группы (📁) + её подгруппы (рекурсивно) и площадки (раскрытые).
+  // depth — вложенность (отступ). Группа: клик = scope, draggable (перенос в
+  // другую группу/корень), drop-таргет для площадки (→ group) и подгруппы (→ parent).
+  _buildGroupNode(nav, grp, childrenOf, depth) {
+    const pad = 14 + depth * 16;
+    const collapsed = this.collapsed.has(grp.id);
+    // Стрелка — ОТДЕЛЬНАЯ кнопка (свернуть/развернуть). Клик по самой группе —
+    // построить схему (selectScope), не трогая свёрнутость. Глифы иконок не идут
+    // в textContent → _nodeInfo читает имя группы корректно.
+    const gEl = mk("div", { className: "tree-sitegroup" + (collapsed ? " collapsed" : ""),
+      dataset: { sitegroup: grp.id }, style: { paddingLeft: pad + "px" },
+      html: `<button class="tree-chevron" tabindex="-1" title="Свернуть / развернуть">` +
+        `<i class="mdi mdi-chevron-${collapsed ? "right" : "down"}"></i></button>` +
+        `<i class="mdi mdi-folder-outline tree-ic"></i>${grp.name}` });
+    gEl.querySelector(".tree-chevron").addEventListener("click", e => {
+      e.stopPropagation(); this._toggleCollapse(grp.id);
+    });
+    gEl.addEventListener("click", () => this.selectScope("sitegroup", grp.id, grp.name));
+    this._makeDraggable(gEl, "sitegroup", grp.id, grp.name);
+    this._makeDropTarget(gEl, "site", grp.id, "group");       // площадку → в эту группу
+    this._makeDropTarget(gEl, "sitegroup", grp.id, "parent"); // подгруппу → в эту группу
+    nav.appendChild(gEl);
+    if (collapsed) return;   // свёрнута — потомков и «+» не рисуем
+    this._addBtnAt(nav, "+ подгруппа", pad + 20, () => this._createSiteGroup({ id: grp.id, name: grp.name }));
+    this._addBtnAt(nav, "+ площадка", pad + 20, () => this._createSiteInGroup(grp));
+    // ПАПКИ (подгруппы) — сверху, затем площадки этой группы (раскрытые).
+    for (const sub of (childrenOf[grp.id] || [])) this._buildGroupNode(nav, sub, childrenOf, depth + 1);
+    for (const site of state.sites.filter(s => s.group && s.group.id === grp.id))
+      this._buildSiteNode(nav, site, pad + 18);
+  }
+  // Свернуть/развернуть группу: перестроить дерево (свёрнутые не рендерят детей)
+  // и восстановить подсветку текущей области (build её сбрасывает).
+  _toggleCollapse(id) {
+    if (this.collapsed.has(id)) this.collapsed.delete(id); else this.collapsed.add(id);
+    this.build();
+    if (state.scope) this._highlightScope(state.scope.type, state.scope.id);
+  }
+  // id группы + все её подгруппы (рекурсивно) — для сбора площадок всей ветви
+  // и для запрета вложить группу саму в себя/потомка.
+  _descendantGroupIds(rootId) {
+    const childrenOf = {};
+    for (const g of (state.siteGroups || [])) {
+      const pid = g.parent && g.parent.id;
+      (childrenOf[pid] = childrenOf[pid] || []).push(g.id);
+    }
+    const out = new Set(), stack = [Number(rootId)];
+    while (stack.length) {
+      const gid = stack.pop();
+      if (out.has(gid)) continue;
+      out.add(gid);
+      for (const c of (childrenOf[gid] || [])) stack.push(c);
+    }
+    return out;
   }
 
-  _buildSiteNode(nav, site) {
-    const s = mk("div", { className: "tree-site", text: site.name, dataset: { site: site.id } });
+  // Узел площадки (🗺) + серверные (📍) + стойки/щиты. sitePad — левый отступ
+  // площадки (под группой глубже; в «Без группы» = 30). Имя — в data-name
+  // (на будущее, если рядом появятся не-текстовые элементы). Region не показываем.
+  _buildSiteNode(nav, site, sitePad = 30) {
+    const shift = sitePad - 30;
+    // Region в дереве не показываем (не уровень иерархии). Имя — в data-name.
+    const s = mk("div", { className: "tree-site", dataset: { site: site.id, name: site.name },
+      style: { paddingLeft: sitePad + "px" },
+      html: `<i class="mdi mdi-map-outline tree-ic"></i>${site.name}` });
     // Клик по площадке грузит все стойки её серверных (см. selectScope).
     s.addEventListener("click", () => this.selectScope("site", site.id, site.name));
     this._makeDraggable(s, "site", site.id, site.name);
     this._makeDropTarget(s, "location", site.id);
     nav.appendChild(s);
-    this._addBtn(nav, "+ серверная", "lvl2", () =>
+    this._addBtnAt(nav, "+ серверная", 48 + shift, () =>
       this._createLocation({ id: site.id, name: site.name }));
     const siteLocs = state.locations.filter(l => l.site && l.site.id === site.id);
     for (const loc of siteLocs) {
       const inGroup = state.racks.filter(r =>
         r.site.id === site.id && r.location && r.location.id === loc.id);
       const lb = mk("button", {
-        className: "tree-loc",
-        text: loc.name + (inGroup.length ? "" : " (пусто)"),
-        dataset: { loc: loc.id, site: site.id },
+        className: "tree-loc", dataset: { loc: loc.id, site: site.id },
+        style: { paddingLeft: (48 + shift) + "px" },
+        html: `<i class="mdi mdi-map-marker tree-ic"></i>${loc.name}${inGroup.length ? "" : " (пусто)"}`,
       });
       // Серверная всегда кликабельна (грузит свои стойки; пустая — пустую схему).
       lb.addEventListener("click", () => this.selectScope("location", loc.id, loc.name));
@@ -115,31 +157,33 @@ export class TreeManager {
       this._makeDropTarget(lb, "rack", loc.id);
       this._makeDropTarget(lb, "panel", loc.id);   // сюда можно бросить щиток
       nav.appendChild(lb);
-      this._addBtn(nav, "+ стойка", "lvl3", () =>
+      this._addBtnAt(nav, "+ стойка", 66 + shift, () =>
         this._createRack({ id: site.id, name: site.name }, { id: loc.id, name: loc.name }));
       for (const rack of inGroup) {
         const rb = mk("button", {
           className: "tree-rack", text: rack.name,
           dataset: { rack: rack.id, loc: loc.id, site: site.id },
+          style: { paddingLeft: (66 + shift) + "px" },
         });
         rb.addEventListener("click", () => this.selectScope("location", loc.id, loc.name, rack.id));
         this._makeDraggable(rb, "rack", rack.id, rack.name);
         nav.appendChild(rb);
       }
-      this._buildPowerNodes(nav, site, loc, inGroup);
+      this._buildPowerNodes(nav, site, loc, inGroup, shift);
     }
   }
 
   // Силовые щиты (Power Panel) серверной и их фидеры (Power Feed). Panel
   // привязан к Location, Feed — к Panel (+ опц. к стойке этой серверной).
   // Питание рисуется НЕ юнитом стойки, а отдельной ветвью дерева (сбоку).
-  _buildPowerNodes(nav, site, loc, racksInLoc) {
-    this._addBtn(nav, "+ силовой щит", "lvl3", () =>
+  _buildPowerNodes(nav, site, loc, racksInLoc, shift = 0) {
+    this._addBtnAt(nav, "+ силовой щит", 66 + shift, () =>
       this._createPanel({ id: site.id, name: site.name }, { id: loc.id, name: loc.name }));
     const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === loc.id);
     for (const panel of panels) {
       const pEl = mk("div", {
         className: "tree-panel", text: panel.name, dataset: { panel: panel.id, loc: loc.id, site: site.id },
+        style: { paddingLeft: (66 + shift) + "px" },
       });
       // Клик по щитку — его паспорт справа (не грузит схему заново). Перенос и
       // Shift-мультивыбор работают как у стоек (_makeDraggable + capture-хендлер).
@@ -147,11 +191,12 @@ export class TreeManager {
       this._makeDraggable(pEl, "panel", panel.id, panel.name);   // щиток можно перетаскивать
       this._makeDropTarget(pEl, "feed", panel.id);               // сюда можно бросить фидер
       nav.appendChild(pEl);
-      this._addBtn(nav, "+ фидер", "lvl4", () => this._createFeed(panel));
+      this._addBtnAt(nav, "+ фидер", 84 + shift, () => this._createFeed(panel));
       const feeds = (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === panel.id);
       for (const feed of feeds) {
         const fEl = mk("div", {
           className: "tree-feed", text: feed.name, dataset: { feed: feed.id, panel: panel.id },
+          style: { paddingLeft: (84 + shift) + "px" },
         });
         // Клик по фидеру — паспорт его щита (там кнопки правки/удаления фидера).
         fEl.addEventListener("click", () => this.app.device.showPanel(panel));
@@ -162,6 +207,12 @@ export class TreeManager {
   }
   _addBtn(nav, text, lvl, fn) {
     nav.appendChild(mk("button", { className: "tree-add " + lvl, text, on: { click: fn } }));
+  }
+  // Кнопка «+» с ПРОИЗВОЛЬНЫМ левым отступом (для вложенных групп/площадок).
+  _addBtnAt(nav, text, leftPx, fn) {
+    nav.appendChild(mk("button", { className: "tree-add", text,
+      style: { marginLeft: leftPx + "px", width: `calc(100% - ${leftPx + 12}px)` },
+      on: { click: fn } }));
   }
 
   // Создание сущностей (общие модалки для кнопок «+» и ПКМ-меню)
@@ -196,12 +247,13 @@ export class TreeManager {
         await this.reload();
       });
   }
-  _createSiteGroup(region) {   // группа площадок — отдельная иерархия (Site Group)
-    this.app.openModal("Новая группа площадок", region ? "В регионе: " + region.name : "",
+  _createSiteGroup(parent) {   // parent: {id,name} род. ГРУППА (вложенность) или null (корень)
+    this.app.openModal("Новая группа мест", parent ? "Внутри группы: " + parent.name : "",
       [{ id: "name", label: "Название", placeholder: "Группа ЦОД" }],
       async v => {
-        await api("/dcim/site-groups/", "POST", { name: v.name, slug: slugify(v.name) });
-        setStatus("группа площадок создана: " + v.name, "ok");
+        await api("/dcim/site-groups/", "POST",
+          { name: v.name, slug: slugify(v.name), ...(parent ? { parent: parent.id } : {}) });
+        setStatus("группа мест создана: " + v.name, "ok");
         await this.reload();
       });
   }
@@ -319,7 +371,7 @@ export class TreeManager {
     const d = el.dataset;
     if (el.classList.contains("tree-rack")) return { kind: "rack", id: +d.rack, name: el.textContent.trim(), site: +d.site, loc: +d.loc };
     if (el.classList.contains("tree-loc")) return { kind: "location", id: +d.loc, name: el.textContent.replace(/\s*\(пусто\)\s*$/, "").trim(), site: +d.site };
-    if (el.classList.contains("tree-site")) return { kind: "site", id: +d.site, name: el.textContent.trim() };
+    if (el.classList.contains("tree-site")) return { kind: "site", id: +d.site, name: d.name || el.textContent.trim() };
     if (el.classList.contains("tree-sitegroup")) return { kind: "sitegroup", id: +d.sitegroup, name: el.textContent.trim() };
     if (el.classList.contains("tree-region")) return d.region ? { kind: "region", id: +d.region, name: el.textContent.trim() } : null;
     if (el.classList.contains("tree-panel")) return { kind: "panel", id: +d.panel, name: el.textContent.trim() };
@@ -333,15 +385,19 @@ export class TreeManager {
   _addOptions(info) {
     switch (info.kind) {
       case "root": return [
-        ["Регион", () => this._createRegion()],
         ["Группа мест", () => this._createSiteGroup(null)],
-        ["Место", () => this._createSite(null)]];
+        ["Место (без группы)", () => this._createSite(null)]];
       case "region": return [
         ["Место", () => this._createSite({ id: info.id, name: info.name })],
-        ["Группа мест", () => this._createSiteGroup({ id: info.id, name: info.name })]];
+        // Группа мест — независимая от региона ось (parent группы = ГРУППА, не
+        // регион), поэтому создаём корневую группу.
+        ["Группа мест", () => this._createSiteGroup(null)]];
       case "sitegroup": {
         const grp = (state.siteGroups || []).find(g => g.id === info.id);
-        return grp ? [["Место", () => this._createSiteInGroup(grp)]] : [];
+        return grp ? [
+          ["Место", () => this._createSiteInGroup(grp)],
+          ["Подгруппа мест", () => this._createSiteGroup({ id: info.id, name: info.name })],
+        ] : [];
       }
       case "site": return [
         ["Локация", () => this._createLocation(this._site(info.id))]];
@@ -356,7 +412,7 @@ export class TreeManager {
     }
   }
   _movable(info) {
-    return ["site", "location", "rack", "panel", "feed"].includes(info.kind);
+    return ["sitegroup", "site", "location", "rack", "panel", "feed"].includes(info.kind);
   }
 
   _openContextMenu(info, x, y) {
@@ -425,11 +481,20 @@ export class TreeManager {
   }
   _move(info) {
     let field, opts, curr;
-    if (info.kind === "site") {
-      field = "region"; curr = "";
-      const site = this._site(info.id); curr = site.region ? String(site.region.id) : "";
-      opts = [{ value: "", label: "— без региона —" },
-        ...state.regions.map(r => ({ value: String(r.id), label: r.name }))];
+    if (info.kind === "sitegroup") {
+      field = "parent";
+      const grp = (state.siteGroups || []).find(g => g.id === info.id);
+      curr = grp && grp.parent ? String(grp.parent.id) : "";
+      const banned = this._descendantGroupIds(info.id);   // себя и потомков — нельзя
+      opts = [{ value: "", label: "— корень (без группы) —" },
+        ...(state.siteGroups || []).filter(g => !banned.has(g.id))
+          .map(g => ({ value: String(g.id), label: g.name }))];
+    } else if (info.kind === "site") {
+      // Площадка живёт в дереве под ГРУППОЙ мест → перемещаем между группами.
+      field = "group";
+      const site = this._site(info.id); curr = site.group ? String(site.group.id) : "";
+      opts = [{ value: "", label: "— без группы —" },
+        ...(state.siteGroups || []).map(g => ({ value: String(g.id), label: g.name }))];
     } else if (info.kind === "location") {
       field = "site";
       const loc = this._loc(info.id); curr = loc.site ? String(loc.site.id) : "";
@@ -451,6 +516,7 @@ export class TreeManager {
     this.app.openModal("Переместить «" + info.name + "»", "Выбери нового родителя",
       [{ id: "parent", label: "Куда", type: "select", options: opts, value: curr }],
       async v => {
+        if (this._cycleGuard(info.kind, info.id, v.parent ? +v.parent : null)) return;
         const body = { [field]: v.parent ? +v.parent : null };
         // Стойка/щиток меняют и площадку вслед за серверной.
         if ((info.kind === "rack" || info.kind === "panel") && v.parent) {
@@ -546,10 +612,14 @@ export class TreeManager {
   _moveMany(infos) {
     const kind = infos[0].kind;
     let field, opts;
-    if (kind === "site") {
-      field = "region";
-      opts = [{ value: "", label: "— без региона —" },
-        ...state.regions.map(r => ({ value: String(r.id), label: r.name }))];
+    if (kind === "sitegroup") {
+      field = "parent";
+      opts = [{ value: "", label: "— корень (без группы) —" },
+        ...(state.siteGroups || []).map(g => ({ value: String(g.id), label: g.name }))];
+    } else if (kind === "site") {
+      field = "group";
+      opts = [{ value: "", label: "— без группы —" },
+        ...(state.siteGroups || []).map(g => ({ value: String(g.id), label: g.name }))];
     } else if (kind === "location") {
       field = "site";
       opts = state.sites.map(s => ({ value: String(s.id), label: s.name }));
@@ -565,6 +635,7 @@ export class TreeManager {
       [{ id: "parent", label: "Куда", type: "select", options: opts }],
       async v => {
         for (const info of infos) {
+          if (this._cycleGuard(info.kind, info.id, v.parent ? +v.parent : null)) continue;
           const body = { [field]: v.parent ? +v.parent : null };
           if ((info.kind === "rack" || info.kind === "panel") && v.parent) {
             const loc = this._loc(+v.parent);
@@ -612,8 +683,10 @@ export class TreeManager {
         .filter(x => x.region && String(x.region.id) === s).map(x => x.id));
       racks = state.racks.filter(r => r.site && siteIds.has(r.site.id));
     } else if (type === "sitegroup") {
+      // рекурсивно: площадки самой группы + всех её подгрупп.
+      const gids = this._descendantGroupIds(id);
       const siteIds = new Set(state.sites
-        .filter(x => x.group && String(x.group.id) === s).map(x => x.id));
+        .filter(x => x.group && gids.has(x.group.id)).map(x => x.id));
       racks = state.racks.filter(r => r.site && siteIds.has(r.site.id));
     } else return [];
     const key = r => [
@@ -643,9 +716,15 @@ export class TreeManager {
       siteIds.add(s);
       state.locations.filter(l => l.site && String(l.site.id) === s)
         .forEach(l => locIds.add(String(l.id)));
-    } else if (type === "region" || type === "sitegroup") {
-      const parent = type === "region" ? "region" : "group";
-      state.sites.filter(x => x[parent] && String(x[parent].id) === s)
+    } else if (type === "region") {
+      state.sites.filter(x => x.region && String(x.region.id) === s)
+        .forEach(x => siteIds.add(String(x.id)));
+      state.locations.filter(l => l.site && siteIds.has(String(l.site.id)))
+        .forEach(l => locIds.add(String(l.id)));
+    } else if (type === "sitegroup") {
+      // рекурсивно по подгруппам (как в _racksFor).
+      const gids = this._descendantGroupIds(s);
+      state.sites.filter(x => x.group && gids.has(x.group.id))
         .forEach(x => siteIds.add(String(x.id)));
       state.locations.filter(l => l.site && siteIds.has(String(l.site.id)))
         .forEach(l => locIds.add(String(l.id)));
@@ -845,6 +924,9 @@ export class TreeManager {
   // Путь+тело PATCH для переноса узла type/id под нового родителя parentId.
   // Общее для одиночного (_applyMove) и группового (_applyMoveMany) переноса.
   _moveBody(type, id, parentId, field) {
+    if (type === "sitegroup")
+      return { path: "/dcim/site-groups/" + id + "/", body: { parent: parentId },
+        where: parentId ? "группу" : "корень" };
     if (type === "site")
       return field === "group"
         ? { path: "/dcim/sites/" + id + "/", body: { group: parentId }, where: "группу мест" }
@@ -860,7 +942,17 @@ export class TreeManager {
       return { path: "/dcim/power-feeds/" + id + "/", body: { power_panel: parentId }, where: "щит" };
     return null;
   }
+  // Нельзя вложить группу в саму себя/свою подгруппу (цикл).
+  _cycleGuard(type, id, parentId) {
+    if (type !== "sitegroup" || parentId == null) return false;
+    if (this._descendantGroupIds(id).has(Number(parentId))) {
+      setStatus("нельзя вложить группу в саму себя или свою подгруппу", "err");
+      return true;
+    }
+    return false;
+  }
   async _applyMove(drag, type, parentId, field) {
+    if (this._cycleGuard(type, drag.id, parentId)) return;
     const m = this._moveBody(type, drag.id, parentId, field);
     if (!m) return;
     try {
@@ -878,6 +970,7 @@ export class TreeManager {
     if (!infos.length) return;
     let ok = 0;
     for (const info of infos) {
+      if (this._cycleGuard(info.kind, info.id, tgt.parentId)) continue;
       const m = this._moveBody(info.kind, info.id, tgt.parentId, tgt.field);
       if (!m) continue;
       try { await api(m.path, "PATCH", m.body); ok++; }

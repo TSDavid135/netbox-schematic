@@ -211,6 +211,17 @@
   .tree-region.clickable:hover { color: var(--text); }
   .tree-site { padding: 6px 14px 2px 30px; font-weight: 600; cursor: pointer; border-radius: 4px; }
   .tree-site:hover { background: var(--panel-2); }
+  /* Иконки уровней дерева: 📁 группа, 🗺 площадка, 📍 серверная (глиф не влияет
+     на textContent → _nodeInfo читает имя корректно). */
+  .tree-ic { margin-right: 6px; font-size: 13px; vertical-align: -1px; color: var(--muted); }
+  .tree-sitegroup .tree-ic { color: var(--power); }
+  .tree-site .tree-ic { color: var(--accent); }
+  /* Стрелка сворачивания группы — отдельная кнопка (клик по ней не грузит схему). */
+  .tree-chevron {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 0; margin-right: 2px; font-size: 14px; line-height: 1; vertical-align: -2px;
+  }
+  .tree-chevron:hover { color: var(--text); }
   /* Группы мест (Site Group) — независимая секция внизу дерева */
   .tree-groups-head {
     padding: 10px 14px 3px; margin-top: 8px; border-top: 1px solid var(--line);
@@ -301,7 +312,8 @@
   .dragging { opacity: 0.45; font-weight: 600; }
   .drag-fade { opacity: 0.28; pointer-events: none; }   /* невалидная цель — тускло и не мешает */
   .drag-ok { opacity: 1; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-  .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok, .tree-panel.drop-ok {
+  .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok,
+  .tree-panel.drop-ok, .tree-groups-head.drop-ok {
     background: rgba(79,195,232,0.18); box-shadow: inset 3px 0 0 var(--accent);
     border-radius: 4px; color: var(--accent); font-weight: 600; opacity: 1;
   }
@@ -793,7 +805,17 @@
   #tip .t-mut { color: var(--muted); font-size: 11px; margin-top: 3px; }
 
   /* детали: чипы */
+  /* Заголовок паспорта: относительный контейнер под переключатель режима
+     (data-mode=detail, .ms-corner в правом верхнем углу) + место справа. */
+  #detail .detail-head { position: relative; padding-right: 76px; margin-bottom: 12px; }
   #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); }
+  #detail .detail-head .sub { margin-bottom: 0; }
+  /* Карандаш у названия щита — переименовать. */
+  #detail .head-edit {
+    margin-left: 6px; padding: 0 5px; border: none; background: none;
+    color: var(--muted); cursor: pointer; font-size: 13px; vertical-align: middle;
+  }
+  #detail .head-edit:hover { color: var(--accent); }
   #detail .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
   #detail h4 {
     margin: 16px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;

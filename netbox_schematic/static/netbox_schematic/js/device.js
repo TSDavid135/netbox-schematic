@@ -1,7 +1,7 @@
 "use strict";
 // DeviceManager: паспорт устройства + модалка создания
 
-import { $, state, mk } from "./core.js";
+import { $, state, mk, modeBtn } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
 
@@ -58,11 +58,21 @@ export function ifacePortNum(name) {
 export class DeviceManager {
   constructor(app) {
     this.app = app;
-    this.current = null;   // последнее показанное устройство (для перерисовки)
-    // Смена режима схемы (view↔edit) — перерисовать паспорт, чтобы появились/
-    // исчезли кнопки +IP.
-    Mode.onChange("schema", () => { if (this.current) this.show(this.current); });
+    this.current = null;        // последнее показанное устройство (для перерисовки)
+    this.currentPanel = null;   // …или показанный силовой щит
+    // Смена режима (схемы ИЛИ собственного режима блока деталей) — перерисовать
+    // открытый паспорт, чтобы появились/исчезли кнопки правки (+IP, ✎ фидера,
+    // карандаш щита). Режим "detail" — переключатель прямо в блоке деталей.
+    const rerender = () => {
+      if (this.current) this.show(this.current);
+      else if (this.currentPanel) this.showPanel(this.currentPanel);
+    };
+    Mode.onChange("schema", rerender);
+    Mode.onChange("detail", rerender);
   }
+  // Правка в блоке деталей доступна, если включён режим схемы ИЛИ собственный
+  // режим блока деталей (переключатель в его заголовке).
+  _editable() { return Mode.on("detail") || Mode.on("schema"); }
 
   // Универсальная модалка: title, подпись where, поля, обработчик onSubmit.
   openModal(title, where, fields, onSubmit, okLabel = "Создать") {
@@ -105,12 +115,17 @@ export class DeviceManager {
     });
   }
 
+  // Заголовок паспорта с переключателем режима блока деталей (data-mode=detail).
+  _detailHead(title, sub) {
+    return `<div class="detail-head">${modeBtn("detail", "compact ms-corner")}` +
+      `<h2>${title}</h2><div class="sub">${sub}</div></div>`;
+  }
   async show(dev) {
     this.current = dev;
+    this.currentPanel = null;
     const panel = $("#detail");
-    panel.innerHTML = `<h2>${dev.name}</h2>
-      <div class="sub">${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}</div>
-      <div class="placeholder">загружаю…</div>`;
+    const sub = `${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}`;
+    panel.innerHTML = this._detailHead(dev.name, sub) + `<div class="placeholder">загружаю…</div>`;
     const ips = await apiAll("/ipam/ip-addresses/?device_id=" + dev.id);
     const ipByIface = {};
     ips.forEach(ip => {
@@ -118,9 +133,9 @@ export class DeviceManager {
       if (!ipByIface[k]) ipByIface[k] = [];
       ipByIface[k].push(ip.address);
     });
-    panel.innerHTML = `<h2>${dev.name}</h2>
-      <div class="sub">${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}</div>`;
-    const edit = Mode.on("schema");
+    panel.innerHTML = this._detailHead(dev.name, sub);
+    Mode.syncButtons("detail");
+    const edit = this._editable();
     // В правке: подтянуть недостающие компоненты из шаблонов device type
     // (напр. после смены типа устройства — NetBox их сам не пересоздаёт).
     if (edit) {
@@ -177,17 +192,25 @@ export class DeviceManager {
   // попытается перерисовать его как device через show()).
   showPanel(panel) {
     this.current = null;
+    this.currentPanel = panel;
     const el = $("#detail");
     const feeds = (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === panel.id);
     const loc = panel.location ? panel.location.name : "—";
-    el.innerHTML = `<h2>${panel.name}</h2>
-      <div class="sub">силовой щит · ${loc} · ${feeds.length} фид.</div>`;
+    const edit = this._editable();
+    el.innerHTML = this._detailHead(panel.name, `силовой щит · ${loc} · ${feeds.length} фид.`);
+    Mode.syncButtons("detail");
+    // Карандаш у названия щита (в правке) — переименовать сам щит.
+    if (edit) {
+      const pen = mk("button", { className: "head-edit", title: "Изменить щит",
+        html: `<i class="mdi mdi-pencil"></i>`,
+        on: { click: () => this._editPanel(panel) } });
+      el.querySelector(".detail-head h2").appendChild(pen);
+    }
     el.appendChild(mk("h4", { text: "Фидеры (" + feeds.length + ")" }));
     if (!feeds.length) {
       el.appendChild(mk("div", { className: "placeholder", text: "фидеров нет — добавь в режиме стройки" }));
       return;
     }
-    const edit = Mode.on("schema");
     for (const f of feeds) {
       const va = f.amperage ? `${f.voltage || "?"} В / ${f.amperage} А` : "";
       const rack = f.rack ? (f.rack.display || f.rack.name) : "—";
@@ -209,6 +232,19 @@ export class DeviceManager {
       }
       el.appendChild(row);
     }
+  }
+  // Переименовать силовой щит (карандаш в паспорте). После reload берём свежий
+  // объект щита и перепоказываем паспорт.
+  _editPanel(panel) {
+    this.app.openModal("Изменить щит", "Текущее: " + panel.name,
+      [{ id: "name", label: "Название щита", value: panel.name }],
+      async v => {
+        if (!v.name) throw new Error("пустое название");
+        await api("/dcim/power-panels/" + panel.id + "/", "PATCH", { name: v.name });
+        setStatus("щит переименован: " + v.name, "ok");
+        await this.app.tree.reload();
+        this.showPanel((state.powerPanels || []).find(p => p.id === panel.id) || panel);
+      }, "Сохранить");
   }
 
   // Привести компоненты устройства к его device type. NetBox инстанцирует порты
