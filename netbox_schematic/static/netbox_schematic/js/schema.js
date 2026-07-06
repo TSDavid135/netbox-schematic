@@ -66,7 +66,7 @@ export class SchemaManager {
         <div class="st-topbar">
           <div id="viewswitch" title="Режим отображения схемы" data-view="${state.viewMode}">
             <button class="vs-btn" data-view="phys"><i class="mdi mdi-lan"></i> Физический</button>
-            <button class="vs-btn" data-view="net"><i class="mdi mdi-access-point-network"></i> Сетевой</button>
+            <button class="vs-btn" data-view="net"><i class="mdi mdi-access-point-network"></i> Беспроводной</button>
           </div>
         </div>
         <div class="st-squares">
@@ -258,9 +258,12 @@ export class SchemaManager {
     pane.scrollTop = (canvas.offsetHeight - pane.clientHeight) / 2;
   }
 
+  // «Сетевой» (в терминах вида) = ТОЛЬКО радио → показывается на «Беспроводном»
+  // виде. Circuit-порты (выход к провайдеру) теперь ФИЗИЧЕСКИЕ: видны на
+  // «Физическом» виде облачком, а не скрыты (см. _placeDot: isCircuit → cloud).
   _isNetPort(otype, item) {
     if (otype !== "dcim.interface") return false;
-    return this._isWirelessItem(item) || this._isCircuitItem(item);
+    return this._isWirelessItem(item);
   }
   // wireless-интерфейс (радио-тип или есть wireless_link)
   _isWirelessItem(item) {
@@ -361,11 +364,11 @@ export class SchemaManager {
     if (hint) hint.textContent = "масштаб " + Math.round(state.zoom * 100) + "% · колесо = масштаб";
   }
 
-  // переключатель вида физика/сеть
-  // Сетевой режим показывает ТОЛЬКО сетевые порты (wireless+circuit), заменяя
-  // ими группы узла; физический — только физические. Перекладка портов и
-  // ширины узла — в _layoutNode/relayoutNodes; невидимые порты не создаются в
-  // DOM, поэтому кабели к ним просто не рисуются (redrawWires их пропускает).
+  // переключатель вида физика/беспроводной
+  // «Беспроводной» вид показывает ТОЛЬКО радио-порты, заменяя ими группы узла;
+  // «Физический» — физические (включая circuit-выходы облачком). Перекладка
+  // портов и ширины узла — в _layoutNode/relayoutNodes; невидимые порты не
+  // создаются в DOM, поэтому кабели к ним просто не рисуются (redrawWires).
   _wireViewSwitch() {
     const sw = $("#viewswitch");
     if (!sw) return;

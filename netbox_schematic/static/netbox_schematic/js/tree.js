@@ -12,6 +12,17 @@ const HOLD_MS = 380;                 // время заполнения коль
 const RING_LEN = 2 * Math.PI * 13;   // длина окружности r=13 (см. CSS/SVG)
 // Все узлы дерева (для затемнения невалидных целей при переносе).
 const TREE_NODE_SEL = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-rack,.tree-panel,.tree-feed";
+// «Уровень» узла для Shift-мультивыбора = его РОДИТЕЛЬСКИЙ контейнер, а НЕ тип.
+// Узлы одного уровня выбираются/перемещаются/удаляются вместе: стойки и щитки
+// (и будущие устройства) живут в location → один уровень «location». Так выбор
+// не привязан к типу, но остаётся в пределах одного слоя иерархии.
+const NODE_LEVEL = {
+  region: "root", sitegroup: "root",
+  site: "region",
+  location: "site",
+  rack: "location", panel: "location",
+  feed: "panel",
+};
 
 export class TreeManager {
   constructor(app) {
@@ -130,6 +141,9 @@ export class TreeManager {
       const pEl = mk("div", {
         className: "tree-panel", text: panel.name, dataset: { panel: panel.id, loc: loc.id, site: site.id },
       });
+      // Клик по щитку — его паспорт справа (не грузит схему заново). Перенос и
+      // Shift-мультивыбор работают как у стоек (_makeDraggable + capture-хендлер).
+      pEl.addEventListener("click", () => this.app.device.showPanel(panel));
       this._makeDraggable(pEl, "panel", panel.id, panel.name);   // щиток можно перетаскивать
       this._makeDropTarget(pEl, "feed", panel.id);               // сюда можно бросить фидер
       nav.appendChild(pEl);
@@ -139,6 +153,8 @@ export class TreeManager {
         const fEl = mk("div", {
           className: "tree-feed", text: feed.name, dataset: { feed: feed.id, panel: panel.id },
         });
+        // Клик по фидеру — паспорт его щита (там кнопки правки/удаления фидера).
+        fEl.addEventListener("click", () => this.app.device.showPanel(panel));
         this._makeDraggable(fEl, "feed", feed.id, feed.name);    // фидер можно перетаскивать
         nav.appendChild(fEl);
       }
@@ -251,6 +267,43 @@ export class TreeManager {
         await this.reload();
       });
   }
+  // Изменить фидер: форма со ВСЕМИ полями (имя, стойка «куда идёт», напряжение,
+  // ток, фазность), предзаполненная текущими значениями → PATCH. Пустая стойка
+  // → rack:null (снять привязку, если выбрали не ту). Стойки — из той же
+  // серверной, что и щит (как при создании).
+  _editFeed(info) {
+    const feed = (state.powerFeeds || []).find(f => f.id === info.id);
+    if (!feed) { setStatus("фидер не найден — обнови", "err"); return; }
+    const panel = (state.powerPanels || []).find(p => p.id === (feed.power_panel && feed.power_panel.id));
+    const locId = panel && panel.location && panel.location.id;
+    const racksInLoc = (state.racks || []).filter(r => r.location && r.location.id === locId);
+    const rackOpts = [{ value: "", label: "— без стойки —" },
+      ...racksInLoc.map(r => ({ value: String(r.id), label: r.name }))];
+    const curRack = feed.rack ? String(feed.rack.id) : "";
+    const curPhase = (feed.phase && feed.phase.value) || feed.phase || "single-phase";
+    this.app.openModal("Изменить фидер", "Щит: " + (panel ? panel.name : "?"),
+      [
+        { id: "name", label: "Название фидера", value: feed.name },
+        { id: "rack", label: "Стойка (куда идёт)", type: "select", options: rackOpts, value: curRack },
+        { id: "voltage", label: "Напряжение, В", value: feed.voltage ?? "" },
+        { id: "amperage", label: "Ток, А", value: feed.amperage ?? "" },
+        { id: "phase", label: "Фазность", type: "select", value: curPhase, options: [
+          { value: "single-phase", label: "Однофазный" },
+          { value: "three-phase", label: "Трёхфазный" }] },
+      ],
+      async v => {
+        if (!v.name) throw new Error("пустое название");
+        await api("/dcim/power-feeds/" + feed.id + "/", "PATCH", {
+          name: v.name,
+          rack: v.rack ? +v.rack : null,
+          voltage: v.voltage ? +v.voltage : null,
+          amperage: v.amperage ? +v.amperage : null,
+          phase: v.phase || "single-phase",
+        });
+        setStatus("фидер изменён: " + v.name, "ok");
+        await this.reload();
+      }, "Сохранить");
+  }
 
   // Контекстное меню (ПКМ) по узлам дерева
   // Состав: «Добавить ▸» (подменю с тем, что можно вложить), «Переместить»,
@@ -315,7 +368,10 @@ export class TreeManager {
     // Корневое меню блока — только «Добавить» (переименовывать/удалять нечего).
     if (info.kind !== "root") {
       if (this._movable(info)) items.push({ label: "Переместить", fn: () => this._move(info) });
-      items.push({ label: "Переименовать", fn: () => this._rename(info) });
+      // Фидер: «Изменить» (все поля, вкл. стойку/напряжение/ток) вместо простого
+      // переименования — чтобы можно было поправить не ту стойку и параметры.
+      if (info.kind === "feed") items.push({ label: "Изменить", fn: () => this._editFeed(info) });
+      else items.push({ label: "Переименовать", fn: () => this._rename(info) });
       items.push({ label: "Удалить", danger: true, fn: () => this._delete(info) });
     }
     for (const it of items) {
@@ -408,25 +464,56 @@ export class TreeManager {
   }
 
   // Shift-мультивыбор: переключить узел, снять весь выбор, групповые операции.
+  // Выбирать можно объекты одного УРОВНЯ (родительский контейнер, NODE_LEVEL) —
+  // напр. стойки + щитки вместе (оба в location). Первый выбранный задаёт уровень.
+  // Выбранные — синяя заливка (.multi-sel); остальные того же уровня, что ЕЩЁ
+  // можно добавить, — зелёная обводка (.multi-cand, см. _updateSelCandidates).
   _toggleSelect(node) {
-    if (!this._nodeInfo(node)) return;   // не-узел (напр. «— без региона —»)
+    const info = this._nodeInfo(node);
+    if (!info) return;   // не-узел (напр. «— без региона —»)
     if (this.selection.has(node)) { this.selection.delete(node); node.classList.remove("multi-sel"); }
-    else { this.selection.add(node); node.classList.add("multi-sel"); }
+    else {
+      const level = this._selLevel();
+      if (level && NODE_LEVEL[info.kind] !== level) return;   // другой уровень — не добавляем
+      this.selection.add(node); node.classList.add("multi-sel");
+    }
+    this._updateSelCandidates();
+  }
+  // Уровень текущего выбора (по первому выбранному узлу).
+  _selLevel() {
+    for (const n of this.selection) { const i = this._nodeInfo(n); if (i) return NODE_LEVEL[i.kind]; }
+    return null;
+  }
+  // Подсветить кандидатов: узлы того же уровня, что и выбор, ещё не выбранные —
+  // зелёной обводкой (.multi-cand). Пусто → снять все подсветки.
+  _updateSelCandidates() {
+    const tree = $("#tree");
+    if (!tree) return;
+    tree.querySelectorAll(".multi-cand").forEach(n => n.classList.remove("multi-cand"));
+    const level = this._selLevel();
+    if (!level) return;
+    for (const n of tree.querySelectorAll(TREE_NODE_SEL)) {
+      if (this.selection.has(n)) continue;
+      const i = this._nodeInfo(n);
+      if (i && NODE_LEVEL[i.kind] === level) n.classList.add("multi-cand");
+    }
   }
   _clearSelection() {
     if (!this.selection.size) return;
     this.selection.forEach(n => n.classList.remove("multi-sel"));
     this.selection.clear();
+    this._updateSelCandidates();   // снимет зелёные обводки кандидатов
   }
-  // Меню для группы выбранных: «Переместить (N)» (только если все одного
-  // перемещаемого типа) и «Удалить (N)».
+  // Меню для группы выбранных: «Переместить (N)» (если все одного УРОВНЯ и он
+  // перемещаемый — напр. стойки+щитки в location) и «Удалить (N)».
   _openGroupMenu(x, y) {
     this._closeContextMenu();
     const infos = [...this.selection].map(n => this._nodeInfo(n)).filter(Boolean);
     if (!infos.length) return;
-    const sameKind = new Set(infos.map(i => i.kind)).size === 1;
+    // Выбор всегда в пределах одного уровня (_toggleSelect), но проверим явно.
+    const sameLevel = new Set(infos.map(i => NODE_LEVEL[i.kind])).size === 1;
     const items = [];
-    if (sameKind && this._movable(infos[0]))
+    if (sameLevel && this._movable(infos[0]))
       items.push({ label: `Переместить (${infos.length})`, fn: () => this._moveMany(infos) });
     items.push({ label: `Удалить (${infos.length})`, danger: true, fn: () => this._deleteMany(infos) });
     const menu = mk("div", { className: "treectx" });
@@ -627,27 +714,31 @@ export class TreeManager {
     if (!this.hold.el || !this.hold.el._dragInfo) return;
     this.hold.drag = this.hold.el._dragInfo;
     this.hold.dragged = true;
-    this.hold.el.classList.add("dragging");
+    // Тянущиеся узлы: при групповом переносе — ВСЕ выбранные, иначе один.
+    const dragged = this.hold.groupDrag ? new Set(this.selection) : new Set([this.hold.el]);
+    dragged.forEach(n => n.classList.add("dragging"));
     // Подсказка «куда можно бросить»: валидные цели (drop-таргеты под тип
     // переноса) остаются яркими и слегка подсвечены; ВСЁ остальное дерево
-    // тускнеет. Напр. тянем стойку → светлые только серверные.
+    // тускнеет. Напр. тянем стойку → светлые только серверные. Все выбранные
+    // одного уровня → у них общий тип цели.
     const valid = new Set(this.dropTargets
       .filter(t => t.accepts === this.hold.drag.type).map(t => t.el));
     this.hold.faded = []; this.hold.targets = [];
     document.querySelectorAll(TREE_NODE_SEL).forEach(n => {
-      if (n === this.hold.el) return;
+      if (dragged.has(n)) return;   // сами тянущиеся не трогаем
       if (valid.has(n)) { n.classList.add("drag-ok"); this.hold.targets.push(n); }
       else { n.classList.add("drag-fade"); this.hold.faded.push(n); }
     });
     document.body.classList.add("tree-dragging");
   }
   _endDrag() {
-    if (this.hold.el) this.hold.el.classList.remove("dragging");
+    document.querySelectorAll(".dragging").forEach(n => n.classList.remove("dragging"));
     (this.hold.faded || []).forEach(n => n.classList.remove("drag-fade"));
     (this.hold.targets || []).forEach(n => n.classList.remove("drag-ok"));
     document.body.classList.remove("tree-dragging");
     document.querySelectorAll(".drop-ok").forEach(x => this._clearDropLabel(x));
     this.hold.el = null; this.hold.drag = null; this.hold.faded = null; this.hold.targets = null;
+    this.hold.groupDrag = false;
   }
   _setDropLabel(el) {
     if (el.classList.contains("drop-ok")) return;
@@ -666,10 +757,15 @@ export class TreeManager {
       this.hold.el = el;
       const x = ev.clientX, y = ev.clientY;
       this.hold.sx = x; this.hold.sy = y;   // старт — для порога смещения (drag по движению)
-      this.hold.delay = setTimeout(() => {
-        this._showRing(x, y);
-        this.hold.timer = setTimeout(() => this._startDrag(), HOLD_MS);
-      }, RING_DELAY);
+      // Тянут один из ВЫБРАННЫХ (≥2) → групповой перенос: кольцо-удержание НЕ
+      // показываем (мешает), старт сразу по смещению мыши. Иначе — как раньше.
+      this.hold.groupDrag = this.selection.has(el) && this.selection.size > 1;
+      if (!this.hold.groupDrag) {
+        this.hold.delay = setTimeout(() => {
+          this._showRing(x, y);
+          this.hold.timer = setTimeout(() => this._startDrag(), HOLD_MS);
+        }, RING_DELAY);
+      }
     });
   }
   // field — необязательное поле связи для _applyMove (напр. site можно бросить
@@ -693,12 +789,15 @@ export class TreeManager {
       }
     });
     document.addEventListener("mouseup", async ev => {
-      if ((this.hold.delay || this.hold.timer) && !this.hold.drag) { this._cancelHold(); return; }
-      if (!this.hold.drag) return;
-      const drag = this.hold.drag;
+      // Перенос не начат (просто клик/удержание без движения) → снять кольцо/hold.
+      if (!this.hold.drag) { this._cancelHold(); return; }
+      const drag = this.hold.drag, group = this.hold.groupDrag;
       const tgt = this.dropTargets.find(t => t.accepts === drag.type && t.el.contains(ev.target));
       this._endDrag();
-      if (tgt) await this._applyMove(drag, tgt.accepts, tgt.parentId, tgt.field);
+      if (tgt) {
+        if (group) await this._applyMoveMany(tgt);   // переместить всех выбранных
+        else await this._applyMove(drag, tgt.accepts, tgt.parentId, tgt.field);
+      }
     });
     // click после переноса глушим (иначе drag сработает ещё и как выбор)
     document.addEventListener("click", ev => {
@@ -743,38 +842,63 @@ export class TreeManager {
     document.addEventListener("keydown", ev => { if (ev.key === "Escape") this._closeContextMenu(); });
     document.addEventListener("scroll", () => this._closeContextMenu(), true);
   }
+  // Путь+тело PATCH для переноса узла type/id под нового родителя parentId.
+  // Общее для одиночного (_applyMove) и группового (_applyMoveMany) переноса.
+  _moveBody(type, id, parentId, field) {
+    if (type === "site")
+      return field === "group"
+        ? { path: "/dcim/sites/" + id + "/", body: { group: parentId }, where: "группу мест" }
+        : { path: "/dcim/sites/" + id + "/", body: { region: parentId }, where: parentId ? "регион" : "без региона" };
+    if (type === "location")
+      return { path: "/dcim/locations/" + id + "/", body: { site: parentId }, where: "площадку" };
+    if (type === "rack" || type === "panel") {
+      const loc = state.locations.find(l => l.id === parentId);
+      const base = type === "rack" ? "/dcim/racks/" : "/dcim/power-panels/";
+      return { path: base + id + "/", body: { location: parentId, ...(loc && loc.site ? { site: loc.site.id } : {}) }, where: "серверную" };
+    }
+    if (type === "feed")
+      return { path: "/dcim/power-feeds/" + id + "/", body: { power_panel: parentId }, where: "щит" };
+    return null;
+  }
   async _applyMove(drag, type, parentId, field) {
-    let path, body, where;
-    if (type === "site") {
-      path = "/dcim/sites/" + drag.id + "/";
-      // бросок на группу мест → поле group; на регион → region.
-      if (field === "group") { body = { group: parentId }; where = "группу мест"; }
-      else { body = { region: parentId }; where = parentId ? "регион" : "без региона"; }
-    } else if (type === "location") {
-      path = "/dcim/locations/" + drag.id + "/";
-      body = { site: parentId };
-      where = "площадку";
-    } else if (type === "rack") {
-      const loc = state.locations.find(l => l.id === parentId);
-      path = "/dcim/racks/" + drag.id + "/";
-      body = { location: parentId, ...(loc && loc.site ? { site: loc.site.id } : {}) };
-      where = "серверную";
-    } else if (type === "panel") {
-      const loc = state.locations.find(l => l.id === parentId);
-      path = "/dcim/power-panels/" + drag.id + "/";
-      body = { location: parentId, ...(loc && loc.site ? { site: loc.site.id } : {}) };
-      where = "серверную";
-    } else if (type === "feed") {
-      path = "/dcim/power-feeds/" + drag.id + "/";
-      body = { power_panel: parentId };
-      where = "щит";
-    } else return;
+    const m = this._moveBody(type, drag.id, parentId, field);
+    if (!m) return;
     try {
-      await api(path, "PATCH", body);
-      setStatus(`«${drag.name}» перемещён(а) в ${where}`, "ok");
+      await api(m.path, "PATCH", m.body);
+      setStatus(`«${drag.name}» перемещён(а) в ${m.where}`, "ok");
       await this.reload();
     } catch (e) {
       setStatus("не удалось переместить: " + e.message, "err");
     }
+  }
+  // Групповой перенос (тянут один из выбранных): переместить ВСЕ выбранные узлы
+  // под родителя из drop-таргета и СОХРАНИТЬ визуальное выделение после reload.
+  async _applyMoveMany(tgt) {
+    const infos = [...this.selection].map(n => this._nodeInfo(n)).filter(Boolean);
+    if (!infos.length) return;
+    let ok = 0;
+    for (const info of infos) {
+      const m = this._moveBody(info.kind, info.id, tgt.parentId, tgt.field);
+      if (!m) continue;
+      try { await api(m.path, "PATCH", m.body); ok++; }
+      catch (e) { setStatus(`не переместить «${info.name}»: ${e.message}`, "err"); }
+    }
+    setStatus(`перемещено объектов: ${ok}`, "ok");
+    await this.reload();
+    this._restoreSelection(infos);
+  }
+  // Восстановить выделение (по kind+id) после перестройки дерева — чтобы после
+  // группового переноса подсветка выбранных сохранялась.
+  _restoreSelection(infos) {
+    const tree = $("#tree");
+    if (!tree) return;
+    const CLS = { region: "region", sitegroup: "sitegroup", site: "site", location: "loc",
+      rack: "rack", panel: "panel", feed: "feed" };
+    for (const info of infos) {
+      const key = CLS[info.kind];
+      const n = key && tree.querySelector(`.tree-${key}[data-${key}="${info.id}"]`);
+      if (n) { this.selection.add(n); n.classList.add("multi-sel"); }
+    }
+    this._updateSelCandidates();
   }
 }

@@ -97,18 +97,10 @@ class _Mixin {
 
   async _onPortClick(kind, item, dev, dot, ev) {
     const edit = Mode.on("schema");
-    const net = state.viewMode === "net";
-    // СЕТЕВОЙ режим + edit: клик по СВОБОДНОМУ порту зависит от ряда:
-    //  · проводной (не радио) свободный → назначить circuit (выход в WAN);
-    //  · радио свободный → обычный pending (второй клик создаст WirelessLink).
-    if (net && edit && kind.otype === "dcim.interface"
-        && !item.cable && !item.wireless_link && !state.pending) {
-      if (!this._isWirelessItem(item)) {
-        await this._assignCircuit(dev, item, ev);
-        return;
-      }
-      // радио: продолжаем в общий pending-поток ниже
-    }
+    // Создание circuit кликом по свободному проводному порту УБРАНО: circuit
+    // теперь только отображается облачком на «Физическом» виде, а заводится в
+    // NetBox напрямую (позже — через «провайдер как нода»). Свободный радио-порт
+    // в «Беспроводном»+edit идёт в общий pending-поток ниже (→ WirelessLink).
     if (item.cable && !state.pending) {
       if (edit) { this._openLinkMenu(item, dev, dot, ev); return; }
       // Просмотр: ОДИНОЧНОЕ нажатие — подсветить ТОЛЬКО связь (кабель между
@@ -148,9 +140,10 @@ class _Mixin {
     this._openCablePopover(a, { otype: kind.otype, id: item.id }, bLabel, ev);
   }
 
-  // Назначить circuit-выход на свободный проводной порт: мини-форма (провайдер +
-  // cid), затем цепочка POST — circuit → termination(A, site) → cable(term↔порт).
-  // Второй конец circuit «в облаке» (у провайдера), физически его нет.
+  // СЕЙЧАС НЕ ВЫЗЫВАЕТСЯ (создание circuit кликом убрано — см. _onPortClick).
+  // Оставлено заготовкой под будущее «провайдер как нода»: мини-форма
+  // (провайдер + cid), затем цепочка POST — circuit → termination(A, site) →
+  // cable(term↔порт). Второй конец circuit «в облаке» (у провайдера).
   async _assignCircuit(dev, item, ev) {
     const providers = state.circuitProviders || [];
     const types = state.circuitTypes || [];

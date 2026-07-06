@@ -68,11 +68,6 @@ class _Mixin {
     }
   }
 
-  // «Сетевой» ли порт (для режима отображения физика/сеть). Сетевые:
-  //  · wireless-интерфейс (тип ieee802.11*/other-wireless или есть wireless_link);
-  //  · порт, соединённый с circuit-терминацией (link_peers_type = circuit).
-  // Всё остальное — физическое. Только dcim.interface может быть сетевым;
-  // front/rear/power/console — всегда физические.
   // провода
   redrawWires() {
     const svg = $("#wires");
@@ -87,9 +82,8 @@ class _Mixin {
       const r = el.getBoundingClientRect();
       return [(r.left - base.left + r.width / 2) / z, (r.top - base.top + r.height / 2) / z];
     };
-    // В сетевом виде физические кабели/питание не рисуем — там только радио-
-    // линии (circuit показан облаком у порта). Иначе провода к блёклым портам
-    // ломают позиционирование.
+    // В «Беспроводном» виде физические кабели/питание не рисуем — там только
+    // радио-линии (узлы показывают лишь радио-порты).
     if (state.viewMode === "net") { this.drawRadioLinks(); this._fitContoursToWires(); return; }
     // Стиль проводов: "round" — прежние дуги; "angular" — угольная (Manhattan)
     // разводка с «мостиками»-полуокружностями на пересечениях (см. UI-кнопки).

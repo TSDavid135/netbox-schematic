@@ -19,7 +19,8 @@ const DOT_KIND = {
 // Имя порта/интерфейса компактно: закруглённый бейдж {тип + порт-кружок номера}.
 // Кружок вписан ВНУТРЬ бейджа (не режется) и покрашен под тип порта (otype).
 // Стек/слот — в нативном тултипе (title). otype опционален (по умолчанию iface).
-export function portNameHtml(name, otype) {
+// used=true → кружок ЗАКРАШЕН цветом типа (как «занятый» порт на схеме).
+export function portNameHtml(name, otype, used) {
   const pn = parseIfaceName(name);
   const num = ifacePortNum(name);
   // Подсказка: «Стек 1 · Слот 0 · Порт 3» (только имеющиеся части).
@@ -27,7 +28,7 @@ export function portNameHtml(name, otype) {
   const kindCls = DOT_KIND[otype] || "p-iface";
   return `<span class="port-badge" title="${title}">` +
     `<span class="c-iface">${pn.type || name}</span>` +
-    (num ? `<span class="c-portdot ${kindCls}">${num}</span>` : "") +
+    (num ? `<span class="c-portdot ${kindCls}${used ? " used" : ""}">${num}</span>` : "") +
     `</span>`;
 }
 
@@ -134,8 +135,13 @@ export class DeviceManager {
       panel.appendChild(mk("h4", { text: "Интерфейсы и IP" }));
       for (const p of ifacePorts) {
         const addrs = (ipByIface[p.item.id] || []).map(a => chip(a, "c-ip")).join("");
-        const row = mk("div", { className: "iface-row",
-          html: portNameHtml(p.item.name, p.otype) + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
+        // Связан ли интерфейс (кабель или радио-линк) → порт закрашен, а ховер
+        // по строке подсвечивает его на схеме (detail п.3).
+        const linked = !!(p.item.cable || p.item.wireless_link);
+        const row = mk("div", { className: "iface-row" + (linked ? " linked" : ""),
+          html: portNameHtml(p.item.name, p.otype, linked) + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
+        if (linked) row.addEventListener("mouseenter", () => this.app.schema._portHover(p, true));
+        if (linked) row.addEventListener("mouseleave", () => this.app.schema._portHover(p, false));
         if (edit) {
           const ab = mk("button", { text: "+IP", on: { click: ev =>
             this.app.ipform.open(dev, p.item, ev) } });
@@ -181,14 +187,27 @@ export class DeviceManager {
       el.appendChild(mk("div", { className: "placeholder", text: "фидеров нет — добавь в режиме стройки" }));
       return;
     }
+    const edit = Mode.on("schema");
     for (const f of feeds) {
       const va = f.amperage ? `${f.voltage || "?"} В / ${f.amperage} А` : "";
       const rack = f.rack ? (f.rack.display || f.rack.name) : "—";
       const st = f.cable ? "подключён" : "не подключён";
-      el.appendChild(mk("div", { className: "conn",
+      const row = mk("div", { className: "conn",
         html: `<div class="side">${chip(f.name, "c-dev")}${va ? `<span style="color:var(--muted);font-size:11px">${va}</span>` : ""}</div>
           <div class="mid">→</div>
-          <div class="side">${chip(rack, "")}<span style="color:var(--muted);font-size:11px">${st}</span></div>` }));
+          <div class="side">${chip(rack, "")}<span style="color:var(--muted);font-size:11px">${st}</span></div>` });
+      // В режиме правки — «изменить» (в т.ч. стойку «куда идёт») и «удалить»
+      // фидер прямо из паспорта щита (удобнее, чем искать его в дереве).
+      if (edit) {
+        const info = { kind: "feed", id: f.id, name: f.name };
+        const acts = mk("div", { className: "feed-acts" });
+        acts.appendChild(mk("button", { title: "Изменить фидер", html: `<i class="mdi mdi-pencil"></i>`,
+          on: { click: e => { e.stopPropagation(); this.app.tree._editFeed(info); } } }));
+        acts.appendChild(mk("button", { className: "danger", title: "Удалить фидер", html: `<i class="mdi mdi-delete"></i>`,
+          on: { click: e => { e.stopPropagation(); this.app.tree._delete(info); } } }));
+        row.appendChild(acts);
+      }
+      el.appendChild(row);
     }
   }
 

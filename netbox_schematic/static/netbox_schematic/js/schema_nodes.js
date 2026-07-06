@@ -79,14 +79,14 @@ class _Mixin {
 
     let topV, botLeftV, botRightV;
     if (net) {
-      // СЕТЕВОЙ режим (порты — состояния, не создаём/не скрываем):
-      //  · верх «Circuits» = ВСЕ проводные (не-радио) интерфейсы;
-      //  · низ «Wireless» = только радио-интерфейсы (ieee802.11*).
+      // «БЕСПРОВОДНОЙ» вид — ТОЛЬКО радио-интерфейсы (ieee802.11* / other-wireless
+      // / с wireless_link) в нижнем ряду + зелёный «+» для создания. Проводные
+      // circuit-выходы (облачко) переехали на «Физический» вид (см. _isNetPort).
       const ifaceGroups = groups.filter(g => g.kind.otype === "dcim.interface");
       const pick = pred => ifaceGroups
         .map(g => ({ g, items: g.items.filter(pred) }))
         .filter(x => x.items.length);
-      topV = pick(it => !this._isWirelessItem(it));   // все проводные → верх
+      topV = [];
       botLeftV = pick(it => this._isWirelessItem(it)); // радио → низ
       botRightV = [];
     } else {
@@ -126,11 +126,9 @@ class _Mixin {
     node.innerHTML = `<span class="nm">${dev.name}</span><span class="mdl">${dev.device_type.model} · U${dev.position}</span>`;
     node.querySelector(".nm").addEventListener("click", () => this.app.device.show(dev));
 
-    // Подписи групп. В СЕТЕВОМ режиме: верх — Circuits (все проводные), низ —
-    // Wireless (радио). В ФИЗИЧЕСКОМ: верх — типы портов, низ — console/питание.
+    // Подписи групп. В «БЕСПРОВОДНОМ» виде — только низ «Wireless» (радио).
+    // В «ФИЗИЧЕСКОМ»: верх — типы портов, низ — console/питание.
     if (net) {
-      if (topV.length) node.insertAdjacentHTML("beforeend",
-        `<span class="edge-label t">Circuits</span>`);
       if (botLeftV.length || edit) node.insertAdjacentHTML("beforeend",
         `<span class="edge-label b">Wireless</span>`);
     } else {

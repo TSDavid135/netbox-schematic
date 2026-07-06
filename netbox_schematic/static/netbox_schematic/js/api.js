@@ -15,6 +15,10 @@ export async function api(path, method, body) {
   const r = await fetch(state.base + "/api" + path, {
     method: m,
     credentials: "same-origin",
+    // Схема всегда считается от ЖИВЫХ данных NetBox — запрещаем HTTP-кэш
+    // браузера, иначе удалённый/изменённый объект остаётся на странице после
+    // «Обновить» (GET отдавался из кэша). Касается всех запросов.
+    cache: "no-store",
     headers: {
       "Accept": "application/json",
       ...(body ? { "Content-Type": "application/json" } : {}),
