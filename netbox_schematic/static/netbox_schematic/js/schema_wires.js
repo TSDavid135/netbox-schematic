@@ -47,7 +47,7 @@ class _Mixin {
       if (!pa || !pb) continue;
       const [ax, ay] = center(pa.el), [bx, by] = center(pb.el);
       const w = { a: pa, b: pb, ax, ay, bx, by,
-        crossRack: state.devRack[pa.dev.id] !== state.devRack[pb.dev.id] };
+        crossRack: this._crossRack(pa.dev.id, pb.dev.id) };
       // Провод в обход нод нужен, когда «Расширенный» и между нодами одной
       // стойки есть другие (разница индексов ≥ 2) — тогда ведём по трассе.
       const around = extend && !w.crossRack
@@ -147,9 +147,17 @@ class _Mixin {
       const [ax, ay] = center(a.el), [bx, by] = center(b.el);
       out.push({ c, a, b, ax, ay, bx, by,
         isPower: aT.object_type.includes("power") || bT.object_type.includes("power"),
-        crossRack: state.devRack[a.dev.id] !== state.devRack[b.dev.id] });
+        crossRack: this._crossRack(a.dev.id, b.dev.id) });
     }
     return out;
+  }
+  // «Межстоечный» ли провод — ТОЛЬКО если оба конца в стойках. Конец на
+  // устройстве вне стойки (devRack==null — потребитель/провайдер) → crossRack
+  // false → провод рисуется простой кривой (без коридоров/шины, которым нужны
+  // devCol/devNodeIdx, отсутствующие у вне-стоечных нод).
+  _crossRack(aId, bId) {
+    const ra = state.devRack[aId], rb = state.devRack[bId];
+    return ra != null && rb != null && ra !== rb;
   }
 
   // Высота горизонтальной шины магистралей (верхние провода между пач-панелями).

@@ -40,7 +40,8 @@ class _Mixin {
       const loc = racks[0].location;
       const base = boxOf(racks, 13, 22, 12);
       const el = this._contourEl("gb-loc", "серверная " + (loc ? loc.name : "?"), base);
-      locs.push({ el, base, kind: "loc", rackIds: new Set(racks.map(r => r.id)),
+      locs.push({ el, base, kind: "loc", locId: lid, locName: loc ? loc.name : "",
+        rackIds: new Set(racks.map(r => r.id)),
         siteId: racks[0].site && racks[0].site.id });
     }
     // Site-контуры (площадки) — для региона И группы мест (обе могут охватывать
@@ -121,15 +122,45 @@ class _Mixin {
       }
       return { left: x0, top: y0, width: x1 - x0, height: y1 - y0 };
     };
+    // Off-rack устройства (потребители) размещены СПРАВА/НАД стойками, но
+    // ПРИНАДЛЕЖАТ локации → контур должен их охватывать (позиции не меняем, только
+    // растим рамку — small_fix). Собираем ноды по локации; без локации —
+    // привязываем к единственному loc-контуру (если он один), иначе не трогаем.
+    const locCts = list.filter(c => c.kind === "loc");
+    const offByLoc = {};
+    for (const d of state.devices) {
+      if (!d._off) continue;
+      const node = state.nodeEls[d.id];
+      if (!node) continue;
+      let lid = d.location && d.location.id;
+      if (lid == null && locCts.length === 1) lid = locCts[0].locId;
+      if (lid == null) continue;
+      (offByLoc[lid] = offByLoc[lid] || []).push(node);
+    }
+    // Дорастить box под геометрию произвольных нод (off-rack) — как growByNodes,
+    // но по явному списку элементов, а не по rackIds.
+    const growByEls = (box, els, pad) => {
+      let x0 = box.left, y0 = box.top, x1 = box.left + box.width, y1 = box.top + box.height;
+      for (const node of els) {
+        const nl = parseFloat(node.style.left) || 0, nt = parseFloat(node.style.top) || 0;
+        const nw = parseFloat(node.style.width) || 0, nh = node.offsetHeight || 56;
+        x0 = Math.min(x0, nl - pad); y0 = Math.min(y0, nt - 13 - pad);
+        x1 = Math.max(x1, nl + nw + pad); y1 = Math.max(y1, nt + nh + 13 + pad);
+      }
+      return { left: x0, top: y0, width: x1 - x0, height: y1 - y0 };
+    };
     const apply = ct => {
       ct.el.style.left = ct._box.left + "px"; ct.el.style.top = ct._box.top + "px";
       ct.el.style.width = ct._box.width + "px"; ct.el.style.height = ct._box.height + "px";
     };
-    // Phase 1 — серверные: рамка растёт под свои внутренние провода И под ноды
-    // своих стоек (широкие ноды не должны вылезать за контур — small_fix п.1).
+    // Phase 1 — серверные: рамка растёт под свои внутренние провода, ноды своих
+    // стоек (широкие ноды не должны вылезать — small_fix п.1) И под off-rack
+    // устройства этой локации (потребители справа / провайдер сверху — в контуре).
     for (const ct of list) {
       if (ct.kind !== "loc") continue;
       ct._box = growByNodes(growByInnerWires(ct.base, ct.rackIds, 8), ct.rackIds, 6);
+      const offEls = offByLoc[ct.locId];
+      if (offEls && offEls.length) ct._box = growByEls(ct._box, offEls, 16);
       apply(ct);
     }
     // Phase 2 — площадки: объединение подросших серверных + внутренние провода

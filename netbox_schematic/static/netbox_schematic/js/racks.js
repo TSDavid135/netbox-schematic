@@ -65,7 +65,16 @@ export class RackManager {
     pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></p><div id="racks"></div>`;
     Mode.syncButtons("rack");
     const wrap = $("#racks");
+    // Разделитель между локациями (когда в колонке стойки нескольких серверных):
+    // горизонтальная линия с именем локации перед её стойками.
+    const multiLoc = new Set(group.map(r => r.location && r.location.id)).size > 1;
+    let prevLoc = null;
     for (const rack of group) {
+      const locId = rack.location && rack.location.id;
+      if (multiLoc && locId !== prevLoc)
+        wrap.appendChild(mk("div", { className: "rack-loc-sep",
+          html: `<i class="mdi mdi-map-marker"></i> ${(rack.location && rack.location.name) || "—"}` }));
+      prevLoc = locId;
       const occ = state.rackOcc[rack.id] = new Set();
       for (const dev of byRack[rack.id]) {
         if (dev.position == null) continue;

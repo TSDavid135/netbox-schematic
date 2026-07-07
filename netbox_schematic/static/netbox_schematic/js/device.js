@@ -247,6 +247,88 @@ export class DeviceManager {
       }, "Сохранить");
   }
 
+  // Создать устройство-ПОТРЕБИТЕЛЬ вне стойки (кнопка «+» на схеме). Роль с
+  // «провайдер/provider» в имени → рендерится НАД стойками, прочие — сеткой
+  // справа (см. schema._renderOffRack + main.js классификация _off). Гарантируем
+  // порт (интерфейс), чтобы к устройству можно было тянуть кабель.
+  // ctx (от палитры/дропа, опц.): {siteId, locId, locName, name, provider} —
+  // площадка/локация фиксируются из места дропа, имя/роль предзаполняются.
+  async createConsumer(ctx = {}) {
+    const roles = Object.values(state.roles), types = Object.values(state.dtypes);
+    if (!roles.length || !types.length) {
+      setStatus("нет ролей/типов — заведи их в NetBox (DCIM → Device Roles / Device Types)", "err");
+      return;
+    }
+    const sites = state.group
+      ? [...new Map(state.group.filter(r => r.site).map(r => [r.site.id, r.site])).values()] : [];
+    if (!sites.length) { setStatus("выбери в дереве область с площадкой", "err"); return; }
+    // Роль по подсказке: провайдер → роль с provider/провайдер в имени; иначе —
+    // роль, чьё имя похоже на подпись (ПК/Камера…); иначе первая.
+    const rx = ctx.provider ? /provider|провайдер/i : (ctx.name ? new RegExp(ctx.name, "i") : null);
+    const rm = rx && roles.find(r => rx.test(r.name || ""));
+    const where = ctx.locName ? "локация: " + ctx.locName : "вне стойки; провод потянешь к его порту";
+    this.app.openModal("Новое устройство", where,
+      [
+        { id: "name", label: "Имя", value: ctx.name || "", placeholder: "ТВ переговорная" },
+        { id: "role", label: "Роль (провайдер → над стойками)", type: "select",
+          value: rm ? rm.id : roles[0].id,
+          options: roles.map(r => ({ value: r.id, label: r.name })) },
+        { id: "type", label: "Тип устройства", type: "select",
+          options: types.map(t => ({ value: t.id, label: t.display || t.model })) },
+        { id: "site", label: "Площадка", type: "select",
+          value: ctx.siteId != null ? ctx.siteId : sites[0].id,
+          options: sites.map(s => ({ value: s.id, label: s.name })) },
+      ],
+      async v => {
+        if (!v.name) throw new Error("укажи имя");
+        const body = { name: v.name, role: +v.role, device_type: +v.type, site: +v.site, status: "active" };
+        if (ctx.locId) body.location = +ctx.locId;   // положить в локацию из дропа
+        const dev = await api("/dcim/devices/", "POST", body);
+        // Нет интерфейса (у типа не было шаблона) → добавим, чтобы был порт для кабеля.
+        try {
+          const ifaces = await apiAll("/dcim/interfaces/?device_id=" + dev.id);
+          if (!ifaces.length)
+            await api("/dcim/interfaces/", "POST", { device: dev.id, name: "port1", type: "1000base-t" });
+        } catch (_) {}
+        setStatus("создано устройство: " + v.name, "ok");
+        await this.app.tree.reload();
+      }, "Создать");
+  }
+
+  // Паспорт ЛОКАЦИИ (клик по серверной в дереве): список её устройств —
+  // по стойкам + «Вне стоек» (потребители). Каждое кликабельно → его паспорт.
+  // Данные берём из уже загруженного state.devices (scope=локация → это её девайсы).
+  showLocation(loc) {
+    this.current = null; this.currentPanel = null;
+    const el = $("#detail");
+    const rackDevs = state.devices.filter(d => d.rack);
+    const offDevs = state.devices.filter(d => d._off && d.location && d.location.id === loc.id);
+    const total = rackDevs.length + offDevs.length;
+    el.innerHTML = this._detailHead(loc.name, "серверная · " + total + " устройств");
+    Mode.syncButtons("detail");
+    const row = d => {
+      const color = (state.roles[d.role && d.role.id] || {}).color || "607d8b";
+      const r = mk("div", { className: "loc-dev",
+        html: `<span class="ld-dot" style="background:#${color}"></span>` +
+          `<span class="ld-name">${d.name}</span>` +
+          `<span class="ld-mut">${(d.device_type && d.device_type.model) || ""}</span>` });
+      r.addEventListener("click", () => this.show(d));
+      return r;
+    };
+    // По стойкам (сверху вниз по позиции).
+    const byRack = {};
+    for (const d of rackDevs) { const k = (d.rack.name || d.rack.display || "?"); (byRack[k] = byRack[k] || []).push(d); }
+    for (const rk of Object.keys(byRack).sort()) {
+      el.appendChild(mk("h4", { text: "Стойка " + rk }));
+      byRack[rk].sort((a, b) => (b.position || 0) - (a.position || 0)).forEach(d => el.appendChild(row(d)));
+    }
+    if (offDevs.length) {
+      el.appendChild(mk("h4", { text: "Вне стоек" }));
+      offDevs.forEach(d => el.appendChild(row(d)));
+    }
+    if (!total) el.appendChild(mk("div", { className: "placeholder", text: "устройств нет" }));
+  }
+
   // Привести компоненты устройства к его device type. NetBox инстанцирует порты
   // из шаблонов только при СОЗДАНИИ и не пересоздаёт при смене типа — это
   // действие ДОБАВЛЯЕТ недостающие и УДАЛЯЕТ лишние (которых нет в типе), чтобы

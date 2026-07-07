@@ -27,6 +27,28 @@ function _mixin(target, ...protos) {
         Object.defineProperty(target, k, Object.getOwnPropertyDescriptor(p, k));
 }
 
+// Палитра устройств для кнопки «+»: две категории (периферия / коммутация),
+// каждая — набор кнопок {иконка, подпись}. Тянутся на локацию (place-mode).
+const PALETTE = {
+  periph: [
+    { key: "pc", label: "ПК", icon: "mdi-desktop-classic" },
+    { key: "laptop", label: "Ноутбук", icon: "mdi-laptop" },
+    { key: "printer", label: "Принтер", icon: "mdi-printer" },
+    { key: "camera", label: "Камера", icon: "mdi-cctv" },
+    { key: "tv", label: "ТВ", icon: "mdi-television" },
+    { key: "phone", label: "Телефон", icon: "mdi-deskphone" },
+    { key: "other", label: "Оборуд.", icon: "mdi-devices" },
+  ],
+  switch: [
+    { key: "router", label: "Роутер", icon: "mdi-router" },
+    { key: "switch", label: "Коммутатор", icon: "mdi-switch" },
+    { key: "ap", label: "Точка дост.", icon: "mdi-access-point" },
+    { key: "patch", label: "Пач-панель", icon: "mdi-format-align-justify" },
+    { key: "provider", label: "Провайдер", icon: "mdi-web" },
+    { key: "other", label: "Оборуд.", icon: "mdi-devices" },
+  ],
+};
+
 
 export class SchemaManager {
   constructor(app) {
@@ -112,6 +134,21 @@ export class SchemaManager {
               <button id="st-liftwires" class="st-btn ${state.wiresAbovePorts ? "active" : ""}"><i class="mdi mdi-arrow-up"></i> провода поверх портов</button>
             </div>
           </div>
+          <div id="palette">
+            <div class="pl-toggle" id="pl-toggle">
+              <span class="short-name">+</span>
+              <span class="full-name"><i class="mdi mdi-plus-box-outline"></i> Устройства</span>
+              <span class="arrow"><i class="mdi mdi-chevron-down"></i></span>
+            </div>
+            <div class="pl-body">
+              <div class="pl-tabs">
+                <button class="pl-tab active" data-cat="periph" title="Периферийные сетевые устройства"><i class="mdi mdi-desktop-tower-monitor"></i></button>
+                <button class="pl-tab" data-cat="switch" title="Коммутация"><i class="mdi mdi-router-wireless"></i></button>
+              </div>
+              <div class="pl-grid"></div>
+              <div class="pl-hint">Кликни устройство и перетащи в локацию на схеме</div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="legend">
@@ -139,6 +176,8 @@ export class SchemaManager {
     collapsible($("#layers"), $("#ly-toggle"), "layersCollapsed");
     this._wireViewSwitch();
     Mode.syncButtons("schema");
+    collapsible($("#palette"), $("#pl-toggle"), "paletteCollapsed");
+    this._wirePalette();
     const whRange = $("#st-wireheight"), whVal = $("#st-wh-val");
     whRange.addEventListener("input", () => {
       state.wireHeightK = parseFloat(whRange.value);
@@ -250,12 +289,169 @@ export class SchemaManager {
     this._powerBaseBottom = maxBottom;   // низ ряда стоек — откуда рисуются щитки
     maxBottom = this._renderPowerPanels(canvas, group, maxBottom);
 
+    // Устройства ВНЕ стоек: провайдер — НАД стойками, периферия — ВНИЗ под
+    // стойки своей локации (в контуре, если есть; иначе — под низом схемы).
+    const off = this._renderOffRack(canvas, group, devPorts, rackMeta, maxBottom);
+
     const rightPad = Math.max(EXTRA, LEFT_PAD), botPad = Math.max(EXTRA * 0.6, TOP_PAD);
-    canvas.style.width = (LEFT_PAD + group.length * (this.SLOT + COL_GAP) + rightPad) + "px";
-    canvas.style.height = (maxBottom + botPad) + "px";
+    const baseW = LEFT_PAD + group.length * (this.SLOT + COL_GAP) + rightPad;
+    canvas.style.width = Math.max(baseW, (off.right || 0) + 200) + "px";
+    canvas.style.height = (Math.max(maxBottom, off.bottom || 0) + botPad) + "px";
     // Первая отрисовка — скроллбары посередине.
     pane.scrollLeft = (canvas.offsetWidth - pane.clientWidth) / 2;
     pane.scrollTop = (canvas.offsetHeight - pane.clientHeight) / 2;
+  }
+
+  // Ноды устройств ВНЕ стоек (state.devices[]._off): "provider" — ряд НАД
+  // стойками; "periph" с ЛОКАЦИЕЙ (показана контуром) — ВНУТРИ её контура (под
+  // стойками, контур растёт вниз); остальные — сеткой справа. Обычные .node с
+  // портами → кабели к ним чертятся штатно (off-rack → простая кривая).
+  // Возвращает {right, bottom} — правый/нижний края (для размера холста).
+  _renderOffRack(canvas, group, devPorts, rackMeta, maxBottom) {
+    const off = state.devices.filter(d => d._off);
+    if (!off.length) return { right: 0, bottom: 0 };
+    const { LEFT_PAD, TOP_PAD, SLOT } = this;
+    const place = (dev, x, y) => {
+      const node = document.createElement("div");
+      node.className = "node offrack off-" + dev._off;
+      node.dataset.dev = dev.id;
+      node.dataset.role = dev.role ? dev.role.id : "0";
+      node.style.top = y + "px";
+      const role = state.roles[dev.role.id] || { color: "607d8b" };
+      node.style.borderLeft = "3px solid #" + role.color;
+      node._x0 = x;
+      node._groups = devPorts[dev.id] || [];
+      canvas.appendChild(node);
+      state.nodeEls[dev.id] = node;
+      this._layoutNode(dev, node);
+      node.style.left = x + "px";   // фикс. позиция, не центрируем в SLOT
+    };
+    let right = 0, bottom = 0;
+    // Провайдер(ы) — ряд НАД стойками.
+    let px = LEFT_PAD + 20;
+    const provY = Math.max(10, TOP_PAD - 130);
+    for (const dev of off.filter(d => d._off === "provider")) { place(dev, px, provY); px += 240; }
+    // Периферия — СЕТКОЙ СПРАВА от стоек (щитки ниже, вправо их не задевает).
+    // Локация устройства — только метаданные (из дропа), на позицию не влияет.
+    const gx0 = LEFT_PAD + group.length * (SLOT + COL_GAP) + 40, cols = 2, cellW = 210,
+      cellH = 96 + (state.nodeGap ?? NODE_GAP);
+    right = gx0;
+    off.filter(d => d._off === "periph").forEach((dev, i) => {
+      const x = gx0 + (i % cols) * cellW, y = TOP_PAD + Math.floor(i / cols) * cellH;
+      place(dev, x, y);
+      right = Math.max(right, x + cellW); bottom = Math.max(bottom, y + 80);
+    });
+    return { right, bottom };
+  }
+
+  // Палитра устройств («+»): вкладки категорий + кнопки-устройства. Клик по
+  // устройству → PLACE-MODE: призрак у курсора, ведём в локацию (контур
+  // подсвечивается тёмно-синим с «+»), клик → модалка создания в этой локации.
+  _wirePalette() {
+    const pal = $("#palette");
+    if (!pal) return;
+    const grid = pal.querySelector(".pl-grid");
+    const fill = cat => {
+      grid.innerHTML = (PALETTE[cat] || []).map(it =>
+        `<button class="pl-item" title="${it.label}"><i class="mdi ${it.icon}"></i><span>${it.label}</span></button>`).join("");
+      // mousedown → перенос: можно ЗАЖАТЬ ЛКМ и тянуть (бросить отпусканием на
+      // локации), либо кликнуть и вести без кнопки (бросить следующим кликом).
+      grid.querySelectorAll(".pl-item").forEach((b, i) => b.addEventListener("mousedown", ev => {
+        if (ev.button !== 0) return;
+        ev.preventDefault(); ev.stopPropagation();
+        this._startPlacing(PALETTE[cat][i], ev);
+      }));
+    };
+    pal.querySelectorAll(".pl-tab").forEach(tab => tab.addEventListener("click", () => {
+      pal.querySelectorAll(".pl-tab").forEach(t => t.classList.toggle("active", t === tab));
+      fill(tab.dataset.cat);
+    }));
+    fill("periph");
+  }
+  _startPlacing(item, ev) {
+    this._cancelPlacing();
+    this._placing = item;
+    this._placeStart = ev ? { x: ev.clientX, y: ev.clientY } : null;
+    this._placeArmed = !!ev;   // ЛКМ зажата: отпустил со сдвигом = дроп; без сдвига = клик-режим
+    const g = mk("div", { className: "pl-ghost", html: `<i class="mdi ${item.icon}"></i><span>${item.label}</span>` });
+    document.body.appendChild(g);
+    if (ev) { g.style.left = ev.clientX + "px"; g.style.top = ev.clientY + "px"; }
+    this._placeGhost = g;
+    document.body.classList.add("placing");
+    this._plMove = ev => this._placeMove(ev);
+    this._plDown = ev => { if (ev.button === 2) { ev.preventDefault(); this._plPan = { x: ev.clientX, y: ev.clientY }; } };
+    this._plUp = ev => {
+      if (ev.button === 2) { this._plPan = null; return; }
+      if (ev.button !== 0) return;
+      if (this._placeArmed) {   // это отпускание начального зажатия
+        this._placeArmed = false;
+        const s = this._placeStart || { x: ev.clientX, y: ev.clientY };
+        if (Math.abs(ev.clientX - s.x) + Math.abs(ev.clientY - s.y) > 6) this._placeDrop(ev); // тянули → бросаем
+        // не сдвинулись → клик-режим: остаёмся, бросим следующим кликом
+      } else {
+        this._placeDrop(ev);   // клик-режим
+      }
+    };
+    this._plKey = ev => { if (ev.key === "Escape") this._cancelPlacing(); };
+    this._plCtx = ev => ev.preventDefault();   // ПКМ во время переноса — пан, не меню
+    window.addEventListener("mousemove", this._plMove);
+    window.addEventListener("mousedown", this._plDown);
+    window.addEventListener("mouseup", this._plUp);
+    window.addEventListener("keydown", this._plKey);
+    window.addEventListener("contextmenu", this._plCtx);
+    setStatus(`перетащи «${item.label}» в локацию · клик — создать · ПКМ — двигать холст · Esc — отмена`);
+  }
+  _placeMove(ev) {
+    if (this._placeGhost) { this._placeGhost.style.left = ev.clientX + "px"; this._placeGhost.style.top = ev.clientY + "px"; }
+    // ПКМ зажата → двигаем холст (скролл).
+    if (this._plPan) {
+      const pane = $("#schempane");
+      if (pane) { pane.scrollLeft -= ev.clientX - this._plPan.x; pane.scrollTop -= ev.clientY - this._plPan.y; }
+      this._plPan = { x: ev.clientX, y: ev.clientY };
+      return;
+    }
+    this._highlightDropLoc(this._locAtPoint(ev.clientX, ev.clientY));
+  }
+  // Локация-контур под точкой (клиентские координаты). Учитывает скролл/зум.
+  _locAtPoint(clientX, clientY) {
+    const canvas = $("#schema"); if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect(), z = state.zoom || 1;
+    const x = (clientX - rect.left) / z, y = (clientY - rect.top) / z;
+    const locs = (this._contours || []).filter(c => c.kind === "loc");
+    for (const c of locs) {
+      const b = c._box || c.base;
+      if (x >= b.left && x <= b.left + b.width && y >= b.top && y <= b.top + b.height) return c;
+    }
+    // Одна локация в scope → контуров нет, вся схема = она.
+    if (!locs.length && state.scope && state.scope.type === "location")
+      return { kind: "loc", locId: state.scope.id, locName: state.scope.name, _whole: true };
+    return null;
+  }
+  _highlightDropLoc(loc) {
+    if (this._plHi && this._plHi !== (loc && loc.el)) this._plHi.classList.remove("pl-drop");
+    this._plHi = loc && loc.el ? loc.el : null;
+    if (this._plHi) this._plHi.classList.add("pl-drop");
+    this._plLoc = loc;
+  }
+  _placeDrop(ev) {
+    const loc = this._locAtPoint(ev.clientX, ev.clientY);
+    const item = this._placing;
+    this._cancelPlacing();
+    if (!loc || !item) { setStatus("вне локации — создание отменено"); return; }
+    // Площадка локации: из loc.siteId или (если вся схема) из текущих стоек.
+    let siteId = loc.siteId;
+    if (!siteId && state.group && state.group[0] && state.group[0].site) siteId = state.group[0].site.id;
+    this.app.device.createConsumer({ siteId, locId: loc.locId, locName: loc.locName, name: item.label, provider: item.key === "provider" });
+  }
+  _cancelPlacing() {
+    if (this._placeGhost) { this._placeGhost.remove(); this._placeGhost = null; }
+    if (this._plHi) { this._plHi.classList.remove("pl-drop"); this._plHi = null; }
+    document.body.classList.remove("placing");
+    for (const [ev, fn] of [["mousemove", this._plMove], ["mousedown", this._plDown],
+      ["mouseup", this._plUp], ["keydown", this._plKey], ["contextmenu", this._plCtx]])
+      if (fn) window.removeEventListener(ev, fn);
+    this._placing = this._plLoc = this._plPan = null;
+    this._placeArmed = false; this._placeStart = null;
   }
 
   // «Сетевой» (в терминах вида) = ТОЛЬКО радио → показывается на «Беспроводном»

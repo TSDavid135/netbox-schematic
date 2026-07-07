@@ -158,6 +158,58 @@
   #schempane .pane-title { position: sticky; top: 0; left: 16px; padding: 16px 0 0 16px; z-index: 5; }
   #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
   #schemoverlay > * { pointer-events: auto; }
+  /* Палитра устройств «+» — панель как #layers (в ряду UI/Fl). */
+  #palette {
+    font-size: 12px; color: var(--muted);
+    background: var(--overlay-bg); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--overlay-shadow);
+    width: 240px; overflow: hidden;
+  }
+  #palette .pl-toggle {
+    display: flex; align-items: center; gap: 6px; justify-content: space-between;
+    font-weight: 600; color: var(--text); cursor: pointer; user-select: none; padding: 8px 12px;
+  }
+  #palette .pl-toggle .arrow { margin-left: auto; transition: transform 0.18s; font-size: 10px; color: var(--muted); }
+  #palette.collapsed { width: 36px; min-width: 36px; height: 36px; cursor: pointer; }
+  #palette.collapsed .pl-toggle { padding: 0; height: 100%; justify-content: center; }
+  #palette.collapsed .pl-body, #palette.collapsed .arrow { display: none; }
+  #palette .pl-body { padding: 0 10px 10px; }
+  #palette .pl-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  #palette .pl-tab {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 6px 0; font-size: 16px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--muted); cursor: pointer;
+  }
+  #palette .pl-tab:hover { color: var(--text); }
+  #palette .pl-tab.active { border-color: var(--accent); color: var(--accent); background: var(--panel-2); }
+  #palette .pl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  #palette .pl-item {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 2px 5px; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  #palette .pl-item .mdi { font-size: 22px; color: var(--accent); }
+  #palette .pl-item span { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.1; }
+  #palette .pl-item:hover { border-color: var(--accent); background: var(--panel-2); }
+  #palette .pl-hint { font-size: 10px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+  /* Призрак устройства у курсора во время переноса. */
+  .pl-ghost {
+    position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 8px 12px; border-radius: 10px; background: var(--overlay-bg);
+    border: 1px solid var(--accent); box-shadow: var(--overlay-shadow);
+  }
+  .pl-ghost .mdi { font-size: 22px; color: var(--accent); }
+  .pl-ghost span { font-size: 11px; color: var(--text); }
+  body.placing { cursor: crosshair; }
+  /* Локация-контур как цель дропа: тёмно-синяя заливка + большой «+» по центру. */
+  .groupbox.gb-loc.pl-drop {
+    background: rgba(24,58,110,0.55); border-color: var(--accent); border-width: 3px;
+  }
+  .groupbox.gb-loc.pl-drop::after {
+    content: "+"; position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 72px; font-weight: 300; color: #fff; opacity: 0.9;
+  }
   #detail {
     width: 330px; flex-shrink: 0; overflow-y: auto;
     background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px;
@@ -246,17 +298,17 @@
      (не полоска слева); это «есть на схеме», но корень не они. Ховер — темнее.
      Двойной класс — чтобы перебить одиночные :hover у .tree-loc/.tree-rack. */
   .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
-  .tree-panel.on-schema, .tree-feed.on-schema {
-    background: color-mix(in srgb, var(--muted) 16%, transparent);
+  .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
+    background: color-mix(in srgb, var(--muted) 16%, transparent); border-radius: 0;
   }
   .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
-  .tree-panel.on-schema:hover, .tree-feed.on-schema:hover {
+  .tree-panel.on-schema:hover, .tree-feed.on-schema:hover, .tree-dev.on-schema:hover {
     background: color-mix(in srgb, var(--muted) 32%, transparent);
   }
-  /* Потомки-стойки/щитки/фидеры выбранной области — синий (accent) текст:
-     видно, что «эта стойка/щиток на схеме». Корень остаётся .scope-active
-     (accent + полоска слева), поэтому не путается с потомками. */
-  .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema {
+  /* Потомки-стойки/щитки/фидеры/устройства выбранной области — синий (accent)
+     текст: видно, что «это на схеме». Корень остаётся .scope-active (accent +
+     полоска слева), поэтому не путается с потомками. */
+  .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
     color: var(--accent); font-weight: 600;
   }
   /* Shift-мультивыбор узлов дерева — акцентная заливка + полоска слева. */
@@ -301,6 +353,16 @@
   .tree-panel:hover, .tree-feed:hover { background: var(--panel-2); }
   .tree-panel { padding-left: 66px; }
   .tree-feed { padding-left: 84px; color: var(--muted); }
+  /* Устройства в дереве (потребители «вне стоек») — по умолчанию приглушены
+     (var(--muted), как стойки/фидеры); при загрузке локации-родителя получают
+     .on-schema (accent, см. выше). Клик открывает паспорт. */
+  .tree-dev {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    border-radius: 0; padding: 3px 14px; color: var(--muted); font-family: var(--mono);
+    font-size: 12px; cursor: pointer;
+  }
+  .tree-dev:hover { background: var(--panel-2); }
+  .tree-dev .tree-ic { font-size: 13px; }
   /* drag-and-drop: тянущийся узел приглушён; НЕвалидные цели тускнеют, ВАЛИДНЫЕ
      остаются яркими и слегка подсвечены (видно, куда можно бросить); наведённая
      валидная цель показывает «Вставить сюда». Текст в дереве не выделяется. */
@@ -347,6 +409,15 @@
      этого и нужен): flex-wrap раскладывает по две+ стойки в ряд. */
   #racks { flex: 1; overflow: auto; display: flex; flex-flow: row wrap; align-content: flex-start; gap: 26px 40px; padding: 6px 20px 40px 42px; }
   #racks .rack { flex: 0 0 auto; }
+  /* Разделитель локаций в колонке стоек — на всю ширину (ломает ряд flex-wrap),
+     горизонтальная линия + имя серверной. */
+  #racks .rack-loc-sep {
+    flex: 0 0 100%; width: 100%; display: flex; align-items: center; gap: 6px;
+    border-top: 1px solid var(--line); padding-top: 12px; margin: 6px 0 -10px;
+    color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  }
+  #racks .rack-loc-sep:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  #racks .rack-loc-sep .mdi { color: var(--accent); font-size: 13px; }
   .rack h3 { margin: 0 0 8px; font-size: 15px; font-family: var(--mono); color: var(--accent); }
   .rack-frame {
     position: relative; width: 280px;
@@ -884,6 +955,15 @@
   .conn .feed-acts button { padding: 2px 8px; font-size: 12px; border-radius: 6px; }
   .conn .feed-acts button.danger:hover { border-color: var(--err); color: var(--err); }
   .placeholder { color: var(--muted); padding: 30px 10px; text-align: center; font-size: 13px; }
+  /* Паспорт локации: строки устройств (клик → паспорт устройства). */
+  .loc-dev {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .loc-dev:hover { background: var(--panel-2); border-color: var(--line); }
+  .loc-dev .ld-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .loc-dev .ld-name { color: var(--text); font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .loc-dev .ld-mut { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 
   /* модалка */
   #modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 10; }

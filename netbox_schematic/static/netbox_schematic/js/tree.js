@@ -96,10 +96,12 @@ export class TreeManager {
     if (collapsed) return;   // свёрнута — потомков и «+» не рисуем
     this._addBtnAt(nav, "+ подгруппа", pad + 20, () => this._createSiteGroup({ id: grp.id, name: grp.name }));
     this._addBtnAt(nav, "+ площадка", pad + 20, () => this._createSiteInGroup(grp));
-    // ПАПКИ (подгруппы) — сверху, затем площадки этой группы (раскрытые).
-    for (const sub of (childrenOf[grp.id] || [])) this._buildGroupNode(nav, sub, childrenOf, depth + 1);
+    // Сначала площадки группы (раскрытые), ПОДГРУППЫ (папки) — ВНИЗУ: иначе
+    // пустая свёрнутая/развёрнутая папка со стрелкой вниз путает — кажется, что
+    // следующие площадки лежат внутри неё.
     for (const site of state.sites.filter(s => s.group && s.group.id === grp.id))
       this._buildSiteNode(nav, site, pad + 18);
+    for (const sub of (childrenOf[grp.id] || [])) this._buildGroupNode(nav, sub, childrenOf, depth + 1);
   }
   // Свернуть/развернуть группу: перестроить дерево (свёрнутые не рендерят детей)
   // и восстановить подсветку текущей области (build её сбрасывает).
@@ -170,7 +172,42 @@ export class TreeManager {
         nav.appendChild(rb);
       }
       this._buildPowerNodes(nav, site, loc, inGroup, shift);
+      // Устройства ВНЕ стоек этой локации (потребители) — в дереве. Стоечные НЕ
+      // показываем: они и так в колонке «Стойки» (иначе колонка теряет смысл).
+      for (const dev of (state.allDevices || []).filter(d => !d.rack && d.location && d.location.id === loc.id))
+        nav.appendChild(this._devNode(dev, loc, 66 + shift));
     }
+  }
+  // Узел устройства в дереве (под стойкой / «вне стоек»). Клик → грузит его
+  // локацию и открывает паспорт устройства. Иконка — по роли/имени. По умолчанию
+  // приглушён (var(--muted), как стойки/фидеры); при загрузке локации-родителя
+  // получает .on-schema (подсветку «есть на схеме»), как и прочие потомки.
+  _devNode(dev, loc, padPx) {
+    const el = mk("button", { className: "tree-dev", dataset: { dev: dev.id, loc: loc.id },
+      style: { paddingLeft: padPx + "px" },
+      html: `<i class="mdi ${this._devIcon(dev)} tree-ic"></i>${dev.name}` });
+    el.addEventListener("click", () => this._openDevice(dev, loc));
+    return el;
+  }
+  _devIcon(dev) {
+    const s = ((dev.role && dev.role.name) || "") + " " + (dev.name || "") + " " + ((dev.device_type && dev.device_type.model) || "");
+    if (/provider|провайдер/i.test(s)) return "mdi-web";
+    if (/camera|камер/i.test(s)) return "mdi-cctv";
+    if (/router|роутер/i.test(s)) return "mdi-router";
+    if (/switch|коммут|свич/i.test(s)) return "mdi-switch";
+    if (/\bpc\b|пк|компьютер|десктоп/i.test(s)) return "mdi-desktop-classic";
+    if (/laptop|ноут/i.test(s)) return "mdi-laptop";
+    if (/print|принтер/i.test(s)) return "mdi-printer";
+    if (/\btv\b|телевизор|тв/i.test(s)) return "mdi-television";
+    if (/phone|телефон/i.test(s)) return "mdi-deskphone";
+    if (/pdu|щит|power/i.test(s)) return "mdi-power-plug";
+    if (/patch|пач|панель/i.test(s)) return "mdi-format-align-justify";
+    if (/panel|access\s*point|точк/i.test(s)) return "mdi-access-point";
+    return "mdi-server";
+  }
+  async _openDevice(dev, loc) {
+    await this.selectScope("location", loc.id, loc.name);
+    this.app.device.show(dev);   // паспорт устройства (перекрывает список локации)
   }
 
   // Силовые щиты (Power Panel) серверной и их фидеры (Power Feed). Panel
@@ -192,17 +229,8 @@ export class TreeManager {
       this._makeDropTarget(pEl, "feed", panel.id);               // сюда можно бросить фидер
       nav.appendChild(pEl);
       this._addBtnAt(nav, "+ фидер", 84 + shift, () => this._createFeed(panel));
-      const feeds = (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === panel.id);
-      for (const feed of feeds) {
-        const fEl = mk("div", {
-          className: "tree-feed", text: feed.name, dataset: { feed: feed.id, panel: panel.id },
-          style: { paddingLeft: (84 + shift) + "px" },
-        });
-        // Клик по фидеру — паспорт его щита (там кнопки правки/удаления фидера).
-        fEl.addEventListener("click", () => this.app.device.showPanel(panel));
-        this._makeDraggable(fEl, "feed", feed.id, feed.name);    // фидер можно перетаскивать
-        nav.appendChild(fEl);
-      }
+      // Сами фидеры в дереве НЕ показываем (по просьбе) — они видны/правятся в
+      // паспорте щита (клик по щитку) и на схеме внутри щитка.
     }
   }
   _addBtn(nav, text, lvl, fn) {
@@ -665,6 +693,8 @@ export class TreeManager {
     }
     if (scrollRackId && state.rackColEls[scrollRackId])
       state.rackColEls[scrollRackId].scrollIntoView({ behavior: "smooth", block: "start" });
+    // Клик по серверной → её паспорт (список устройств) в блоке деталей.
+    if (type === "location") this.app.device.showLocation({ id, name });
   }
 
   // Стойки, попадающие в область: серверная → свои; площадка → все стойки её
@@ -705,7 +735,7 @@ export class TreeManager {
   // получают «серенькую» тонкую метку .on-schema — «это есть на схеме». Всё
   // остальное — по умолчанию.
   _highlightScope(type, id, scrollRackId) {
-    const all = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-rack,.tree-panel,.tree-feed";
+    const all = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-rack,.tree-panel,.tree-feed,.tree-dev";
     document.querySelectorAll(all).forEach(x =>
       x.classList.remove("scope-active", "on-schema", "current", "active"));
     const s = String(id);
@@ -738,6 +768,7 @@ export class TreeManager {
     locIds.forEach(v => {
       mark(`.tree-loc[data-loc="${v}"]`, "on-schema");
       mark(`.tree-rack[data-loc="${v}"]`, "on-schema");
+      mark(`.tree-dev[data-loc="${v}"]`, "on-schema");   // устройства локации — «на схеме»
     });
     panelIds.forEach(v => mark(`.tree-panel[data-panel="${v}"]`, "on-schema"));
     feedIds.forEach(v => mark(`.tree-feed[data-feed="${v}"]`, "on-schema"));
