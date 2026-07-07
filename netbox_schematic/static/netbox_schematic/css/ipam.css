@@ -24,8 +24,8 @@ body.ipam-mode #ipam { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .it-node:hover { background: var(--panel-2); }
 /* Валидная цель при переносе сети в дереве — акцентная подсветка */
 .it-node.drop-hl { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-/* Сети в дереве в правке тоже перетаскиваются */
-body.ipam-edit .it-net { cursor: grab; }
+/* Сети в дереве перетаскиваются в режиме правки ДЕРЕВА (свой столбец). */
+body.ipamtree-edit .it-net { cursor: grab; }
 .it-net.dragging { opacity: 0.5; }
 .it-node.k-region .it-name { font-weight: 700; }
 .it-net {
@@ -39,24 +39,52 @@ body.ipam-edit .it-net { cursor: grab; }
 .it-free { display: flex; flex-direction: column; gap: 4px; padding: 0 10px; }
 
 /* центр: блоки-места */
-#ipam-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; padding: 16px 20px; }
+#ipam-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px 20px 0; }
 #ipam-main .pane-title { flex-shrink: 0; }
-#ipam-clouds { display: flex; flex-wrap: wrap; gap: 18px; align-content: flex-start; }
+/* Полотно с зумом/паном (как на Инфраструктуре): viewport обрезает, scroll даёт
+   скроллбары/панораму, #ipam-clouds масштабируется transform:scale. */
+#ipam-viewport { flex: 1; position: relative; overflow: hidden; }
+/* Полотно не выделяется мышью (как схема Инфраструктуры). */
+#ipam-scroll { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; }
+#ipam-scroll.panning { cursor: grabbing; }
+#ipam-clouds {
+  display: flex; flex-wrap: wrap; gap: 18px; align-content: flex-start;
+  transform-origin: 0 0; padding: 30px 50px 120px 84px;   /* слева больше пустого места */
+}
 
-/* блок-место: пунктирная рамка (как стойки на Инфраструктуре) */
+/* блок-место: тонкая пунктирная рамка МЯГКОГО цвета по типу (группа — тёплый,
+   площадка — синий, серверная — бирюза). Название — ВНУТРИ контура (в потоке),
+   не на рамке; внутренний отступ по всему периметру ≈ высоте названия. */
 .place {
-  position: relative; border: 1.5px dashed rgba(147,161,175,0.4); border-radius: 12px;
-  padding: 24px 12px 12px; min-width: 220px; display: flex; flex-direction: column;
+  position: relative; border-radius: 12px;
+  border: 2.5px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+  padding: 22px; display: flex; flex-direction: column; gap: 12px;
+  width: fit-content; align-self: flex-start; min-width: 150px;
 }
-.place.k-region { border-color: rgba(147,161,175,0.55); }
+.place.k-sitegroup { border-color: color-mix(in srgb, var(--power) 52%, transparent); }
+.place.k-site { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.place.k-location { border-color: color-mix(in srgb, #e53935 60%, transparent); }
+/* Название — внутри контура сверху (в потоке), НЕ на рамке. Мягкая подложка по
+   типу (чуть бледнее цвета рамки) + внутренний отступ вокруг надписи. */
 .place-cap {
-  position: absolute; top: -11px; left: 14px;
-  display: inline-flex; align-items: baseline; gap: 6px;
-  background: var(--bg); padding: 2px 10px; border-radius: 6px;
+  display: inline-flex; align-items: baseline; gap: 6px; align-self: flex-start;
+  padding: 3px 10px; border-radius: 6px;
 }
+.place.k-sitegroup > .place-cap { background: color-mix(in srgb, var(--power) 15%, transparent); }
+.place.k-site > .place-cap { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.place.k-location > .place-cap { background: color-mix(in srgb, #e53935 15%, transparent); }
+body.ipam-edit .place-cap { cursor: grab; }        /* перенос места за название */
+.place-cap.dragging { opacity: 0.5; }
+/* Ховер по названию (ручке) подсвечивает ВСЮ площадь контура — видно, что тащим
+   его целиком (как весь блок сети). */
+body.ipam-edit .place:has(> .place-cap:hover) { background: color-mix(in srgb, var(--muted) 10%, transparent); }
 .pc-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .pc-name { font-size: 13px; font-weight: 600; }
-.place-body { display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start; min-height: 20px; }
+.place-body { display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start; align-items: flex-start; min-height: 20px; }
+/* Пустое место (нет вложенных и сетей) — название по ЦЕНТРУ контура. */
+.place.empty-place { align-items: center; justify-content: center; min-height: 84px; }
+.place.empty-place > .place-cap { align-self: center; }
+.place.empty-place > .place-body { display: none; }
 .place.drop-ok { border-color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent); }
 .place.flash { animation: ipam-flash 1.2s ease; }
 @keyframes ipam-flash { 0%,100% { box-shadow: none; } 30% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 40%, transparent); } }
@@ -71,7 +99,7 @@ body.ipam-edit .it-net { cursor: grab; }
 
 /* блок сети: пунктир СИНИЙ (внутри места). CIDR + счётчик, внутри адреса. */
 .net-block {
-  border: 1.5px dashed var(--accent); border-radius: 10px; padding: 8px 10px;
+  border: 2.5px dashed var(--accent); border-radius: 10px; padding: 8px 10px;
   min-width: 180px; background: color-mix(in srgb, var(--accent) 6%, transparent);
   display: flex; flex-direction: column; gap: 6px; cursor: pointer;
 }
@@ -80,8 +108,15 @@ body.ipam-edit .it-net { cursor: grab; }
 /* В правке весь блок сети — ручка переноса (перетаскивание с зажатым ЛКМ) */
 body.ipam-edit .net-block { cursor: grab; }
 .net-block.dragging { opacity: 0.5; }
-.nb-cidr { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); }
-.nb-count { font-size: 10px; color: var(--muted); }
+/* Номер сети (CIDR) — бейдж с внутренним отступом и мягкой подложкой. */
+.nb-cidr {
+  font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent);
+  align-self: flex-start; padding: 2px 8px; border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.nb-count { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.nb-used { color: var(--err); font-weight: 600; }   /* занято — красным */
+.nb-free { color: var(--ok); font-weight: 600; }    /* свободно — зелёным */
 .nb-addrs { display: flex; flex-wrap: wrap; gap: 4px; }
 .addr {
   font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px;
@@ -91,13 +126,35 @@ body.ipam-edit .net-block { cursor: grab; }
 .addr.more { color: var(--muted); }
 .addr.free-note { color: var(--ok); border-style: dashed; }
 
+/* item 7: сеть site-уровня как КОНТУР с локациями внутри. CIDR кликабельный в
+   углу, тело — вложенные локации. Сам контур НЕ ручка (ручка — только угол). */
+.net-block.net-contour {
+  position: relative; padding: 12px; min-width: 210px; cursor: default;
+  width: fit-content; background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+body.ipam-edit .net-block.net-contour { cursor: default; }
+/* Заголовок-бейдж (CIDR + счётчик) — В ПОТОКЕ сверху, в ОДНУ строку (nowrap) →
+   подложка растягивается по тексту «… занято … свободно», а контур обтягивает её. */
+.net-contour .nc-corner {
+  align-self: flex-start; display: flex; align-items: baseline; gap: 8px; white-space: nowrap;
+  cursor: pointer; user-select: none; padding: 3px 9px; border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+body.ipam-edit .net-contour .nc-corner { cursor: grab; }
+.net-contour .nc-cidr { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); }
+.net-contour .nc-corner:hover .nc-cidr { text-decoration: underline; }
+.net-contour .nc-cnt { font-size: 10px; color: var(--muted); }
+.net-contour .nc-body { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; min-height: 20px; }
+.net-contour.dragging { opacity: 0.5; }
+
 /* сеть вне мест — чип (дерево / зона внизу холста) */
 .net-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 8px; user-select: none;
   background: var(--panel-2); border: 1px solid var(--line); font-family: var(--mono); font-size: 12px;
 }
-body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }
+body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }   /* чип на полотне — режим полотна */
+body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* чип в дереве — режим дерева */
 .net-chip .mdi { color: var(--accent); font-size: 14px; }
 .net-chip.dragging { opacity: 0.5; }
 .free-zone { flex: 1 1 100%; border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; }
@@ -105,7 +162,6 @@ body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }
 .fz-body { display: flex; flex-wrap: wrap; gap: 8px; }
 
 body.ipam-dragging { cursor: grabbing; }
-body.ipam-dragging .place { border-color: rgba(147,161,175,0.7); }
 
 /* Контекст-меню дерева — общий стиль .treectx из schematic.css (как на
    Инфраструктуре). Свой .ipam-menu удалён. */

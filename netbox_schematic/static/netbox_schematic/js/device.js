@@ -1,9 +1,10 @@
 "use strict";
 // DeviceManager: паспорт устройства + модалка создания
 
-import { $, state, mk, modeBtn } from "./core.js";
+import { $, state, mk, modeBtn, slugify } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
+import { MANUFACTURER } from "./solutions.js";
 
 const chip = (text, cls) => `<span class="chip ${cls || ""}">${text}</span>`;
 
@@ -125,7 +126,10 @@ export class DeviceManager {
     this.currentPanel = null;
     const panel = $("#detail");
     const sub = `${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}`;
-    panel.innerHTML = this._detailHead(dev.name, sub) + `<div class="placeholder">загружаю…</div>`;
+    // Хлебная крошка: «(Серверная 1) sw-access-02» — клик по локации → её детали.
+    const loc = dev.location;
+    const title = (loc ? `(<a class="crumb-loc">${loc.name}</a>) ` : "") + dev.name;
+    panel.innerHTML = this._detailHead(title, sub) + `<div class="placeholder">загружаю…</div>`;
     const ips = await apiAll("/ipam/ip-addresses/?device_id=" + dev.id);
     const ipByIface = {};
     ips.forEach(ip => {
@@ -133,7 +137,9 @@ export class DeviceManager {
       if (!ipByIface[k]) ipByIface[k] = [];
       ipByIface[k].push(ip.address);
     });
-    panel.innerHTML = this._detailHead(dev.name, sub);
+    panel.innerHTML = this._detailHead(title, sub);
+    const crumb = panel.querySelector(".crumb-loc");
+    if (crumb && loc) crumb.addEventListener("click", () => this.app.tree.selectScope("location", loc.id, loc.name));
     Mode.syncButtons("detail");
     const edit = this._editable();
     // В правке: подтянуть недостающие компоненты из шаблонов device type
@@ -184,6 +190,25 @@ export class DeviceManager {
         html: `<div class="side">${sideHtml((c.a_terminations || [])[0])}</div>
           <div class="mid">⇄</div>
           <div class="side">${sideHtml((c.b_terminations || [])[0])}</div>` }));
+    }
+
+    // Сведения из БД по устройству (под «Соединениями») — основные поля NetBox.
+    const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
+    const info = [
+      ["Статус", dev.status && (dev.status.label || dev.status.value)],
+      ["Роль", val(dev.role)], ["Тип", val(dev.device_type)],
+      ["Платформа", val(dev.platform)],
+      ["Площадка", val(dev.site)], ["Серверная", val(dev.location)],
+      ["Стойка", val(dev.rack)], ["Юнит", dev.position != null ? "U" + dev.position : ""],
+      ["Серийный №", dev.serial], ["Инв. №", dev.asset_tag],
+      ["Описание", dev.description],
+    ].filter(([, v]) => v);
+    if (info.length) {
+      panel.appendChild(mk("h4", { text: "Сведения" }));
+      const box = mk("div", { className: "dev-info" });
+      for (const [k, v] of info)
+        box.appendChild(mk("div", { className: "di-row", html: `<span class="di-k">${k}</span><span class="di-v">${v}</span>` }));
+      panel.appendChild(box);
     }
   }
 
@@ -247,52 +272,152 @@ export class DeviceManager {
       }, "Сохранить");
   }
 
-  // Создать устройство-ПОТРЕБИТЕЛЬ вне стойки (кнопка «+» на схеме). Роль с
-  // «провайдер/provider» в имени → рендерится НАД стойками, прочие — сеткой
-  // справа (см. schema._renderOffRack + main.js классификация _off). Гарантируем
-  // порт (интерфейс), чтобы к устройству можно было тянуть кабель.
-  // ctx (от палитры/дропа, опц.): {siteId, locId, locName, name, provider} —
-  // площадка/локация фиксируются из места дропа, имя/роль предзаполняются.
-  async createConsumer(ctx = {}) {
-    const roles = Object.values(state.roles), types = Object.values(state.dtypes);
-    if (!roles.length || !types.length) {
-      setStatus("нет ролей/типов — заведи их в NetBox (DCIM → Device Roles / Device Types)", "err");
-      return;
-    }
+  // Добавить «готовое решение» из палитры/меню «Добавить» (kind="device").
+  // Тип устройства НЕ спрашиваем (это и есть решение); спрашиваем имя + число
+  // сетевых портов и портов питания. Проверяем справочник DeviceType по модели
+  // решения; если модели нет — она будет создана в справочнике (под общим
+  // производителем), о чём предупреждаем в подзаголовке модалки. Роль решения
+  // создаётся при нужде. ctx: {siteId, locId, locName} — из места дропа.
+  async addSolution(item, ctx = {}) {
     const sites = state.group
       ? [...new Map(state.group.filter(r => r.site).map(r => [r.site.id, r.site])).values()] : [];
-    if (!sites.length) { setStatus("выбери в дереве область с площадкой", "err"); return; }
-    // Роль по подсказке: провайдер → роль с provider/провайдер в имени; иначе —
-    // роль, чьё имя похоже на подпись (ПК/Камера…); иначе первая.
-    const rx = ctx.provider ? /provider|провайдер/i : (ctx.name ? new RegExp(ctx.name, "i") : null);
-    const rm = rx && roles.find(r => rx.test(r.name || ""));
-    const where = ctx.locName ? "локация: " + ctx.locName : "вне стойки; провод потянешь к его порту";
-    this.app.openModal("Новое устройство", where,
+    const siteId = ctx.siteId != null ? ctx.siteId : (sites[0] && sites[0].id);
+    if (siteId == null) { setStatus("выбери в дереве область с площадкой", "err"); return; }
+    const typeExists = Object.values(state.dtypes)
+      .some(t => (t.model || "").toLowerCase() === String(item.model || "").toLowerCase());
+    const where = (ctx.locName ? "локация: " + ctx.locName : "вне стойки")
+      + (typeExists ? "" : ` · тип «${item.model}» будет добавлен в справочник`);
+    this.openModal("Добавить: " + item.label, where,
       [
-        { id: "name", label: "Имя", value: ctx.name || "", placeholder: "ТВ переговорная" },
-        { id: "role", label: "Роль (провайдер → над стойками)", type: "select",
-          value: rm ? rm.id : roles[0].id,
-          options: roles.map(r => ({ value: r.id, label: r.name })) },
-        { id: "type", label: "Тип устройства", type: "select",
-          options: types.map(t => ({ value: t.id, label: t.display || t.model })) },
-        { id: "site", label: "Площадка", type: "select",
-          value: ctx.siteId != null ? ctx.siteId : sites[0].id,
-          options: sites.map(s => ({ value: s.id, label: s.name })) },
+        { id: "name", label: "Имя", value: item.label, placeholder: item.label },
+        { id: "net", label: "Сетевых портов", value: String(item.net ?? 1) },
+        { id: "power", label: "Портов питания", value: String(item.power ?? 0) },
       ],
       async v => {
         if (!v.name) throw new Error("укажи имя");
-        const body = { name: v.name, role: +v.role, device_type: +v.type, site: +v.site, status: "active" };
+        const net = Math.max(0, parseInt(v.net, 10) || 0);
+        const power = Math.max(0, parseInt(v.power, 10) || 0);
+        const dt = await this._ensureDeviceType(item.model);
+        const role = await this._ensureRole(item.role || item.label, item.roleColor || "607d8b");
+        const body = { name: v.name, role: role.id, device_type: dt.id, site: +siteId, status: "active" };
         if (ctx.locId) body.location = +ctx.locId;   // положить в локацию из дропа
         const dev = await api("/dcim/devices/", "POST", body);
-        // Нет интерфейса (у типа не было шаблона) → добавим, чтобы был порт для кабеля.
-        try {
-          const ifaces = await apiAll("/dcim/interfaces/?device_id=" + dev.id);
-          if (!ifaces.length)
-            await api("/dcim/interfaces/", "POST", { device: dev.id, name: "port1", type: "1000base-t" });
-        } catch (_) {}
-        setStatus("создано устройство: " + v.name, "ok");
+        // Порты — по числу, прямо на устройстве (у нашего типа шаблонов нет).
+        // Уже существующие по имени не дублируем.
+        const haveIf = new Set((await apiAll("/dcim/interfaces/?device_id=" + dev.id)).map(i => i.name));
+        for (let i = 1; i <= net; i++) {
+          if (haveIf.has("eth" + i)) continue;
+          await api("/dcim/interfaces/", "POST", { device: dev.id, name: "eth" + i, type: "1000base-t" });
+        }
+        const havePwr = new Set((await apiAll("/dcim/power-ports/?device_id=" + dev.id)).map(p => p.name));
+        for (let i = 1; i <= power; i++) {
+          if (havePwr.has("PSU" + i)) continue;
+          await api("/dcim/power-ports/", "POST", { device: dev.id, name: "PSU" + i });
+        }
+        setStatus(`создано: ${v.name} (сеть ${net}, питание ${power})`, "ok");
         await this.app.tree.reload();
       }, "Создать");
+  }
+  // Стойка из палитры/меню — переиспользуем модалку дерева, площадка/серверная
+  // из места дропа.
+  addRack(ctx = {}) {
+    const site = (state.sites || []).find(s => s.id === +ctx.siteId) || { id: +ctx.siteId, name: "" };
+    this.app.tree._createRack({ id: site.id, name: site.name }, { id: +ctx.locId, name: ctx.locName || "" });
+  }
+  // Распределительный щиток (Power Panel) из палитры/меню.
+  addPanel(ctx = {}) {
+    const site = (state.sites || []).find(s => s.id === +ctx.siteId) || { id: +ctx.siteId, name: "" };
+    this.app.tree._createPanel({ id: site.id, name: site.name }, { id: +ctx.locId, name: ctx.locName || "" });
+  }
+  // Справочник: найти производителя по имени или создать.
+  async _ensureManufacturer(name) {
+    const list = await apiAll("/dcim/manufacturers/?name=" + encodeURIComponent(name));
+    if (list.length) return list[0];
+    return await api("/dcim/manufacturers/", "POST", { name, slug: slugify(name) });
+  }
+  // Справочник: найти DeviceType по модели (без учёта регистра) или создать его
+  // под общим производителем (готовое решение). Кэшируем в state.dtypes.
+  async _ensureDeviceType(model) {
+    let dt = Object.values(state.dtypes)
+      .find(t => (t.model || "").toLowerCase() === String(model).toLowerCase());
+    if (dt) return dt;
+    const mfr = await this._ensureManufacturer(MANUFACTURER);
+    dt = await api("/dcim/device-types/", "POST",
+      { manufacturer: mfr.id, model, slug: slugify(model) });
+    state.dtypes[dt.id] = dt;
+    return dt;
+  }
+  // Справочник: найти роль по имени или создать (цвет решения).
+  async _ensureRole(name, color) {
+    let r = Object.values(state.roles)
+      .find(x => (x.name || "").toLowerCase() === String(name).toLowerCase());
+    if (r) return r;
+    r = await api("/dcim/device-roles/", "POST", { name, slug: slugify(name), color });
+    state.roles[r.id] = r;
+    return r;
+  }
+
+  // Полная модалка редактирования устройства (карандаш на правой грани ноды в
+  // режиме правки) — основные поля дефолтной формы NetBox: имя, статус, роль,
+  // тип, платформа, площадка/серверная/стойка/юнит/сторона, серийник, инв.номер,
+  // описание. Платформы подгружаем разово. Юнит/сторона имеют смысл только со
+  // стойкой → без стойки шлём null (иначе NetBox отклонит).
+  async editDevice(dev) {
+    const roles = Object.values(state.roles), types = Object.values(state.dtypes);
+    const sites = state.sites || [], locs = state.locations || [], racks = state.racks || [];
+    let platforms = [];
+    try { platforms = await apiAll("/dcim/platforms/"); } catch (_) {}
+    const STATUS = [["active", "Active"], ["offline", "Offline"], ["planned", "Planned"],
+      ["staged", "Staged"], ["failed", "Failed"], ["inventory", "Inventory"],
+      ["decommissioning", "Decommissioning"]];
+    const FACE = [["", "— не задана —"], ["front", "Front"], ["rear", "Rear"]];
+    const opt = (arr, empty) => [...(empty ? [{ value: "", label: empty }] : []), ...arr];
+    const idOf = x => (x && x.id != null) ? String(x.id) : "";
+    this.openModal("Изменить устройство", dev.name,
+      [
+        { id: "name", label: "Имя", value: dev.name },
+        { id: "status", label: "Статус", type: "select", value: (dev.status && dev.status.value) || "active",
+          options: STATUS.map(([v, l]) => ({ value: v, label: l })) },
+        { id: "role", label: "Роль", type: "select", value: idOf(dev.role),
+          options: roles.map(r => ({ value: r.id, label: r.name })) },
+        { id: "device_type", label: "Тип устройства", type: "select", value: idOf(dev.device_type),
+          options: types.map(t => ({ value: t.id, label: t.display || t.model })) },
+        { id: "platform", label: "Платформа", type: "select", value: idOf(dev.platform),
+          options: opt(platforms.map(p => ({ value: p.id, label: p.name })), "— не задана —") },
+        { id: "site", label: "Площадка", type: "select", value: idOf(dev.site),
+          options: sites.map(s => ({ value: s.id, label: s.name })) },
+        { id: "location", label: "Серверная", type: "select", value: idOf(dev.location),
+          options: opt(locs.map(l => ({ value: l.id, label: (l.site ? l.site.name + " · " : "") + l.name })), "— вне серверной —") },
+        { id: "rack", label: "Стойка", type: "select", value: idOf(dev.rack),
+          options: opt(racks.map(r => ({ value: r.id, label: r.name })), "— вне стойки —") },
+        { id: "position", label: "Юнит (позиция)", value: dev.position ?? "" },
+        { id: "face", label: "Сторона", type: "select", value: (dev.face && dev.face.value) || "",
+          options: FACE.map(([v, l]) => ({ value: v, label: l })) },
+        { id: "serial", label: "Серийный номер", value: dev.serial || "" },
+        { id: "asset_tag", label: "Инвентарный номер", value: dev.asset_tag || "" },
+        { id: "description", label: "Описание", value: dev.description || "" },
+      ],
+      async v => {
+        if (!v.name) throw new Error("укажи имя");
+        const rack = v.rack ? +v.rack : null;
+        const body = {
+          name: v.name, status: v.status,
+          role: +v.role, device_type: +v.device_type,
+          platform: v.platform ? +v.platform : null,
+          site: +v.site,
+          location: v.location ? +v.location : null,
+          rack,
+          // Юнит/сторона имеют смысл только в стойке.
+          position: rack && v.position !== "" ? +v.position : null,
+          face: rack && v.face ? v.face : null,
+          serial: v.serial || "",
+          asset_tag: v.asset_tag ? v.asset_tag : null,
+          description: v.description || "",
+        };
+        await api("/dcim/devices/" + dev.id + "/", "PATCH", body);
+        setStatus("устройство обновлено: " + v.name, "ok");
+        await this.app.tree.reload();
+      }, "Сохранить");
   }
 
   // Паспорт ЛОКАЦИИ (клик по серверной в дереве): список её устройств —
@@ -327,6 +452,56 @@ export class DeviceManager {
       offDevs.forEach(d => el.appendChild(row(d)));
     }
     if (!total) el.appendChild(mk("div", { className: "placeholder", text: "устройств нет" }));
+  }
+
+  // Паспорт ПЛОЩАДКИ (клик по площадке в дереве): список её серверных. Клик по
+  // серверной → загрузить её область (selectScope) и показать её паспорт.
+  showSite(site) {
+    this.current = null; this.currentPanel = null;
+    const el = $("#detail");
+    const locs = (state.locations || []).filter(l => l.site && l.site.id === site.id);
+    el.innerHTML = this._detailHead(site.name, "площадка · " + locs.length + " серверных");
+    Mode.syncButtons("detail");
+    if (!locs.length) { el.appendChild(mk("div", { className: "placeholder", text: "серверных нет" })); return; }
+    el.appendChild(mk("h4", { text: "Серверные" }));
+    for (const loc of locs) {
+      const nRacks = (state.racks || []).filter(r => r.location && r.location.id === loc.id).length;
+      const r = mk("div", { className: "loc-dev",
+        html: `<span class="ld-dot" style="background:var(--accent)"></span>` +
+          `<span class="ld-name">${loc.name}</span><span class="ld-mut">${nRacks} стоек</span>` });
+      r.addEventListener("click", () => this.app.tree.selectScope("location", loc.id, loc.name));
+      el.appendChild(r);
+    }
+  }
+  // Паспорт ГРУППЫ МЕСТ: подгруппы + площадки. Клик → перейти в них (selectScope).
+  showGroup(group) {
+    this.current = null; this.currentPanel = null;
+    const el = $("#detail");
+    const subs = (state.siteGroups || []).filter(g => g.parent && g.parent.id === group.id);
+    const sites = (state.sites || []).filter(s => s.group && s.group.id === group.id);
+    el.innerHTML = this._detailHead(group.name, "группа мест · " + sites.length + " площ. · " + subs.length + " подгр.");
+    Mode.syncButtons("detail");
+    if (subs.length) {
+      el.appendChild(mk("h4", { text: "Подгруппы" }));
+      for (const g of subs) {
+        const r = mk("div", { className: "loc-dev",
+          html: `<span class="ld-dot" style="background:var(--power)"></span><span class="ld-name">${g.name}</span>` });
+        r.addEventListener("click", () => this.app.tree.selectScope("sitegroup", g.id, g.name));
+        el.appendChild(r);
+      }
+    }
+    if (sites.length) {
+      el.appendChild(mk("h4", { text: "Площадки" }));
+      for (const s of sites) {
+        const nLoc = (state.locations || []).filter(l => l.site && l.site.id === s.id).length;
+        const r = mk("div", { className: "loc-dev",
+          html: `<span class="ld-dot" style="background:var(--accent)"></span>` +
+            `<span class="ld-name">${s.name}</span><span class="ld-mut">${nLoc} серверных</span>` });
+        r.addEventListener("click", () => this.app.tree.selectScope("site", s.id, s.name));
+        el.appendChild(r);
+      }
+    }
+    if (!subs.length && !sites.length) el.appendChild(mk("div", { className: "placeholder", text: "пусто" }));
   }
 
   // Привести компоненты устройства к его device type. NetBox инстанцирует порты

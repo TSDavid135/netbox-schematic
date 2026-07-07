@@ -83,8 +83,11 @@ class _Mixin {
       return [(r.left - base.left + r.width / 2) / z, (r.top - base.top + r.height / 2) / z];
     };
     // В «Беспроводном» виде физические кабели/питание не рисуем — там только
-    // радио-линии (узлы показывают лишь радио-порты).
-    if (state.viewMode === "net") { this.drawRadioLinks(); this._fitContoursToWires(); return; }
+    // радио-линии (узлы показывают лишь радио-порты). Контуры НЕ рефитим: ноды
+    // сжимаются (меньше портов) → контур бы «прыгал» под их размер. Оставляем
+    // геометрию из физического вида — контур отражает размеры устройств, а не
+    // сжатых нод (small_fix: при смене на беспроводной контур ехал).
+    if (state.viewMode === "net") { this.drawRadioLinks(); return; }
     // Стиль проводов: "round" — прежние дуги; "angular" — угольная (Manhattan)
     // разводка с «мостиками»-полуокружностями на пересечениях (см. UI-кнопки).
     if (state.wireStyle === "angular") this._drawAngularWires(svg, center);
@@ -147,9 +150,35 @@ class _Mixin {
       const [ax, ay] = center(a.el), [bx, by] = center(b.el);
       out.push({ c, a, b, ax, ay, bx, by,
         isPower: aT.object_type.includes("power") || bT.object_type.includes("power"),
-        crossRack: this._crossRack(a.dev.id, b.dev.id) });
+        crossRack: this._crossRack(a.dev.id, b.dev.id),
+        // Хотя бы один конец ВНЕ стойки (потребитель/провайдер справа) — для них
+        // особая трасса (перпендикулярный выход с запасом), см. _offRackRoute.
+        offRack: state.devRack[a.dev.id] == null || state.devRack[b.dev.id] == null });
     }
     return out;
+  }
+  // Трасса к устройству ВНЕ стойки (потребитель/провайдер справа). Горизонталь
+  // ведём на уровне СТОЕЧНОГО конца (его перпендикулярный выход попадает в ЗАЗОР
+  // между нодами стойки — там чисто), а разницу высот добираем ВЕРТИКАЛЬНЫМ
+  // каналом у самого внестоечного узла (в пустом промежутке между контурами).
+  // Так провод не режет чужие ноды (напр. pp-r02) и не липнет к их портам.
+  // k — индекс дорожки (разброс параллельных). small_fix.
+  _offRackRoute(w, k) {
+    const { a, b, ax, ay, bx, by } = w;
+    const CL = 22 + (k % 5) * 11;
+    const aRack = state.devRack[a.dev.id] != null;
+    // rk — стоечный конец (или a, если оба вне стойки); of — внестоечный.
+    const rk = aRack ? { x: ax, y: ay, side: a.side }
+      : { x: bx, y: by, side: b.side };
+    const of = aRack ? { x: bx, y: by, side: b.side, dev: b.dev }
+      : { x: ax, y: ay, side: a.side, dev: a.dev };
+    const rOut = rk.side === "t" ? rk.y - CL : rk.y + CL;   // уровень горизонтали
+    const oOut = of.side === "t" ? of.y - CL : of.y + CL;   // подход к порту внестоечного
+    // Канал — чуть ЛЕВЕЕ внестоечного узла (в чистом промежутке между контурами).
+    const offNode = state.nodeEls[of.dev.id];
+    const nodeLeft = offNode ? (parseFloat(offNode.style.left) || of.x - 40) : of.x - 40;
+    const channelX = nodeLeft - 28 + (k % 4) * 9;   // небольшой разброс каналов
+    return [[rk.x, rk.y], [rk.x, rOut], [channelX, rOut], [channelX, oOut], [of.x, oOut], [of.x, of.y]];
   }
   // «Межстоечный» ли провод — ТОЛЬКО если оба конца в стойках. Конец на
   // устройстве вне стойки (devRack==null — потребитель/провайдер) → crossRack
@@ -164,7 +193,7 @@ class _Mixin {
   // РАНЬШЕ уводила почти к верху холста (слишком далеко). Теперь — чуть выше
   // верхних портов, «лесенкой» по каналам, чтобы провода жались к панелям.
   _trunkBusY(ay, by, chan, hi) {
-    return Math.max(6, Math.min(ay, by) - (26 + chan * 16) - (hi - 1) * 40);
+    return Math.max(6, Math.min(ay, by) - (26 + chan * 22) - (hi - 1) * 40);
   }
 
   // «Круглые» провода: дуги/изгибы
@@ -175,16 +204,26 @@ class _Mixin {
     const ctx = this._routeCtx();   // для обхода нод в «Расширенном»
     let chan = 0, lane = 0;
     for (const w of this._wireEnds(center)) {
-      const { c, a, b, ax, ay, bx, by, isPower, crossRack } = w;
+      const { c, a, b, ax, ay, bx, by, isPower, crossRack, offRack } = w;
       let d;
-      if (crossRack && state.devNodeIdx[a.dev.id] === 0 && state.devNodeIdx[b.dev.id] === 0) {
+      if (offRack) {
+        // Устройство вне стойки: горизонталь на уровне стоечного порта (в зазоре
+        // между нодами) + вертикальный канал у внестоечного узла — не режет
+        // чужие ноды и не липнет к их портам.
+        d = smoothPath(this._offRackRoute(w, lane++), 16);
+      } else if (crossRack && state.devNodeIdx[a.dev.id] === 0 && state.devNodeIdx[b.dev.id] === 0) {
         const lift = this._trunkBusY(ay, by, chan++, hi);
         d = cubicPath(ax, ay, bx, by, lift, lift);
       } else if (crossRack) {
         const leftCol = Math.min(state.devCol[a.dev.id], state.devCol[b.dev.id]);
-        const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (lane++ % 8) * 12 - 40;
-        const aOut = a.side === "t" ? ay - (18 + (lane % 3) * 6) * hi : ay + (18 + (lane % 3) * 6) * hi;
-        const bOut = b.side === "t" ? by - (18 + (lane % 3) * 6) * hi : by + (18 + (lane % 3) * 6) * hi;
+        // Больше дорожек в коридоре (9 вместо 8) и БОЛЬШЕ уровней высоты выноса
+        // (6 вместо 3), причём выносы у источника и приёмника РАСкоррелированы
+        // ((k+3)%6) — так горизонтальные участки соседних проводов не ложатся на
+        // одну высоту (small_fix: провода всё ещё накладывались).
+        const k = lane++;
+        const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (k % 9) * 15 - 60;
+        const aOut = a.side === "t" ? ay - (18 + (k % 6) * 10) * hi : ay + (18 + (k % 6) * 10) * hi;
+        const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
         d = orthoPath(ax, ay, bx, by, gapX, aOut, bOut);
       } else if (extend && Math.abs(state.devNodeIdx[a.dev.id] - state.devNodeIdx[b.dev.id]) >= 2) {
         // «Расширенный» и в «Круглых»: обход нод боковым коридором, но со
@@ -223,18 +262,22 @@ class _Mixin {
   // дорожки) применяются и к Wireless. Мостики к результату не относятся —
   // их накладывает только отрисовщик кабелей (у радио их нет).
   _routePolyline(w, ctx) {
-    const { a, b, ax, ay, bx, by, crossRack } = w;
+    const { a, b, ax, ay, bx, by, crossRack, offRack } = w;
     const { LEFT_PAD, hi, extend } = ctx;
     const vary = w.c ? w.c.id : ctx.idx++;   // у радио нет c.id — берём индекс
+    // Устройство вне стойки — горизонталь на уровне стоечного порта + канал у
+    // внестоечного узла (см. _offRackRoute), чтобы не резать чужие ноды.
+    if (offRack) return this._offRackRoute(w, ctx.lane++);
     if (crossRack && state.devNodeIdx[a.dev.id] === 0 && state.devNodeIdx[b.dev.id] === 0) {
       const busY = this._trunkBusY(ay, by, ctx.chan++, hi);
       return [[ax, ay], [ax, busY], [bx, busY], [bx, by]];
     }
     if (crossRack) {
       const leftCol = Math.min(state.devCol[a.dev.id], state.devCol[b.dev.id]);
-      const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (ctx.lane++ % 8) * 12 - 40;
-      const aOut = a.side === "t" ? ay - (18 + (ctx.lane % 3) * 6) * hi : ay + (18 + (ctx.lane % 3) * 6) * hi;
-      const bOut = b.side === "t" ? by - (18 + (ctx.lane % 3) * 6) * hi : by + (18 + (ctx.lane % 3) * 6) * hi;
+      const k = ctx.lane++;
+      const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (k % 9) * 15 - 60;
+      const aOut = a.side === "t" ? ay - (18 + (k % 6) * 10) * hi : ay + (18 + (k % 6) * 10) * hi;
+      const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
       return [[ax, ay], [ax, aOut], [gapX, aOut], [gapX, bOut], [bx, bOut], [bx, by]];
     }
     if (extend && Math.abs(state.devNodeIdx[a.dev.id] - state.devNodeIdx[b.dev.id]) >= 2) {

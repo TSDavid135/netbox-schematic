@@ -43,6 +43,23 @@ app.renderAll = group => renderAll(group);
   });
 }
 
+// Экспорт / Импорт — пока заглушки (семантику уточним). Кнопки на месте, слева
+// от поиска; действие сообщает, что функция в разработке.
+for (const id of ["exportbtn", "importbtn"]) {
+  const b = $("#" + id);
+  if (b) b.addEventListener("click", () =>
+    setStatus((id === "exportbtn" ? "Экспорт" : "Импорт") + " — в разработке"));
+}
+
+// Меню пользователя в шапке (клик по имени → выпадашка; клик вне — закрыть).
+{
+  const box = $("#userbox"), btn = $("#userbtn");
+  if (box && btn) {
+    btn.addEventListener("click", e => { e.stopPropagation(); box.classList.toggle("open"); });
+    document.addEventListener("click", e => { if (!box.contains(e.target)) box.classList.remove("open"); });
+  }
+}
+
 app.device.wireModal();
 initTheme();
 

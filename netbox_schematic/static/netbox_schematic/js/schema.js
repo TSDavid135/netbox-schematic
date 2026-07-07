@@ -16,6 +16,7 @@ import { ContourMethods } from "./schema_contours.js";
 import { PowerMethods } from "./schema_power.js";
 import { WireMethods } from "./schema_wires.js";
 import { InteractMethods } from "./schema_interact.js";
+import { SOLUTIONS, SOLUTION_CATS, catalogGroup } from "./solutions.js";
 
 // Класс SchemaManager разнесён по модулям: базовые методы (constructor, render,
 // предикаты, вид/зум/пан) — здесь, остальные — примесями. _mixin копирует
@@ -26,29 +27,6 @@ function _mixin(target, ...protos) {
       if (k !== "constructor")
         Object.defineProperty(target, k, Object.getOwnPropertyDescriptor(p, k));
 }
-
-// Палитра устройств для кнопки «+»: две категории (периферия / коммутация),
-// каждая — набор кнопок {иконка, подпись}. Тянутся на локацию (place-mode).
-const PALETTE = {
-  periph: [
-    { key: "pc", label: "ПК", icon: "mdi-desktop-classic" },
-    { key: "laptop", label: "Ноутбук", icon: "mdi-laptop" },
-    { key: "printer", label: "Принтер", icon: "mdi-printer" },
-    { key: "camera", label: "Камера", icon: "mdi-cctv" },
-    { key: "tv", label: "ТВ", icon: "mdi-television" },
-    { key: "phone", label: "Телефон", icon: "mdi-deskphone" },
-    { key: "other", label: "Оборуд.", icon: "mdi-devices" },
-  ],
-  switch: [
-    { key: "router", label: "Роутер", icon: "mdi-router" },
-    { key: "switch", label: "Коммутатор", icon: "mdi-switch" },
-    { key: "ap", label: "Точка дост.", icon: "mdi-access-point" },
-    { key: "patch", label: "Пач-панель", icon: "mdi-format-align-justify" },
-    { key: "provider", label: "Провайдер", icon: "mdi-web" },
-    { key: "other", label: "Оборуд.", icon: "mdi-devices" },
-  ],
-};
-
 
 export class SchemaManager {
   constructor(app) {
@@ -76,6 +54,12 @@ export class SchemaManager {
   render(group, byRack, devPorts) {
     this._lastRender = { group, byRack, devPorts };   // для перерисовки (промежуток нод)
     const pane = $("#schempane");
+    // Сохранить позицию скролла, если перерисовываем ТУ ЖЕ область (новая нода,
+    // reload, смена промежутка) — иначе центрировать (первая отрисовка / смена
+    // области). Позиция иначе слетала при появлении нод (small_fix q10).
+    const sameScope = this._lastRenderKey === state.groupKey;
+    const keepL = pane.scrollLeft, keepT = pane.scrollTop;
+    this._lastRenderKey = state.groupKey;
     this._computePads(pane);
     const loc = currentLocationName();
     const title = loc ? `Схема соединений : ${loc}` : "Схема соединений";
@@ -135,18 +119,15 @@ export class SchemaManager {
             </div>
           </div>
           <div id="palette">
-            <div class="pl-toggle" id="pl-toggle">
+            <div class="pl-toggle" id="pl-toggle" title="Перетащи устройство на схему">
               <span class="short-name">+</span>
               <span class="full-name"><i class="mdi mdi-plus-box-outline"></i> Устройства</span>
               <span class="arrow"><i class="mdi mdi-chevron-down"></i></span>
             </div>
             <div class="pl-body">
-              <div class="pl-tabs">
-                <button class="pl-tab active" data-cat="periph" title="Периферийные сетевые устройства"><i class="mdi mdi-desktop-tower-monitor"></i></button>
-                <button class="pl-tab" data-cat="switch" title="Коммутация"><i class="mdi mdi-router-wireless"></i></button>
-              </div>
+              <div class="pl-tabs"></div>
               <div class="pl-grid"></div>
-              <div class="pl-hint">Кликни устройство и перетащи в локацию на схеме</div>
+              <div class="pl-hint">Перетащи устройство в локацию на схеме</div>
             </div>
           </div>
         </div>
@@ -162,7 +143,6 @@ export class SchemaManager {
           <span><span class="dotd" style="border-color:var(--power)"></span>питание</span>
           <span><span class="dotd" style="border-color:var(--power)"></span>фидер щита</span>
           <span><span class="lg-radio" style="background:var(--wireless)"></span>радио-линк (слой Wireless)</span>
-          <span><span class="dotd" style="border-color:var(--circuit)"></span>☁ выход в WAN (Circuit)</span>
           <span>закрашен = занят · клик по занятому = меню связи</span>
           <span class="lg-sub">Кабели (цвет = тип)</span>
           ${this._cableLegendRows()}
@@ -245,6 +225,18 @@ export class SchemaManager {
     });
     this.SLOT = Math.max(COL_W, Math.ceil(maxNodeW) + BOX_PAD * 2);
 
+    // Провода накладываются, когда у соседних нод порты на одной высоте. Дадим
+    // «нагруженным» нодам (много кабелей) чуть больше места по вертикали — их
+    // горизонтальные провода разойдутся по разным уровням (small_fix: «если
+    // расстояния не хватает, ноды немного подвинутся»). Мягко, с потолком.
+    const cablesOn = {};
+    for (const c of state.cables)
+      for (const t of [...(c.a_terminations || []), ...(c.b_terminations || [])]) {
+        const d = t.object && t.object.device && t.object.device.id;
+        if (d != null) cablesOn[d] = (cablesOn[d] || 0) + 1;
+      }
+    const spread = dev => Math.min(cablesOn[dev.id] || 0, 6) * 5;   // до +30px
+
     group.forEach((rack, col) => {
       const x0 = LEFT_PAD + col * (this.SLOT + COL_GAP) + BOX_PAD;
       const box = mk("div", { className: "rackbox", html: `<span class="rb-label">стойка ${rack.name}</span>`,
@@ -271,7 +263,7 @@ export class SchemaManager {
         canvas.appendChild(node);
         state.nodeEls[dev.id] = node;
         this._layoutNode(dev, node);   // раскладка портов + ширина (по режиму)
-        y += 64 + (state.nodeGap ?? NODE_GAP);
+        y += 64 + (state.nodeGap ?? NODE_GAP) + spread(dev);
       }
       box.style.height = (y - TOP_PAD + 20) + "px";
       rackMeta[rack.id] = { col, bottom: y - 14, rack };   // низ = верх бокса + высота
@@ -297,15 +289,21 @@ export class SchemaManager {
     const baseW = LEFT_PAD + group.length * (this.SLOT + COL_GAP) + rightPad;
     canvas.style.width = Math.max(baseW, (off.right || 0) + 200) + "px";
     canvas.style.height = (Math.max(maxBottom, off.bottom || 0) + botPad) + "px";
-    // Первая отрисовка — скроллбары посередине.
-    pane.scrollLeft = (canvas.offsetWidth - pane.clientWidth) / 2;
-    pane.scrollTop = (canvas.offsetHeight - pane.clientHeight) / 2;
+    // Та же область — вернуть прежнюю позицию (не дёргать вид при появлении нод);
+    // новая область / первая отрисовка — центрировать.
+    if (sameScope) {
+      pane.scrollLeft = keepL; pane.scrollTop = keepT;
+    } else {
+      pane.scrollLeft = (canvas.offsetWidth - pane.clientWidth) / 2;
+      pane.scrollTop = (canvas.offsetHeight - pane.clientHeight) / 2;
+    }
   }
 
-  // Ноды устройств ВНЕ стоек (state.devices[]._off): "provider" — ряд НАД
-  // стойками; "periph" с ЛОКАЦИЕЙ (показана контуром) — ВНУТРИ её контура (под
-  // стойками, контур растёт вниз); остальные — сеткой справа. Обычные .node с
-  // портами → кабели к ним чертятся штатно (off-rack → простая кривая).
+  // Ноды устройств ВНЕ стоек (state.devices[]._off) — СПРАВА от стоек, сгруппи-
+  // рованные по ТИПУ («готовому решению») в логические контуры «<группа> · <лок>»
+  // (small_fix: ПК поодаль от роутеров). Раскладка контуров: колонка сверху вниз,
+  // каждый контур — свои ноды сеткой по 2 в ширину; когда контур не влезает до
+  // «подвала» (низа стоек/щитов), следующий уходит в новую колонку вправо.
   // Возвращает {right, bottom} — правый/нижний края (для размера холста).
   _renderOffRack(canvas, group, devPorts, rackMeta, maxBottom) {
     const off = state.devices.filter(d => d._off);
@@ -320,27 +318,59 @@ export class SchemaManager {
       const role = state.roles[dev.role.id] || { color: "607d8b" };
       node.style.borderLeft = "3px solid #" + role.color;
       node._x0 = x;
+      node._fixedLeft = x;          // фикс. позиция — переживает перекладку (relayoutNodes)
       node._groups = devPorts[dev.id] || [];
       canvas.appendChild(node);
       state.nodeEls[dev.id] = node;
-      this._layoutNode(dev, node);
-      node.style.left = x + "px";   // фикс. позиция, не центрируем в SLOT
+      this._layoutNode(dev, node);   // сам поставит left = _fixedLeft для off-rack
     };
-    let right = 0, bottom = 0;
-    // Провайдер(ы) — ряд НАД стойками.
-    let px = LEFT_PAD + 20;
-    const provY = Math.max(10, TOP_PAD - 130);
-    for (const dev of off.filter(d => d._off === "provider")) { place(dev, px, provY); px += 240; }
-    // Периферия — СЕТКОЙ СПРАВА от стоек (щитки ниже, вправо их не задевает).
-    // Локация устройства — только метаданные (из дропа), на позицию не влияет.
-    const gx0 = LEFT_PAD + group.length * (SLOT + COL_GAP) + 40, cols = 2, cellW = 210,
-      cellH = 96 + (state.nodeGap ?? NODE_GAP);
-    right = gx0;
-    off.filter(d => d._off === "periph").forEach((dev, i) => {
-      const x = gx0 + (i % cols) * cellW, y = TOP_PAD + Math.floor(i / cols) * cellH;
-      place(dev, x, y);
-      right = Math.max(right, x + cellW); bottom = Math.max(bottom, y + 80);
-    });
+    // Группировка по типу решения.
+    const groups = new Map();   // key → { label, order, locName, devs: [] }
+    for (const dev of off) {
+      const g = catalogGroup(dev);
+      let e = groups.get(g.key);
+      if (!e) { e = { label: g.label, order: g.order,
+        locName: (dev.location && dev.location.name) || "", devs: [] }; groups.set(g.key, e); }
+      e.devs.push(dev);
+    }
+    const list = [...groups.values()]
+      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+
+    // Геометрия упаковки контуров. HEAD_H крупнее — ноды заметно ниже подписи.
+    const HEAD_H = 40, PAD = 14, ROW_H = 108, HGAP = 20, CONTOUR_GAP = 24, COL_GAP2 = 44;
+    const gx0 = LEFT_PAD + group.length * (SLOT + COL_GAP) + 40;
+    const startY = TOP_PAD;
+    const bottomLimit = Math.max(startY + 320, maxBottom);   // «подвал» — низ стоек/щитов
+    const nodeW = devs => Math.max(...devs.map(d => this._nodeParts(d, devPorts[d.id] || []).width));
+
+    let curX = gx0, curY = startY, colW = 0, right = gx0, bottom = startY;
+    for (const grp of list) {
+      const n = grp.devs.length;
+      const cols = Math.min(2, n), rows = Math.ceil(n / 2);
+      const nw = nodeW(grp.devs);
+      const contourW = PAD * 2 + cols * nw + (cols - 1) * HGAP;
+      const contourH = HEAD_H + rows * ROW_H + PAD;
+      // Перенос в новую колонку вправо, если контур не помещается до «подвала»
+      // (и он не первый в текущей колонке — иначе он всё равно должен стоять).
+      if (curY + contourH > bottomLimit && curY > startY) {
+        curX += colW + COL_GAP2; curY = startY; colW = 0;
+      }
+      // Пунктирный контур типа (без локации в подписи — она и так одна).
+      const box = this._contourEl("gb-type", grp.label,
+        { left: curX, top: curY, width: contourW, height: contourH });
+      canvas.insertBefore(box, canvas.firstChild);
+      // Ноды сеткой: max 2 в ширину, растут вниз.
+      grp.devs.forEach((dev, i) => {
+        const c = i % 2, r = Math.floor(i / 2);
+        const x = curX + PAD + c * (nw + HGAP);
+        const y = curY + HEAD_H + r * ROW_H + 13;   // +13 — под верхний ряд портов
+        place(dev, x, y);
+      });
+      right = Math.max(right, curX + contourW);
+      bottom = Math.max(bottom, curY + contourH);
+      colW = Math.max(colW, contourW);
+      curY += contourH + CONTOUR_GAP;
+    }
     return { right, bottom };
   }
 
@@ -350,29 +380,33 @@ export class SchemaManager {
   _wirePalette() {
     const pal = $("#palette");
     if (!pal) return;
-    const grid = pal.querySelector(".pl-grid");
+    const tabsEl = pal.querySelector(".pl-tabs"), grid = pal.querySelector(".pl-grid");
+    // Вкладки категорий строятся из справочника решений (периферия / сеть /
+    // питание / стойки) — единый источник с меню ПКМ «Добавить».
+    tabsEl.innerHTML = SOLUTION_CATS.map((cat, i) =>
+      `<button class="pl-tab${i === 0 ? " active" : ""}" data-cat="${cat}" title="${SOLUTIONS[cat].label}"><i class="mdi ${SOLUTIONS[cat].icon}"></i></button>`).join("");
     const fill = cat => {
-      grid.innerHTML = (PALETTE[cat] || []).map(it =>
+      const items = (SOLUTIONS[cat] || {}).items || [];
+      grid.innerHTML = items.map(it =>
         `<button class="pl-item" title="${it.label}"><i class="mdi ${it.icon}"></i><span>${it.label}</span></button>`).join("");
       // mousedown → перенос: можно ЗАЖАТЬ ЛКМ и тянуть (бросить отпусканием на
       // локации), либо кликнуть и вести без кнопки (бросить следующим кликом).
       grid.querySelectorAll(".pl-item").forEach((b, i) => b.addEventListener("mousedown", ev => {
         if (ev.button !== 0) return;
         ev.preventDefault(); ev.stopPropagation();
-        this._startPlacing(PALETTE[cat][i], ev);
+        this._startPlacing(items[i], ev);
       }));
     };
-    pal.querySelectorAll(".pl-tab").forEach(tab => tab.addEventListener("click", () => {
-      pal.querySelectorAll(".pl-tab").forEach(t => t.classList.toggle("active", t === tab));
+    tabsEl.querySelectorAll(".pl-tab").forEach(tab => tab.addEventListener("click", () => {
+      tabsEl.querySelectorAll(".pl-tab").forEach(t => t.classList.toggle("active", t === tab));
       fill(tab.dataset.cat);
     }));
-    fill("periph");
+    fill(SOLUTION_CATS[0]);
   }
   _startPlacing(item, ev) {
     this._cancelPlacing();
     this._placing = item;
     this._placeStart = ev ? { x: ev.clientX, y: ev.clientY } : null;
-    this._placeArmed = !!ev;   // ЛКМ зажата: отпустил со сдвигом = дроп; без сдвига = клик-режим
     const g = mk("div", { className: "pl-ghost", html: `<i class="mdi ${item.icon}"></i><span>${item.label}</span>` });
     document.body.appendChild(g);
     if (ev) { g.style.left = ev.clientX + "px"; g.style.top = ev.clientY + "px"; }
@@ -380,17 +414,14 @@ export class SchemaManager {
     document.body.classList.add("placing");
     this._plMove = ev => this._placeMove(ev);
     this._plDown = ev => { if (ev.button === 2) { ev.preventDefault(); this._plPan = { x: ev.clientX, y: ev.clientY }; } };
+    // ТОЛЬКО перетаскивание: отпустил ЛКМ ПОСЛЕ сдвига на локации → дроп; если
+    // не дотащил (не сдвинулся) — отмена, ничего не создаём (по просьбе).
     this._plUp = ev => {
       if (ev.button === 2) { this._plPan = null; return; }
       if (ev.button !== 0) return;
-      if (this._placeArmed) {   // это отпускание начального зажатия
-        this._placeArmed = false;
-        const s = this._placeStart || { x: ev.clientX, y: ev.clientY };
-        if (Math.abs(ev.clientX - s.x) + Math.abs(ev.clientY - s.y) > 6) this._placeDrop(ev); // тянули → бросаем
-        // не сдвинулись → клик-режим: остаёмся, бросим следующим кликом
-      } else {
-        this._placeDrop(ev);   // клик-режим
-      }
+      const s = this._placeStart || { x: ev.clientX, y: ev.clientY };
+      if (Math.abs(ev.clientX - s.x) + Math.abs(ev.clientY - s.y) > 6) this._placeDrop(ev);
+      else this._cancelPlacing();
     };
     this._plKey = ev => { if (ev.key === "Escape") this._cancelPlacing(); };
     this._plCtx = ev => ev.preventDefault();   // ПКМ во время переноса — пан, не меню
@@ -399,7 +430,7 @@ export class SchemaManager {
     window.addEventListener("mouseup", this._plUp);
     window.addEventListener("keydown", this._plKey);
     window.addEventListener("contextmenu", this._plCtx);
-    setStatus(`перетащи «${item.label}» в локацию · клик — создать · ПКМ — двигать холст · Esc — отмена`);
+    setStatus(`тащи «${item.label}» в локацию · ПКМ — двигать холст · Esc — отмена`);
   }
   _placeMove(ev) {
     if (this._placeGhost) { this._placeGhost.style.left = ev.clientX + "px"; this._placeGhost.style.top = ev.clientY + "px"; }
@@ -441,7 +472,12 @@ export class SchemaManager {
     // Площадка локации: из loc.siteId или (если вся схема) из текущих стоек.
     let siteId = loc.siteId;
     if (!siteId && state.group && state.group[0] && state.group[0].site) siteId = state.group[0].site.id;
-    this.app.device.createConsumer({ siteId, locId: loc.locId, locName: loc.locName, name: item.label, provider: item.key === "provider" });
+    const ctx = { siteId, locId: loc.locId, locName: loc.locName };
+    // Роутинг по типу решения: стойка → Rack, распредщиток → Power Panel,
+    // остальное → устройство (готовое решение, порты по числу).
+    if (item.kind === "rack") this.app.device.addRack(ctx);
+    else if (item.kind === "panel") this.app.device.addPanel(ctx);
+    else this.app.device.addSolution(item, ctx);
   }
   _cancelPlacing() {
     if (this._placeGhost) { this._placeGhost.remove(); this._placeGhost = null; }

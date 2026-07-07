@@ -137,6 +137,15 @@ class _Mixin {
       if (lid == null) continue;
       (offByLoc[lid] = offByLoc[lid] || []).push(node);
     }
+    // Силовые щиты локации (боксы под стойками) — контур серверной должен их
+    // ОХВАТЫВАТЬ (small_fix: при выборе Site щитки внутри контура). Боксы —
+    // state.powerBoxEls[panel.id], привязка к локации — panel.location.id.
+    const panelsByLoc = {};
+    for (const p of (state.powerPanels || [])) {
+      const box = (state.powerBoxEls || {})[p.id];
+      const lid = p.location && p.location.id;
+      if (box && lid != null) (panelsByLoc[lid] = panelsByLoc[lid] || []).push(box);
+    }
     // Дорастить box под геометрию произвольных нод (off-rack) — как growByNodes,
     // но по явному списку элементов, а не по rackIds.
     const growByEls = (box, els, pad) => {
@@ -161,6 +170,9 @@ class _Mixin {
       ct._box = growByNodes(growByInnerWires(ct.base, ct.rackIds, 8), ct.rackIds, 6);
       const offEls = offByLoc[ct.locId];
       if (offEls && offEls.length) ct._box = growByEls(ct._box, offEls, 16);
+      // Щиты локации — pad 22, чтобы охватить и их подпись «Силовые щиты» сверху.
+      const panelEls = panelsByLoc[ct.locId];
+      if (panelEls && panelEls.length) ct._box = growByEls(ct._box, panelEls, 22);
       apply(ct);
     }
     // Phase 2 — площадки: объединение подросших серверных + внутренние провода

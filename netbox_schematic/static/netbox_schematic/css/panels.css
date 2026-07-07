@@ -61,16 +61,19 @@
    search.js по фактической геометрии #schempwrap (position()). Поле «висит»
    ровно над схемой, а не над паспортом (#detail). */
 #devsearch {
-  position: absolute; top: 50%; transform: translateY(-50%);
-  display: flex; align-items: center; z-index: 30;
+  position: relative; display: flex; align-items: center; z-index: 30;
+  width: 240px; max-width: 30vw;
   background: var(--bg); border: 1px solid var(--line); border-radius: 7px;
   padding: 0 6px 0 8px; height: 30px;
 }
 #devsearch:focus-within { border-color: var(--accent); }
 #devsearch .ds-icon { color: var(--muted); font-size: 15px; flex-shrink: 0; }
-#devsearch-inp {
+/* #topbar-селектор перебивает по специфичности — усиливаем, чтобы у поля НЕ было
+   своей рамки/фона (иначе двойная обводка внутри #devsearch). */
+#devsearch #devsearch-inp {
   flex: 1; min-width: 0; background: transparent; border: none; outline: none;
-  color: var(--text); font-family: var(--mono); font-size: 12px; padding: 0 6px;
+  border-radius: 0; padding: 0 6px;
+  color: var(--text); font-family: var(--mono); font-size: 12px;
 }
 #devsearch-inp::placeholder { color: var(--muted); }
 #devsearch-clear {

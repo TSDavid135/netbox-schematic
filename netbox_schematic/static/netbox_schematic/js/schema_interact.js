@@ -16,6 +16,7 @@ const EP_TO_OTYPE = { "interfaces": "dcim.interface", "front-ports": "dcim.front
 class _Mixin {
   _hoverWire(cableId, a, b, on) {
     if (state.pending) return;
+    if (this._traceActive) return;   // трасса зафиксирована — ховер её не трогает (q9)
     document.querySelectorAll("#wires path.wire").forEach(p => {
       const mine = +p.dataset.cable === cableId;
       p.classList.toggle("dim", on && !mine);
@@ -35,6 +36,7 @@ class _Mixin {
   }
   _portHover(port, on) {
     if (state.pending) return;
+    if (this._traceActive) return;   // трасса зафиксирована — ховер её не трогает (q9)
     // Радио-порт: кабеля нет, подсвечиваем радио-линию и дальний конец.
     if (!port.item.cable && port.item.wireless_link) { this._hoverRadio(port, on); return; }
     if (!port.item.cable) return;
@@ -286,7 +288,8 @@ class _Mixin {
     const a = aT && state.ports[termKey(aT)], b = bT && state.ports[termKey(bT)];
     if (a && b) {
       this._hoverWire(cable.id, a, b, true);
-      setStatus(`кабель: ${a.dev.name}/${a.item.name} ⇄ ${b.dev.name}/${b.item.name} — клик по фону снимет`, "ok");
+      this._armTraceClear();
+      setStatus(`кабель: ${a.dev.name}/${a.item.name} ⇄ ${b.dev.name}/${b.item.name} — клик снимет`, "ok");
     }
   }
   // ДВОЙНОЕ нажатие по занятому порту — продолжение (полная трасса через
@@ -330,15 +333,43 @@ class _Mixin {
       const last = segments[segments.length - 1];
       const endT = last && last[2] && last[2][0];
       const endTxt = endT ? (endT.device ? endT.device.name + "/" : "") + (endT.name || "?") : "?";
-      setStatus(`путь: ${item.name} → ${endTxt} (${segments.length} кабел${segments.length === 1 ? "ь" : "я/ей"}) — клик по фону снимет`, "ok");
+      this._armTraceClear();
+      setStatus(`путь: ${item.name} → ${endTxt} (${segments.length} кабел${segments.length === 1 ? "ь" : "я/ей"}) — клик снимет`, "ok");
     } catch (e) {
       setStatus("трасса не построилась: " + e.message, "err");
     }
+  }
+  // Зафиксировать трассу: ховер её больше не трогает (_traceActive), и ЛЮБОЙ
+  // клик (не перетаскивание/пан, не по порту) её снимает — «клик по любому
+  // месту убирает» (q9). Регистрируем после текущего события, чтобы не поймать
+  // клик, породивший трассу.
+  _armTraceClear() {
+    this._traceActive = true;
+    if (this._traceHandlers) return;   // уже вооружено
+    let sx = 0, sy = 0;
+    const down = ev => { sx = ev.clientX; sy = ev.clientY; };
+    const up = ev => {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) return;   // пан/драг — не снимаем
+      if (ev.target.closest && ev.target.closest(".port")) return;             // порт сам стартует трассу
+      this._clearTrace();
+    };
+    this._traceHandlers = { down, up };
+    setTimeout(() => {
+      if (!this._traceHandlers) return;
+      document.addEventListener("mousedown", down, true);
+      document.addEventListener("mouseup", up, true);
+    }, 0);
   }
   _clearTrace() {
     document.querySelectorAll("#wires path.wire").forEach(p => p.classList.remove("hl", "dim"));
     document.querySelectorAll(".port.hl").forEach(p => p.classList.remove("hl"));
     document.querySelectorAll(".node.hl, .dev.hl, .node.conn-hl, .node.dim2").forEach(el => el.classList.remove("hl", "conn-hl", "dim2"));
+    this._traceActive = false;
+    if (this._traceHandlers) {
+      document.removeEventListener("mousedown", this._traceHandlers.down, true);
+      document.removeEventListener("mouseup", this._traceHandlers.up, true);
+      this._traceHandlers = null;
+    }
   }
 
   // зум / центровка

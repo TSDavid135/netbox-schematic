@@ -9,6 +9,7 @@ import {
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
 import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
+import { iconForDevice } from "./solutions.js";
 
 class _Mixin {
   // стороны портов
@@ -65,7 +66,8 @@ class _Mixin {
   // Нужен ДВАЖДЫ: в пре-проходе render() — чтобы посчитать ширину слота колонки
   // (SLOT) под самый широкий узел, и в _layoutNode — чтобы разместить порты.
   _nodeParts(dev, groups, netArg, editArg) {
-    const MIN_W = 170, EDGE = (STEP - DOT) / 2 + 4;
+    // Ноды вне стоек — уже (плотнее к тексту), в стойке — прежняя мин. ширина.
+    const MIN_W = dev._off ? 150 : 170, EDGE = (STEP - DOT) / 2 + 4;
     // netArg/editArg — оверрайды режима (для пре-прохода SLOT, чтобы ширина
     // слота не зависела от текущего режима отображения); иначе берём глобальные.
     const net = netArg !== undefined ? netArg : state.viewMode === "net";
@@ -118,12 +120,40 @@ class _Mixin {
     const P = this._nodeParts(dev, node._groups || []);
     const { net, edit, EDGE, top, topV, botLeftV, botRightV, nBotL, nBotR, width } = P;
     node.style.width = width + "px";
-    // Центрируем в слоте колонки (SLOT = ширина самой широкой ноды, единая для
-    // всех колонок), чтобы широкие ноды не вылезали в соседние (small_fix п.1).
-    node.style.left = (node._x0 + (this.SLOT - BOX_PAD - width) / 2) + "px";
+    // Вне стойки — фиксированная позиция (задаётся при упаковке контуров); НЕ
+    // центрируем в слоте, иначе при перекладке (смена режима) нода уедет из
+    // своего контура. В стойке — центрируем в слоте колонки (SLOT = ширина самой
+    // широкой ноды, единая для всех колонок), чтобы широкие не вылезали в соседние.
+    if (dev._off)
+      node.style.left = (node._fixedLeft != null ? node._fixedLeft : node._x0) + "px";
+    else
+      node.style.left = (node._x0 + (this.SLOT - BOX_PAD - width) / 2) + "px";
 
-    // Пересобрать содержимое: имя/модель + подписи + порты.
-    node.innerHTML = `<span class="nm">${dev.name}</span><span class="mdl">${dev.device_type.model} · U${dev.position}</span>`;
+    // Пересобрать содержимое: имя/модель + подписи + порты. Вне стойки (off-rack)
+    // — компактная карточка с ИКОНКОЙ решения слева, без «· U…» (юнита нет), и
+    // рядом с именем — IP первого интерфейса; нет IP → кнопка «+ адрес» (q1).
+    if (dev._off) {
+      let firstIface = null, firstIp = null;
+      for (const g of (node._groups || [])) {
+        if (g.kind.otype !== "dcim.interface") continue;
+        for (const it of g.items) {
+          if (!firstIface) firstIface = it;
+          const ips = (state.ipsByIface && state.ipsByIface[it.id]) || [];
+          if (ips.length) { firstIp = ips[0].address; break; }
+        }
+        if (firstIp) break;
+      }
+      const addr = firstIp ? `<span class="node-ip">${firstIp}</span>`
+        : (firstIface ? `<button class="node-addip" title="Назначить IP">+ адрес</button>` : "");
+      node.innerHTML = `<i class="mdi ${iconForDevice(dev)} node-ic"></i>` +
+        `<span class="node-tt"><span class="node-nmrow"><span class="nm">${dev.name}</span>${addr}</span>` +
+        `<span class="mdl">${dev.device_type.model}</span></span>`;
+      const addBtn = node.querySelector(".node-addip");
+      if (addBtn && this.app.ipform && firstIface)
+        addBtn.addEventListener("click", ev => { ev.stopPropagation(); this.app.ipform.open(dev, firstIface, ev); });
+    } else {
+      node.innerHTML = `<span class="nm">${dev.name}</span><span class="mdl">${dev.device_type.model} · U${dev.position}</span>`;
+    }
     node.querySelector(".nm").addEventListener("click", () => this.app.device.show(dev));
 
     // Подписи групп. В «БЕСПРОВОДНОМ» виде — только низ «Wireless» (радио).
@@ -161,6 +191,14 @@ class _Mixin {
     // wireless-интерфейс. Это логический порт (радио), добавляется свободно —
     // в отличие от физических гнёзд (см. обсуждение). Есть у КАЖДОГО узла.
     if (net && edit) this._placeAddWireless(node, dev, EDGE + nBotL * STEP);
+    // В режиме правки — карандаш по центру ПРАВОЙ грани ноды: полная модалка
+    // редактирования устройства (все поля дефолтного NetBox).
+    if (edit) {
+      const pen = mk("div", { className: "node-edit", title: "Изменить устройство",
+        html: `<i class="mdi mdi-pencil"></i>` });
+      pen.addEventListener("click", ev => { ev.stopPropagation(); this.app.device.editDevice(dev); });
+      node.appendChild(pen);
+    }
   }
 
   // Зелёный «+» для создания wireless-интерфейса. Ставится в ряду Wireless
@@ -208,12 +246,8 @@ class _Mixin {
     dot.textContent = shortPortName(item.name, ordinal);
     dot.style.left = leftPx + "px";
     dot.style[isTop ? "top" : "bottom"] = "-13px";
-    // Значок «в облако» у circuit-порта (выход в WAN) — иконка над кружком.
-    if (isCircuit) {
-      const cloud = mk("i", { className: "mdi mdi-cloud-outline port-cloud",
-        title: "Выход в WAN (Circuit)" });
-      dot.appendChild(cloud);
-    }
+    // Облачко «выход в WAN» над circuit-портом убрано: провайдера теперь можно
+    // добавить на схему отдельным устройством, метка-облачко больше не нужна.
     attachTip(dot, () => this._portTip(dev, g.kind, item));
     dot.addEventListener("mouseenter", () => this._portHover(state.ports[portKey(g.kind.otype, item.id)], true));
     dot.addEventListener("mouseleave", () => this._portHover(state.ports[portKey(g.kind.otype, item.id)], false));

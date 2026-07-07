@@ -32,6 +32,7 @@ export const state = {
   modalSubmit: null,
   toolsCollapsed: true,   // блок «UI» на схеме изначально свёрнут
   filterCollapsed: true,  // блок «Fl» (фильтр по ролям/кабелям) изначально свёрнут
+  paletteCollapsed: true, // палитра «+» (правый нижний угол) изначально свёрнута
   viewMode: "phys",       // режим отображения схемы: "phys" | "net" (свитч на схеме)
   wireStyle: "round",     // стиль проводов: "round" (дуги) | "angular" (углы + мостики)
   wirePath: "short",      // трасса углов: "short" (напрямую) | "extend" (в обход нод)

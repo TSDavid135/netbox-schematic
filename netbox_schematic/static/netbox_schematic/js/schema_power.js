@@ -36,9 +36,18 @@ class _Mixin {
     // В правке добавляется строка «+ фидер» → высота щитка на 1 ряд больше.
     const rowsOf = fs => edit ? fs.length + 1 : Math.max(1, fs.length);
     const maxH = Math.max(...panelFeeds.map(fs => HEAD_H + rowsOf(fs) * ROW_H + 8));
-    // Несколько щитков — в ряд по горизонтали, центрируем весь ряд.
+    // Ряд щитков: ЛЕВЫЙ край ПЕРВОГО щитка привязан к центру (centerX-PANEL_W/2),
+    // новые щитки добавляются ВПРАВО и НЕ сдвигают уже стоящие (small_fix).
     const rowW = panels.length * PANEL_W + (panels.length - 1) * GAP_X;
-    let x = centerX - rowW / 2;
+    const x0 = centerX - PANEL_W / 2;
+    // Контур блока щитков «Силовые щиты» (позади карточек) — с подписью и заливкой,
+    // как у контуров-типов устройств.
+    const CONT_HEAD = 28, CONT_PAD = 14;
+    const contour = this._contourEl("gb-power", "Силовые щиты", {
+      left: x0 - CONT_PAD, top: top - CONT_HEAD,
+      width: rowW + CONT_PAD * 2, height: CONT_HEAD + maxH + CONT_PAD });
+    canvas.insertBefore(contour, canvas.firstChild);
+    let x = x0;
     panels.forEach((panel, pi) => {
       const feeds = panelFeeds[pi];
       // Карточка щитка — тот же вид, что у нод в стойке (.node), плюс маркер
@@ -92,7 +101,7 @@ class _Mixin {
   _rerenderPowerPanels() {
     const canvas = $("#schema");
     if (!canvas || this._powerBaseBottom == null) return;
-    canvas.querySelectorAll(".powerbox").forEach(el => el.remove());
+    canvas.querySelectorAll(".powerbox, .groupbox.gb-power").forEach(el => el.remove());
     this._renderPowerPanels(canvas, state.group, this._powerBaseBottom);
   }
 
@@ -181,15 +190,20 @@ class _Mixin {
       if (!feedP || !port) continue;
       const [fx, fy] = center(feedP.el), [px2, py] = center(port.el);
       const midY = (fy + py) / 2;
+      // Порт фидера — на ЛЕВОЙ грани щита → провод ВСЕГДА выходит перпендикулярно
+      // (90°, горизонтально влево) на короткий вынос, и лишь ПОТОМ уходит в путь
+      // (small_fix: «от щитков сначала под 90° от порта, а потом путь»).
+      const sx = fx - 26;
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
       // Стиль как у обычных проводов:
-      //  · «Круглые» — вертикальный кубик;
-      //  · «Углы» + «Короткий» — скруглённая угольная трасса через середину;
-      //  · «Углы» + «Расширенный» — у фидера своей колонки нет, но у PDU (его
-      //    power-порт) есть → ведём боковым коридором ЕГО колонки, в обход нод.
+      //  · «Круглые» — гориз. вынос, затем вертикальный кубик к PDU;
+      //  · «Углы» + «Короткий» — вынос, скруглённая угольная трасса через середину;
+      //  · «Углы» + «Расширенный» — вынос, затем коридором колонки PDU в обход нод.
       let d;
       if (state.wireStyle !== "angular") {
-        d = cubicPath(px2, py, fx, fy, midY, midY);
+        // Гладкий кубик, КАК остальные «круглые» провода, но выходит из порта
+        // ГОРИЗОНТАЛЬНО (первый контрол слева) → 90° от щита без ломаного стыка.
+        d = `M ${fx} ${fy} C ${fx - 44} ${fy}, ${px2} ${midY}, ${px2} ${py}`;
       } else if (state.wirePath === "extend" && state.devCol[port.dev.id] != null) {
         const col = state.devCol[port.dev.id];
         const corr = this.LEFT_PAD + (col + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 - 52;
@@ -199,9 +213,9 @@ class _Mixin {
         const tops = Object.values(state.powerBoxEls || {}).map(el => el.offsetTop);
         const overPanels = (tops.length ? Math.min(...tops) : fy) - 24;
         const pOut = py + 16;
-        d = smoothPath([[fx, fy], [fx, overPanels], [corr, overPanels], [corr, pOut], [px2, pOut], [px2, py]], 10);
+        d = smoothPath([[fx, fy], [sx, fy], [sx, overPanels], [corr, overPanels], [corr, pOut], [px2, pOut], [px2, py]], 10);
       } else {
-        d = smoothPath([[px2, py], [px2, midY], [fx, midY], [fx, fy]], 10);
+        d = smoothPath([[fx, fy], [sx, fy], [sx, midY], [px2, midY], [px2, py]], 10);
       }
       p.setAttribute("d", d);
       p.setAttribute("class", "wire cbl-power feedwire");

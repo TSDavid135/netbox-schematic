@@ -21,10 +21,12 @@
 <form style="display:none">{% csrf_token %}</form>
 
 <div id="topbar">
-  <a id="backlink" href="/"><i class="mdi mdi-arrow-left"></i> NetBox</a>
-  <span class="brand">NetBox <small class="side-head brand-schem">Схематика</small><span class="brand-canvas"> · {{ canvas_title }}</span></span>
+  <a id="backlink" href="/"><i class="mdi mdi-arrow-left"></i> На главную</a>
+  <span class="brand"><a href="/" class="brand-link" title="Главная NetBox">NetBox</a> <small class="side-head brand-schem">Схематика</small><span class="brand-canvas"> · {{ canvas_title }}</span></span>
   <span id="status">не подключено</span>
   <span class="topbar-spacer"></span>
+  <button id="exportbtn" class="tb-act" title="Экспорт (в разработке)"><i class="mdi mdi-tray-arrow-up"></i> <span class="tb-txt">Экспорт</span></button>
+  <button id="importbtn" class="tb-act" title="Импорт (в разработке)"><i class="mdi mdi-tray-arrow-down"></i> <span class="tb-txt">Импорт</span></button>
   <div id="devsearch" title="Поиск устройства по имени">
     <i class="mdi mdi-magnify ds-icon"></i>
     <input id="devsearch-inp" type="text" autocomplete="off" spellcheck="false" placeholder="Поиск устройства…">
@@ -34,6 +36,14 @@
   <button id="cancelconn"><i class="mdi mdi-close"></i> Отмена привязки</button>
   <button id="syncbtn" title="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
   <button id="themetoggle" title="Светлая / тёмная тема"><i class="mdi mdi-white-balance-sunny"></i></button>
+  <div id="userbox" title="{{ user_login }}">
+    <button id="userbtn"><i class="mdi mdi-account-circle"></i><span class="ub-name">{{ user_name }}</span><i class="mdi mdi-chevron-down ub-caret"></i></button>
+    <div id="usermenu">
+      <a href="/user/profile/"><i class="mdi mdi-account"></i> Профиль</a>
+      <a href="/user/preferences/"><i class="mdi mdi-cog"></i> Настройки</a>
+      <a href="/logout/"><i class="mdi mdi-logout"></i> Выйти</a>
+    </div>
+  </div>
 </div>
 
 <div id="layout">
@@ -44,7 +54,7 @@
       <div id="tree"><div class="placeholder">Подключись —<br>появятся серверные</div></div>
     </div>
     <div id="side-ipam" class="side-block">
-      <button class="modebtn modeswitch compact ms-corner" data-mode="ipam" aria-pressed="false" title="Просмотр / Редактирование: перетаскивание сетей между местами, создание по ПКМ"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
+      <button class="modebtn modeswitch compact ms-corner" data-mode="ipamtree" aria-pressed="false" title="Просмотр / Редактирование дерева: перетаскивание сетей, создание по ПКМ"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
       <div class="side-head">Места и сети</div>
       <div id="ipam-tree-side"><div class="placeholder">Загружаю…</div></div>
     </div>
@@ -78,7 +88,11 @@
       <p class="pane-title"><span class="pt-label">Схема адресного пространства</span>
         <button class="modebtn modeswitch ms-intitle" data-mode="ipam" aria-pressed="false" title="Просмотр / Редактирование: перетаскивание сетей между местами, создание"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
       </p>
-      <div id="ipam-clouds" class="placeholder">Загружаю сети…</div>
+      <div id="ipam-viewport">
+        <div id="ipam-scroll">
+          <div id="ipam-clouds" class="placeholder">Загружаю сети…</div>
+        </div>
+      </div>
     </div>
     <aside id="ipam-detail"><div class="placeholder">Кликни по облаку сети —<br>детали, локации, свободные адреса.<br><br>Перетащи локацию из дерева<br>в облако — привяжется к сети.</div></aside>
   </div>
@@ -97,6 +111,7 @@
   <circle class="fg" cx="15" cy="15" r="13"></circle>
 </svg>
 
+<div id="reqspin"><span class="rs-spinner"></span><span>Загрузка…</span></div>
 <div id="tip"></div>
 <div id="linkmenu">
   <button class="x" title="Удалить связь"><i class="mdi mdi-close"></i></button>
