@@ -115,7 +115,7 @@ async function renderAll(group) {
   state.rackBoxEls = {};
   state.rackColEls = {};
   state.rackOcc = {};
-  setStatus("загружаю…");
+  setStatus("получаю устройства и кабели из NetBox…");
 
   const rackQ = group.map(r => "rack_id=" + r.id).join("&");
   const byRack = {};
@@ -183,6 +183,7 @@ async function renderAll(group) {
     devPorts[did].sort((a, b) => PORT_KINDS.indexOf(a.kind) - PORT_KINDS.indexOf(b.kind));
 
   state._devPorts = devPorts;
+  setStatus("рисую схему…");
   app.rack.render(group, byRack);
   app.schema.render(group, byRack, devPorts);
   // renderPanel собирает state._wireless (пары радио-линков) — ДО redrawWires,

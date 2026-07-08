@@ -768,7 +768,7 @@ export class TreeManager {
       x.classList.remove("scope-active", "on-schema", "current", "active"));
     const s = String(id);
     // Наборы потомков, реально попадающих на схему.
-    const siteIds = new Set(), locIds = new Set();
+    const siteIds = new Set(), locIds = new Set(), subGroupIds = new Set();
     if (type === "location") locIds.add(s);
     else if (type === "site") {
       siteIds.add(s);
@@ -782,6 +782,10 @@ export class TreeManager {
     } else if (type === "sitegroup") {
       // рекурсивно по подгруппам (как в _racksFor).
       const gids = this._descendantGroupIds(s);
+      // вложенные подгруппы (кроме самого корня) тоже «на схеме»: грузится вся
+      // ветвь → красим их серым .on-schema, как площадки/серверные (small_fix
+      // «Инфраструктура» п.1). Корень остаётся accent-полоской .scope-active.
+      gids.forEach(gid => { if (String(gid) !== s) subGroupIds.add(String(gid)); });
       state.sites.filter(x => x.group && gids.has(x.group.id))
         .forEach(x => siteIds.add(String(x.id)));
       state.locations.filter(l => l.site && siteIds.has(String(l.site.id)))
@@ -792,6 +796,7 @@ export class TreeManager {
     const feedIds = new Set((state.powerFeeds || [])
       .filter(f => f.power_panel && panelIds.has(String(f.power_panel.id))).map(f => String(f.id)));
     const mark = (sel, cls) => document.querySelectorAll(sel).forEach(x => x.classList.add(cls));
+    subGroupIds.forEach(v => mark(`.tree-sitegroup[data-sitegroup="${v}"]`, "on-schema"));
     siteIds.forEach(v => mark(`.tree-site[data-site="${v}"]`, "on-schema"));
     locIds.forEach(v => {
       mark(`.tree-loc[data-loc="${v}"]`, "on-schema");

@@ -81,4 +81,8 @@ export function setStatus(text, cls) {
   const el = $("#status");
   el.textContent = text;
   el.className = cls || "";
+  // Дублируем в лоадер #reqspin, чтобы во время запроса было видно, ЧТО идёт
+  // («получаю…», «рисую схему…», «создаю…»), а не просто «Загрузка…».
+  const rs = document.querySelector("#reqspin span:last-child");
+  if (rs && text) rs.textContent = text;
 }

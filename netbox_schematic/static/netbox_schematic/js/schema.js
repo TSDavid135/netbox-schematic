@@ -781,6 +781,15 @@ export class SchemaManager {
       sx = ev.clientX; sy = ev.clientY; sl = pane.scrollLeft; st = pane.scrollTop;
       pane.classList.add("panning");
     });
+    // Клик по ТЕЛУ ноды — выделить её зелёным и разрешить выделять текст (пан по
+    // умолчанию текст не выделяет). Имя/кнопки/порты глушат click (stopPropagation)
+    // → сюда не доходят, поэтому клик по имени открывает паспорт, а по телу/модели
+    // — включает выделение. Клик мимо нод снимает выделение со всех.
+    pane.addEventListener("click", ev => {
+      const node = ev.target.closest(".node");
+      document.querySelectorAll(".node.text-sel").forEach(n => { if (n !== node) n.classList.remove("text-sel"); });
+      if (node && !ev.target.closest(".port, .nm, .node-edit, .node-addip")) node.classList.toggle("text-sel");
+    });
     window.addEventListener("mousemove", ev => {
       if (!panning) return;
       const dx = ev.clientX - sx, dy = ev.clientY - sy;

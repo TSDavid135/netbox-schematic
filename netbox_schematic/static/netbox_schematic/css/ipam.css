@@ -31,6 +31,11 @@ body.ipam-mode #ipam { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .it-node.k-site .it-name { font-weight: 600; }
 .it-node.k-location .it-name { font-weight: 600; }
 .it-node:hover { background: var(--panel-2); }
+/* Место, чья схема загружена (ленивая отрисовка): корень — акцент (полоска слева),
+   потомки — серым var(--muted), как «на схеме» на «Инфраструктуре». */
+.it-node.on-schema { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+.it-node.on-schema:hover { background: color-mix(in srgb, var(--muted) 30%, transparent); }
+.it-node.loaded-root { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 /* Стрелка сворачивания папки-группы — как .tree-chevron на «Инфраструктуре». */
 .it-chevron { background: none; border: none; color: var(--muted); cursor: pointer;
   padding: 0; margin: 0 -1px; font-size: 13px; line-height: 1; flex-shrink: 0; }
@@ -42,11 +47,17 @@ body.ipamtree-edit .it-net { cursor: grab; }
 .it-net.dragging { opacity: 0.5; }
 .it-node.k-region .it-name { font-weight: 700; }
 .it-net {
+  display: flex; align-items: center; gap: 5px;
   font-family: var(--mono); font-size: 11px; color: var(--net);
   padding: 2px 12px; cursor: pointer;
 }
 .it-net:hover { background: var(--panel-2); }
-.it-net::before { content: "◈ "; opacity: 0.6; }
+/* Иконка сети — mdi (как у .net-chip). Раньше был CSS content "◈", он ломался в
+   мохибейк при отдаче CSS без charuset — mdi надёжнее и единообразнее. */
+.it-net .mdi { font-size: 12px; opacity: 0.75; flex-shrink: 0; color: var(--net); }
+/* Номер сети загруженного места — серым (var(--muted)), заодно с местами. */
+.it-net.on-schema { background: color-mix(in srgb, var(--muted) 16%, transparent); }
+.it-net.on-schema:hover { background: color-mix(in srgb, var(--muted) 30%, transparent); }
 .it-sub { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 12px 14px 4px; margin-top: 8px; border-top: 1px solid var(--line); }
 .it-free { display: flex; flex-direction: column; gap: 4px; padding: 0 10px; }
@@ -170,6 +181,8 @@ body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }   /* чип на пол
 body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* чип в дереве — режим дерева */
 .net-chip .mdi { color: var(--net); font-size: 14px; }
 .net-chip.dragging { opacity: 0.5; }
+/* Плавающий чип копии сети у курсора (режим «Дублировать в…»). */
+.net-chip.dup-ghost { position: fixed; z-index: 9999; pointer-events: none; opacity: 0.92; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
 .free-zone { flex: 1 1 100%; border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; }
 .fz-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 8px; }
 .fz-body { display: flex; flex-wrap: wrap; gap: 8px; }

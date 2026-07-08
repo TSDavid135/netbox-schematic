@@ -37,6 +37,7 @@ export class IpamCanvas {
     this.drag = null;
     this.dragged = false;   // был перенос → подавить click после mouseup
     this._lastNet = null;   // открытые детали {n, place} — для перерисовки
+    this.focusedId = null;  // id выбранного места (kind+id) — холст строит схему ТОЛЬКО для него (ленивая отрисовка, как на «Инфраструктуре»)
     this.zoom = 1;          // масштаб полотна (колесо), пан — скроллом #ipam-scroll
     this.collapsed = new Set();   // id свёрнутых папок-групп в дереве (переживает renderTree)
     // Призрак «Сюда» при переносе сети: mouseover всплывает → closest(".place")
@@ -231,6 +232,7 @@ export class IpamCanvas {
       for (const n of this.freeNets) free.appendChild(this._netChip(n, null, true));
       host.appendChild(free);
     }
+    this._markLoadedTree();   // подсветить загруженное место (переживает перестройку дерева)
   }
 
   _treeNode(node, depth) {
@@ -247,6 +249,7 @@ export class IpamCanvas {
     // Узел-место: клик — фокус; при переносе сети — drop-таргет (подсветка
     // .drop-hl, отпустил ЛКМ на узле → сеть привязывается к этому месту).
     const row = mk("div", { className: "it-node k-" + node.kind + (collapsed ? " collapsed" : ""),
+      dataset: { place: node.id },   // для подсветки загруженной схемы (_markLoadedTree)
       style: { paddingLeft: (8 + depth * 14) + "px" },
       html: `${chevron}<i class="mdi mdi-${icon}"></i><span class="it-name">${node.name}</span>`,
       on: {
@@ -263,8 +266,9 @@ export class IpamCanvas {
     for (const n of node.nets) {
       // Сеть в дереве: клик — детали; в правке перетаскивается на узлы-места
       // (та же механика, что помещения на «Инфраструктуре»).
-      const netEl = mk("div", { className: "it-net", style: { paddingLeft: (8 + (depth + 1) * 14) + "px" },
-        text: n.p.prefix, on: {
+      const netEl = mk("div", { className: "it-net", dataset: { place: node.id },   // для muted-подсветки загруженного места
+        style: { paddingLeft: (8 + (depth + 1) * 14) + "px" },
+        html: `<i class="mdi mdi-ip-network"></i><span>${n.p.prefix}</span>`, on: {
           click: () => { if (!this.dragged) this._showNet(n, node); },
           contextmenu: e => this._netMenu(e, n, node),   // п.3: изменить/убрать/удалить
         } });
@@ -284,7 +288,9 @@ export class IpamCanvas {
     this.renderTree();
   }
 
-  // холст: блоки-места, внутри сети, внутри адреса
+  // холст: блоки-места, внутри сети, внутри адреса. Ленивая отрисовка (как на
+  // «Инфраструктуре»): строим схему ТОЛЬКО для выбранного в дереве места
+  // (this.focusedId). До выбора — подсказка. Дерево слева показывает всю иерархию.
   render() {
     const host = $("#ipam-clouds");
     if (!host) return;
@@ -293,8 +299,11 @@ export class IpamCanvas {
       host.appendChild(mk("div", { className: "placeholder", text: "Нет мест — создай площадки/локации на Инфраструктуре" }));
       return;
     }
-    for (const r of this.roots) host.appendChild(this._place(r));
-    // сети вне мест — отдельная зона (перетащить в место)
+    const focused = this._findNodeById(this.focusedId);
+    if (focused) host.appendChild(this._place(focused));
+    else host.appendChild(mk("div", { className: "placeholder",
+      text: "Выбери место в дереве слева — построю схему его адресного пространства" }));
+    // сети вне мест — отдельная зона (перетащить в место), видна всегда
     if (this.freeNets.length) {
       const zone = mk("div", { className: "free-zone", html: `<div class="fz-head">Сети вне мест</div>` });
       const body = mk("div", { className: "fz-body" });
@@ -317,44 +326,17 @@ export class IpamCanvas {
     el.appendChild(cap);
     this._makePlaceDraggable(cap, node);   // перенос места «за название» → смена родителя
     const body = mk("div", { className: "place-body" });
-    // item 7: у ПЛОЩАДКИ есть сеть site-уровня И локации → первая site-сеть
-    // становится КОНТУРОМ (CIDR кликабельный в углу), локации рисуются ВНУТРИ
-    // неё (адресное пространство площадки содержит её серверные). Прочие сети
-    // площадки — обычными блоками. Иначе — как раньше (место ⊃ вложенные + сети).
-    if (node.kind === "site" && node.nets.length && node.children.length) {
-      const [host, ...rest] = node.nets;
-      body.appendChild(this._netContour(host, node, node.children));
-      for (const n of rest) body.appendChild(this._netBlock(n, node));
-    } else {
-      for (const ch of node.children) body.appendChild(this._place(ch));
-      for (const n of node.nets) body.appendChild(this._netBlock(n, node));
-    }
+    // Сети и вложенные места — РАВНОПРАВНЫЕ соседние блоки (peer): сеть площадки
+    // НЕ оборачивает локации (small_fix «Сети» п.1 — «сеть как локация»). Сперва
+    // вложенные места, затем сети места. Вкладывать локацию в сеть — отдельная
+    // задача (у Location нет prefix-родителя, семантику решим позже).
+    for (const ch of node.children) body.appendChild(this._place(ch));
+    for (const n of node.nets) body.appendChild(this._netBlock(n, node));
     // Кнопок «+ сеть» на холсте нет: правка = перетаскивание сетей, создание —
     // по ПКМ в дереве «Места и сети» (см. _menu).
     el.appendChild(body);
     // drop-таргет: сеть привязывается к этому месту
     this._makeDrop(el, node);
-    return el;
-  }
-
-  // Сеть site-уровня как КОНТУР с локациями внутри (item 7): CIDR + счётчик в
-  // углу (клик → детали), локации — вложенными place-блоками. Перенос сети — за
-  // угол (как обычный net-block). Само тело контура — не ручка (чтобы можно было
-  // взаимодействовать с локациями и панорамировать).
-  _netContour(n, place, locNodes) {
-    const el = mk("div", { className: "net-block net-contour", dataset: { net: n.p.id } });
-    const corner = mk("div", { className: "nc-corner",
-      html: `<span class="nc-cidr">${n.p.prefix}</span><span class="nc-cnt">${this._countHtml(n)}</span>` });
-    corner.addEventListener("click", e => {
-      e.stopPropagation();
-      if (!this.dragged && !this._editCanvas()) this._showNet(n, place);
-    });
-    this._makeNetDraggable(corner, n, place, false);   // перенос сети — за угол (полотно)
-    corner.addEventListener("contextmenu", e => this._netMenu(e, n, place));   // п.3
-    el.appendChild(corner);
-    const inner = mk("div", { className: "nc-body" });
-    for (const loc of locNodes) inner.appendChild(this._place(loc));
-    el.appendChild(inner);
     return el;
   }
 
@@ -657,9 +639,69 @@ export class IpamCanvas {
   _netMenu(e, n, place) {
     e.preventDefault();
     const items = [{ label: "Изменить сеть", fn: () => this._editNet(n) }];
+    items.push({ label: "Дублировать в…", fn: () => this._startDuplicatePlacement(n) });
     if (place) items.push({ label: "Убрать из места", fn: () => this._unassignNet(n) });
     items.push({ label: "Удалить сеть", danger: true, fn: () => this._deleteNet(n) });
     this._showCtx(e.clientX, e.clientY, items);
+  }
+  // Дублировать сеть в другое место: КОПИЯ prefix с той же CIDR, но scope
+  // выбранного места. Решает «одинаковые сети в разных локациях» — в NetBox это
+  // разные Prefix (одна запись не может быть в двух местах).
+  // UX как «взял и поставил»: у курсора висит чип с номером сети, клик по месту
+  // (на холсте .place или в дереве .it-node) = дублировать туда. Esc/клик мимо —
+  // отмена. Подсветку целей ведёт общий _setDropTarget (drop-ok / «Сюда»).
+  _startDuplicatePlacement(n) {
+    this._closeMenu();
+    if (this._dupGhost) return;   // уже в режиме постановки
+    const ghost = mk("div", { className: "net-chip dup-ghost", style: { visibility: "hidden" },
+      html: `<i class="mdi mdi-ip-network"></i><span>${n.p.prefix}</span>` });
+    document.body.appendChild(ghost);
+    this._dupGhost = ghost;
+    document.body.classList.add("ipam-dragging");
+    setStatus(`выбери место для копии ${n.p.prefix} · Esc — отмена`);
+    const move = e => {
+      ghost.style.left = (e.clientX + 12) + "px";
+      ghost.style.top = (e.clientY + 14) + "px";
+      ghost.style.visibility = "visible";
+      this._setDropTarget(e.target.closest ? e.target.closest(".place, .it-node") : null);
+    };
+    const drop = e => {
+      if (e.button != null && e.button !== 0) return;   // не ЛКМ — игнор
+      e.preventDefault(); e.stopPropagation();
+      this.dragged = true;   // подавить последующий click по месту/узлу
+      const tgt = e.target.closest && e.target.closest(".place, .it-node");
+      const node = tgt && tgt._placeNode;
+      cleanup();
+      if (node) this._assignDuplicate(n, node);
+      else setStatus("дублирование отменено");
+      setTimeout(() => { this.dragged = false; }, 0);
+    };
+    const onKey = e => { if (e.key === "Escape") { cleanup(); setStatus("дублирование отменено"); } };
+    const cleanup = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mousedown", drop, true);
+      document.removeEventListener("keydown", onKey);
+      this._setDropTarget(null);
+      if (this._dupGhost) { this._dupGhost.remove(); this._dupGhost = null; }
+      document.body.classList.remove("ipam-dragging");
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("keydown", onKey);
+    // defer, чтобы клик, открывший пункт меню, не сработал сразу как дроп
+    setTimeout(() => document.addEventListener("mousedown", drop, true), 0);
+  }
+  // Создать копию сети (prefix) в выбранном месте (scope по типу места).
+  async _assignDuplicate(n, place) {
+    const scopeType = { region: "dcim.region", sitegroup: "dcim.sitegroup", site: "dcim.site", location: "dcim.location" }[place.kind];
+    if (!scopeType) { setStatus("сюда нельзя дублировать", "err"); return; }
+    try {
+      setStatus(`дублирую ${n.p.prefix} в «${place.name}»…`);
+      await api("/ipam/prefixes/", "POST",
+        { prefix: n.p.prefix, status: (n.p.status && n.p.status.value) || "active",
+          scope_type: scopeType, scope_id: place.obj.id });
+      setStatus(`${n.p.prefix} продублирована в «${place.name}»`, "ok");
+      await this.load();
+    } catch (e) { setStatus("не удалось: " + e.message, "err"); }
   }
   _editNet(n) {
     this.app.openModal("Изменить сеть", "Сеть: " + n.p.prefix,
@@ -714,9 +756,45 @@ export class IpamCanvas {
   _focusPlace(node) {
     // Заголовок холста показывает, какая область выбрана (Region/Site/группа/
     // Location) — как «Стойки : …» / «Схема соединений : …» на Инфраструктуре.
+    // Клик по узлу дерева = построить схему ТОЛЬКО этого места (ленивая
+    // отрисовка): запоминаем id и перерисовываем холст.
     this._setScopeTitle(node.name);
+    this.focusedId = node.id;
+    this.render();
+    this._markLoadedTree();
     const el = $(`.place[data-place="${node.id}"]`);
     if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
+  }
+  // Найти узел-место по id (kind+id) в дереве roots — для ленивой отрисовки
+  // (render строит схему только этого места) и переживания reload (объекты
+  // пересобираются в _build, id стабилен).
+  _findNodeById(id) {
+    if (!id) return null;
+    let found = null;
+    const walk = n => { if (found) return; if (n.id === id) { found = n; return; } n.children.forEach(walk); };
+    this.roots.forEach(walk);
+    return found;
+  }
+  // Подсветить в дереве место, чья схема сейчас загружена (focusedId), и его
+  // потомков — как «на схеме» на «Инфраструктуре»: корень акцентом, потомки серым
+  // var(--muted). Зовётся после renderTree (переживает перестройку) и из
+  // _focusPlace. Узлы находим по data-place (kind+id).
+  _markLoadedTree() {
+    const host = $("#ipam-tree-side");
+    if (!host) return;
+    host.querySelectorAll(".on-schema, .loaded-root")
+      .forEach(x => x.classList.remove("on-schema", "loaded-root"));
+    const focused = this._findNodeById(this.focusedId);
+    if (!focused) return;
+    const ids = new Set();
+    const collect = n => { ids.add(n.id); n.children.forEach(collect); };
+    collect(focused);
+    ids.forEach(id => {
+      const row = host.querySelector(`.it-node[data-place="${id}"]`);
+      if (row) row.classList.add(id === this.focusedId ? "loaded-root" : "on-schema");
+      // номера сетей загруженного места — тоже серым (var(--muted)), как места
+      host.querySelectorAll(`.it-net[data-place="${id}"]`).forEach(nr => nr.classList.add("on-schema"));
+    });
   }
 
   _setScopeTitle(name) {

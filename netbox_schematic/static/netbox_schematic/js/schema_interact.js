@@ -33,6 +33,8 @@ class _Mixin {
       el.classList.toggle("dim2", on && !mine);
       el.classList.toggle("conn-hl", on && mine);
     });
+    // Щитки питания в связи порт↔порт не участвуют — гасим их вместе с фоном.
+    Object.values(state.powerBoxEls || {}).forEach(el => el.classList.toggle("dim2", on));
   }
   _portHover(port, on) {
     if (state.pending) return;
@@ -65,6 +67,7 @@ class _Mixin {
       el.classList.toggle("dim2", on && !mine);
       el.classList.toggle("conn-hl", on && mine);
     });
+    Object.values(state.powerBoxEls || {}).forEach(el => el.classList.toggle("dim2", on));
   }
 
   // прицеливание / выбор порта
@@ -307,13 +310,18 @@ class _Mixin {
     try {
       const segments = await api(`/dcim/${ep}/${item.id}/trace/`);
       const cableIds = new Set(segments.map(s => s[1] && s[1].id).filter(Boolean));
-      const portKeys = new Set(), devIds = new Set();
+      const portKeys = new Set(), devIds = new Set(), panelIds = new Set();
       for (const seg of segments)
         for (const side of [seg[0], seg[2]])
           for (const t of (side || [])) {
             if (t.device) devIds.add(t.device.id);
             const m = (t.url || "").match(/\/dcim\/([a-z-]+)\/(\d+)\//);
             if (m && EP_TO_OTYPE[m[1]]) portKeys.add(EP_TO_OTYPE[m[1]] + ":" + m[2]);
+            // фидер в трассе питания → его щиток оставляем ярким (не гасим)
+            if (m && m[1] === "power-feeds") {
+              const feed = (state.powerFeeds || []).find(f => f.id === +m[2]);
+              if (feed && feed.power_panel) panelIds.add(feed.power_panel.id);
+            }
           }
       document.querySelectorAll("#wires path.wire").forEach(p => {
         p.classList.remove("hl", "dim");
@@ -330,6 +338,8 @@ class _Mixin {
         el.classList.remove("conn-hl");
       });
       Object.entries(state.rackDevEls).forEach(([id, el]) => el.classList.toggle("hl", devIds.has(+id)));
+      // Щитки: гаснут все, кроме тех, чей фидер попал в трассу питания.
+      Object.entries(state.powerBoxEls || {}).forEach(([id, el]) => el.classList.toggle("dim2", !panelIds.has(+id)));
       const last = segments[segments.length - 1];
       const endT = last && last[2] && last[2][0];
       const endTxt = endT ? (endT.device ? endT.device.name + "/" : "") + (endT.name || "?") : "?";

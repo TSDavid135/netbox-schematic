@@ -181,7 +181,7 @@
   /* #schempwrap: неподвижная "рама" — #schempane скроллится/зумируется внутри неё,
      #schemoverlay лежит поверх рамы и НЕ скроллится вместе с содержимым схемы. */
   #schempwrap { flex: 1; position: relative; overflow: hidden; }
-  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; }
+  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; }
   #schempane.panning { cursor: grabbing; }
   #schempane .pane-title { position: sticky; top: 0; left: 16px; padding: 16px 0 0 16px; z-index: 5; }
   #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
@@ -324,11 +324,11 @@
   /* Потомки выбранной области, попавшие на схему, — САМИ кнопки залиты серым
      (не полоска слева); это «есть на схеме», но корень не они. Ховер — темнее.
      Двойной класс — чтобы перебить одиночные :hover у .tree-loc/.tree-rack. */
-  .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
+  .tree-sitegroup.on-schema, .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
   .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
     background: color-mix(in srgb, var(--muted) 16%, transparent); border-radius: 0;
   }
-  .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
+  .tree-sitegroup.on-schema:hover, .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
   .tree-panel.on-schema:hover, .tree-feed.on-schema:hover, .tree-dev.on-schema:hover {
     background: color-mix(in srgb, var(--muted) 32%, transparent);
   }
@@ -627,6 +627,10 @@
   /* Узел-конец наведённой/подсвеченной связи — статичная яркая обводка (без
      пульса), чтобы вместе с проводом и портами «горели» и сами ноды по краям. */
   .node.conn-hl { outline: 2px solid var(--ok); outline-offset: 1px; z-index: 5; }
+  /* Клик по телу ноды — выделить зелёным и РАЗРЕШИТЬ выделять её текст (пан по
+     умолчанию текст не выделяет — #schempane user-select:none). Клик мимо снимает. */
+  .node.text-sel { outline: 2px solid var(--ok); outline-offset: 1px; z-index: 5;
+    user-select: text; -webkit-user-select: text; }
   .node.aim-dim { opacity: 0.28; }
   .node .nm { font-family: var(--mono); font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .node .nm:hover { color: var(--accent); }

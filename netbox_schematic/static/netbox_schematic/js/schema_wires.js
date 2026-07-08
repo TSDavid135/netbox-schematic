@@ -48,10 +48,9 @@ class _Mixin {
       const [ax, ay] = center(pa.el), [bx, by] = center(pb.el);
       const w = { a: pa, b: pb, ax, ay, bx, by,
         crossRack: this._crossRack(pa.dev.id, pb.dev.id) };
-      // Провод в обход нод нужен, когда «Расширенный» и между нодами одной
-      // стойки есть другие (разница индексов ≥ 2) — тогда ведём по трассе.
-      const around = extend && !w.crossRack
-        && Math.abs(state.devNodeIdx[pa.dev.id] - state.devNodeIdx[pb.dev.id]) >= 2;
+      // Провод в обход нод нужен, когда «Расширенный», ноды одной стойки и прямая
+      // перемычка резала бы тело ноды (см. _needsDetour) — тогда ведём по трассе.
+      const around = extend && !w.crossRack && this._needsDetour(pa, pb);
       let d;
       if (angular) {
         d = wavyAlong(this._routePolyline(w, ctx));            // волна вдоль углов
@@ -189,6 +188,22 @@ class _Mixin {
     return ra != null && rb != null && ra !== rb;
   }
 
+  // Нужен ли в «Расширенном» боковой обход для внутристоечного провода a↔b.
+  // Да, если: между нодами есть другая (разница индексов ≥ 2) ИЛИ порты НЕ
+  // «лицом» в общий зазор. Чистая прямая перемычка возможна ТОЛЬКО у соседних
+  // нод, где верхняя отдаёт СНИЗУ, а нижняя принимает СВЕРХУ (оба порта смотрят в
+  // зазор между ними). Во всех прочих случаях прямая перемычка режет тело ноды
+  // («провод под нодой») → уводим в боковой коридор. (small_fix: раньше обход был
+  // только при разнице индексов ≥ 2 — соседние ноды с портами на одной стороне
+  // провод резал.)
+  _needsDetour(a, b) {
+    const ia = state.devNodeIdx[a.dev.id], ib = state.devNodeIdx[b.dev.id];
+    if (ia == null || ib == null) return false;
+    if (Math.abs(ia - ib) >= 2) return true;
+    const upper = ia < ib ? a : b, lower = ia < ib ? b : a;
+    return !(upper.side === "b" && lower.side === "t");   // не «лицом» в зазор → обходим
+  }
+
   // Высота горизонтальной шины магистралей (верхние провода между пач-панелями).
   // РАНЬШЕ уводила почти к верху холста (слишком далеко). Теперь — чуть выше
   // верхних портов, «лесенкой» по каналам, чтобы провода жались к панелям.
@@ -225,7 +240,7 @@ class _Mixin {
         const aOut = a.side === "t" ? ay - (18 + (k % 6) * 10) * hi : ay + (18 + (k % 6) * 10) * hi;
         const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
         d = orthoPath(ax, ay, bx, by, gapX, aOut, bOut);
-      } else if (extend && Math.abs(state.devNodeIdx[a.dev.id] - state.devNodeIdx[b.dev.id]) >= 2) {
+      } else if (extend && this._needsDetour(a, b)) {
         // «Расширенный» и в «Круглых»: обход нод боковым коридором, но со
         // СКРУГЛЁННЫМИ углами (гладкая кривая, а не прямые углы).
         d = smoothPath(this._routePolyline(w, ctx));
@@ -253,8 +268,20 @@ class _Mixin {
   // Контекст маршрутизации: множители/счётчики «дорожек» (lane) для разнесения
   // параллельных проводов. Свой на каждый проход (кабели / радио).
   _routeCtx() {
+    // Правый край нод по колонкам (реальная геометрия DOM) — чтобы боковой
+    // коридор «Расширенного» шёл ПРАВЕЕ даже широкой ноды (много портов) и провод
+    // не проходил ПОД ней (small_fix: провод под нодой в расшир. режиме). Ключ —
+    // номер колонки (state.devCol), значение — max(left+width) её нод.
+    const colRight = {};
+    for (const id in state.nodeEls) {
+      const col = state.devCol[id];
+      if (col == null) continue;
+      const el = state.nodeEls[id];
+      const right = (parseFloat(el.style.left) || 0) + (parseFloat(el.style.width) || 0);
+      if (right > (colRight[col] ?? -Infinity)) colRight[col] = right;
+    }
     return { LEFT_PAD: this.LEFT_PAD, hi: state.wireHeightK ?? 1,
-      extend: state.wirePath === "extend", chan: 0, lane: 0, slane: 0, idx: 0 };
+      extend: state.wirePath === "extend", chan: 0, lane: 0, slane: 0, idx: 0, colRight };
   }
 
   // Ломаная ОДНОГО соединения под текущую трассу. Общая для кабелей и радио —
@@ -280,14 +307,19 @@ class _Mixin {
       const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
       return [[ax, ay], [ax, aOut], [gapX, aOut], [gapX, bOut], [bx, bOut], [bx, by]];
     }
-    if (extend && Math.abs(state.devNodeIdx[a.dev.id] - state.devNodeIdx[b.dev.id]) >= 2) {
+    if (extend && this._needsDetour(a, b)) {
       // «Расширенный»: провод НИКОГДА не идёт по ноде — уходит за её край и
-      // спускается/поднимается в боковом коридоре колонки (там нод нет). НО
-      // только когда между нодами ЕСТЬ другая нода (разница индексов ≥ 2);
-      // соседние ноды соединяем напрямую (в бок уводить незачем).
+      // спускается/поднимается в боковом коридоре колонки (там нод нет). Обходим,
+      // если между нодами есть другая ИЛИ порты не «лицом» в общий зазор (иначе
+      // прямая перемычка режет тело ноды — «провод под нодой»); см. _needsDetour.
       const col = state.devCol[a.dev.id];
       const k = ctx.slane++;
-      const corr = this._colX(col) + this.SLOT + COL_GAP / 2 - 52 + (k % 6) * 12;
+      // Коридор — ПРАВЕЕ реального правого края всех нод колонки (не по колоночной
+      // сетке): широкая нода (много портов) больше не накрывает провод. Фолбэк —
+      // по сетке, если геометрии нод нет.
+      const colEdge = (ctx.colRight && ctx.colRight[col] != null)
+        ? ctx.colRight[col] : this._colX(col) + this.SLOT;
+      const corr = colEdge + 16 + (k % 6) * 12;
       const aOut = a.side === "t" ? ay - (16 + (k % 3) * 6) : ay + (16 + (k % 3) * 6);
       const bOut = b.side === "t" ? by - (16 + (k % 3) * 6) : by + (16 + (k % 3) * 6);
       return [[ax, ay], [ax, aOut], [corr, aOut], [corr, bOut], [bx, bOut], [bx, by]];

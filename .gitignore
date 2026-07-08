@@ -7,8 +7,8 @@ __pycache__/
 .claude/
 .vscode/
 .idea/
+demo_seed.py
 
-# Черновые рабочие заметки (не для публикации)
-/.md
-small_fix.md
-UPDATES.md
+*.md
+!README.md
+!README.ru.md
