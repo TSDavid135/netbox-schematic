@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-schematic"
-version = "0.1.0"
+version = "0.1.1"
 description = "Визуальный конструктор стоек и кабельных трасс для NetBox"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,4 +25,6 @@ Repository = "https://github.com/TSDavid135/netbox-schematic"
 include = ["netbox_schematic*"]
 
 [tool.setuptools.package-data]
-netbox_schematic = ["templates/**/*.html"]
+# В пакет ОБЯЗАТЕЛЬНО кладём и статику (css/js), иначе при установке из
+# wheel/git (не editable) фронтенд плагина не попадёт на сервер.
+netbox_schematic = ["templates/**/*.html", "static/**/*"]
