@@ -221,7 +221,7 @@ class _Mixin {
         // ((k+3)%6) — так горизонтальные участки соседних проводов не ложатся на
         // одну высоту (small_fix: провода всё ещё накладывались).
         const k = lane++;
-        const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (k % 9) * 15 - 60;
+        const gapX = this._colX(leftCol) + this.SLOT + COL_GAP / 2 + (k % 9) * 15 - 60;
         const aOut = a.side === "t" ? ay - (18 + (k % 6) * 10) * hi : ay + (18 + (k % 6) * 10) * hi;
         const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
         d = orthoPath(ax, ay, bx, by, gapX, aOut, bOut);
@@ -275,7 +275,7 @@ class _Mixin {
     if (crossRack) {
       const leftCol = Math.min(state.devCol[a.dev.id], state.devCol[b.dev.id]);
       const k = ctx.lane++;
-      const gapX = LEFT_PAD + (leftCol + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 + (k % 9) * 15 - 60;
+      const gapX = this._colX(leftCol) + this.SLOT + COL_GAP / 2 + (k % 9) * 15 - 60;
       const aOut = a.side === "t" ? ay - (18 + (k % 6) * 10) * hi : ay + (18 + (k % 6) * 10) * hi;
       const bOut = b.side === "t" ? by - (18 + ((k + 3) % 6) * 10) * hi : by + (18 + ((k + 3) % 6) * 10) * hi;
       return [[ax, ay], [ax, aOut], [gapX, aOut], [gapX, bOut], [bx, bOut], [bx, by]];
@@ -287,7 +287,7 @@ class _Mixin {
       // соседние ноды соединяем напрямую (в бок уводить незачем).
       const col = state.devCol[a.dev.id];
       const k = ctx.slane++;
-      const corr = LEFT_PAD + (col + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 - 52 + (k % 6) * 12;
+      const corr = this._colX(col) + this.SLOT + COL_GAP / 2 - 52 + (k % 6) * 12;
       const aOut = a.side === "t" ? ay - (16 + (k % 3) * 6) : ay + (16 + (k % 3) * 6);
       const bOut = b.side === "t" ? by - (16 + (k % 3) * 6) : by + (16 + (k % 3) * 6);
       return [[ax, ay], [ax, aOut], [corr, aOut], [corr, bOut], [bx, bOut], [bx, by]];

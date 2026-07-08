@@ -21,7 +21,20 @@ body.ipam-mode #ipam { display: flex; flex: 1; min-width: 0; min-height: 0; }
   font-size: 12px; color: var(--text);
 }
 .it-node .mdi { font-size: 14px; color: var(--muted); flex-shrink: 0; }
+/* Иконки/акценты уровней — как в дереве «Инфраструктуры»: 📁 группа мест
+   (цвет питания), 🗺 площадка (accent), 📍 серверная (приглушённая). */
+.it-node.k-sitegroup .mdi { color: var(--power); }
+.it-node.k-site .mdi { color: var(--accent); }
+.it-node.k-location .mdi { color: var(--muted); }
+.it-node.k-sitegroup { font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.it-node.k-sitegroup .it-name { font-weight: 700; }
+.it-node.k-site .it-name { font-weight: 600; }
+.it-node.k-location .it-name { font-weight: 600; }
 .it-node:hover { background: var(--panel-2); }
+/* Стрелка сворачивания папки-группы — как .tree-chevron на «Инфраструктуре». */
+.it-chevron { background: none; border: none; color: var(--muted); cursor: pointer;
+  padding: 0; margin: 0 -1px; font-size: 13px; line-height: 1; flex-shrink: 0; }
+.it-chevron:hover { color: var(--text); }
 /* Валидная цель при переносе сети в дереве — акцентная подсветка */
 .it-node.drop-hl { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 /* Сети в дереве перетаскиваются в режиме правки ДЕРЕВА (свой столбец). */
@@ -29,7 +42,7 @@ body.ipamtree-edit .it-net { cursor: grab; }
 .it-net.dragging { opacity: 0.5; }
 .it-node.k-region .it-name { font-weight: 700; }
 .it-net {
-  font-family: var(--mono); font-size: 11px; color: var(--accent);
+  font-family: var(--mono); font-size: 11px; color: var(--net);
   padding: 2px 12px; cursor: pointer;
 }
 .it-net:hover { background: var(--panel-2); }
@@ -99,20 +112,20 @@ body.ipam-edit .place:has(> .place-cap:hover) { background: color-mix(in srgb, v
 
 /* блок сети: пунктир СИНИЙ (внутри места). CIDR + счётчик, внутри адреса. */
 .net-block {
-  border: 2.5px dashed var(--accent); border-radius: 10px; padding: 8px 10px;
-  min-width: 180px; background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 2.5px dashed var(--net); border-radius: 10px; padding: 8px 10px;
+  min-width: 180px; background: color-mix(in srgb, var(--net) 6%, transparent);
   display: flex; flex-direction: column; gap: 6px; cursor: pointer;
 }
-.net-block:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.net-block:hover { background: color-mix(in srgb, var(--net) 12%, transparent); }
 .nb-cap { display: flex; flex-direction: column; gap: 2px; }
 /* В правке весь блок сети — ручка переноса (перетаскивание с зажатым ЛКМ) */
 body.ipam-edit .net-block { cursor: grab; }
 .net-block.dragging { opacity: 0.5; }
 /* Номер сети (CIDR) — бейдж с внутренним отступом и мягкой подложкой. */
 .nb-cidr {
-  font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent);
+  font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--net);
   align-self: flex-start; padding: 2px 8px; border-radius: 5px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--net) 14%, transparent);
 }
 .nb-count { font-size: 10px; color: var(--muted); white-space: nowrap; }
 .nb-used { color: var(--err); font-weight: 600; }   /* занято — красным */
@@ -130,7 +143,7 @@ body.ipam-edit .net-block { cursor: grab; }
    углу, тело — вложенные локации. Сам контур НЕ ручка (ручка — только угол). */
 .net-block.net-contour {
   position: relative; padding: 12px; min-width: 210px; cursor: default;
-  width: fit-content; background: color-mix(in srgb, var(--accent) 4%, transparent);
+  width: fit-content; background: color-mix(in srgb, var(--net) 4%, transparent);
 }
 body.ipam-edit .net-block.net-contour { cursor: default; }
 /* Заголовок-бейдж (CIDR + счётчик) — В ПОТОКЕ сверху, в ОДНУ строку (nowrap) →
@@ -138,10 +151,10 @@ body.ipam-edit .net-block.net-contour { cursor: default; }
 .net-contour .nc-corner {
   align-self: flex-start; display: flex; align-items: baseline; gap: 8px; white-space: nowrap;
   cursor: pointer; user-select: none; padding: 3px 9px; border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background: color-mix(in srgb, var(--net) 14%, transparent);
 }
 body.ipam-edit .net-contour .nc-corner { cursor: grab; }
-.net-contour .nc-cidr { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--accent); }
+.net-contour .nc-cidr { font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--net); }
 .net-contour .nc-corner:hover .nc-cidr { text-decoration: underline; }
 .net-contour .nc-cnt { font-size: 10px; color: var(--muted); }
 .net-contour .nc-body { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; min-height: 20px; }
@@ -155,7 +168,7 @@ body.ipam-edit .net-contour .nc-corner { cursor: grab; }
 }
 body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }   /* чип на полотне — режим полотна */
 body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* чип в дереве — режим дерева */
-.net-chip .mdi { color: var(--accent); font-size: 14px; }
+.net-chip .mdi { color: var(--net); font-size: 14px; }
 .net-chip.dragging { opacity: 0.5; }
 .free-zone { flex: 1 1 100%; border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; }
 .fz-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 8px; }

@@ -307,12 +307,6 @@
     padding: 0; margin-right: 2px; font-size: 14px; line-height: 1; vertical-align: -2px;
   }
   .tree-chevron:hover { color: var(--text); }
-  /* Группы мест (Site Group) — независимая секция внизу дерева */
-  .tree-groups-head {
-    padding: 10px 14px 3px; margin-top: 8px; border-top: 1px solid var(--line);
-    font-weight: 700; font-size: 10px; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--muted);
-  }
   .tree-sitegroup {
     padding: 7px 14px 2px; font-weight: 700; font-size: 12px; text-transform: uppercase;
     letter-spacing: 0.03em; color: var(--muted); cursor: pointer;
@@ -409,7 +403,7 @@
   .drag-fade { opacity: 0.28; pointer-events: none; }   /* невалидная цель — тускло и не мешает */
   .drag-ok { opacity: 1; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
   .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok,
-  .tree-panel.drop-ok, .tree-groups-head.drop-ok {
+  .tree-panel.drop-ok {
     background: rgba(79,195,232,0.18); box-shadow: inset 3px 0 0 var(--accent);
     border-radius: 4px; color: var(--accent); font-weight: 600; opacity: 1;
   }
@@ -563,8 +557,10 @@
      оранжевым (power). Прозрачная заливка, только пунктирная рамка + подпись
      в левом верхнем углу; лежат позади стоек. */
   .groupbox { position: absolute; z-index: 0; border-radius: 16px; pointer-events: none; }
-  .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--accent) 90%, transparent); }
-  .groupbox.gb-site { border: 2px dashed color-mix(in srgb, var(--power) 90%, transparent); }
+  /* Серверные (location) и площадки (site) — НЕЙТРАЛЬНО-СЕРЫЕ рамки
+     (площадка чуть тусклее, чтобы уровни различались). */
+  .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--muted) 70%, transparent); }
+  .groupbox.gb-site { border: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
   /* Логический контур по ТИПУ устройств вне стоек («Персональные компьютеры …»):
      мягкая пунктирная рамка нейтрального цвета + лёгкая заливка, чтобы блоки
      разных типов визуально отделялись, но не спорили с контурами серверных. */
@@ -579,11 +575,11 @@
   }
   .groupbox.gb-power .gb-label { color: color-mix(in srgb, var(--power) 88%, var(--text)); }
   .groupbox .gb-label {
-    position: absolute; top: 6px; left: 16px; font-family: var(--mono);
+    position: absolute; top: 2px; left: 12px; font-family: var(--mono);
     font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
   }
-  .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--accent) 92%, var(--text)); }
-  .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--power) 92%, var(--text)); }
+  .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--muted) 45%, var(--text)); }
+  .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
   .groupbox.gb-type .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
   /* Силовой щит (Power Panel) — карточка того же вида, что ноды в стойке
      (.node), с фидерами списком. Контент выровнен сверху-влево (не по центру,
@@ -638,18 +634,18 @@
   /* Узел ВНЕ стойки (off-rack) — компактнее и с иконкой решения слева.
      Ниже обычного (питание/интерфейсы всё равно торчат по краям), в строку. */
   .node.offrack {
-    height: 52px; flex-direction: row; align-items: center; justify-content: flex-start;
+    height: 62px; flex-direction: row; align-items: center; justify-content: flex-start;
     gap: 9px; padding: 0 12px;
   }
   .node.offrack .node-ic { font-size: 24px; line-height: 1; color: var(--accent); flex-shrink: 0; }
   .node.offrack .node-tt { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-  .node.offrack .node-nmrow { display: flex; align-items: baseline; gap: 6px; }
+  .node.offrack .node-nmrow { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   .node.offrack .nm { font-size: 12px; }
-  .node.offrack .mdl { margin-top: 0; }
+  .node.offrack .mdl { margin-top: 0; white-space: nowrap; }
   /* IP первого интерфейса рядом с именем (или кнопка «+ адрес», если IP нет). */
   .node.offrack .node-ip { font-family: var(--mono); font-size: 10px; color: var(--ok); }
   .node.offrack .node-addip {
-    font-size: 9px; padding: 0 5px; border-radius: 4px; line-height: 1.5;
+    font-size: 9px; padding: 0 5px; border-radius: 4px; line-height: 1.5; white-space: nowrap; flex-shrink: 0;
     background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
   }
   .node.offrack .node-addip:hover { color: var(--accent); border-color: var(--accent); }
@@ -954,12 +950,15 @@
   /* детали: чипы */
   /* Заголовок паспорта: относительный контейнер под переключатель режима
      (data-mode=detail, .ms-corner в правом верхнем углу) + место справа. */
-  #detail .detail-head { position: relative; padding-right: 76px; margin-bottom: 12px; }
-  #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); }
+  /* padding-right под кнопку режима (ms-corner, «ПРОСМОТР» ~100px) — чтобы длинный
+     заголовок не залезал под неё; сам заголовок переносится по словам. */
+  #detail .detail-head { position: relative; padding-right: 104px; margin-bottom: 12px; }
+  #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); overflow-wrap: anywhere; }
   #detail .detail-head .sub { margin-bottom: 0; }
-  /* Хлебная крошка «(Серверная 1)» в заголовке паспорта устройства — кликабельна. */
-  #detail h2 .crumb-loc { color: var(--accent); cursor: pointer; font-weight: 400; }
-  #detail h2 .crumb-loc:hover { text-decoration: underline; }
+  /* Хлебная крошка «Серверная 1» в заголовке паспорта устройства — кликабельна,
+     БЕЗ подчёркивания (только цвет), ховер — чуть ярче. */
+  #detail h2 .crumb-loc { color: var(--accent); cursor: pointer; font-weight: 400; text-decoration: none; }
+  #detail h2 .crumb-loc:hover { filter: brightness(1.2); }
   /* Карандаш у названия щита — переименовать. */
   #detail .head-edit {
     margin-left: 6px; padding: 0 5px; border: none; background: none;

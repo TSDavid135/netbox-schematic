@@ -11,35 +11,45 @@ import { Mode } from "./modes.js";
 import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
 
 class _Mixin {
-  // Рисует силовые щитки (Power Panel) текущей серверной под стойками, по
-  // центру всего ряда стоек. Возвращает обновлённый maxBottom (низ схемы).
+  // Рисует силовые щитки (Power Panel) КАЖДОЙ серверной области — своим рядом
+  // ПОД ВСЕМ её содержимым (стойки + карман off-rack устройств), по центру их
+  // общего охвата. Геометрия локаций — из пре-прохода render
+  // (this._locOrder / _colX, см. _computeLocGeometry). Возвращает maxBottom.
   _renderPowerPanels(canvas, group, maxBottom) {
     if (!group.length) return maxBottom;
-    // Локация группы — общая у всех стоек; берём из первой стойки.
-    const locId = group[0].location && group[0].location.id;
-    const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === locId);
-    if (!panels.length) return maxBottom;
-
-    const { LEFT_PAD } = this;
-    // Горизонтальный охват ряда стоек: от левого края первой до правого
-    // края последней. Центр щитка — среднее арифметическое (середина охвата).
-    const spanLeft = LEFT_PAD;
-    const spanRight = LEFT_PAD + (group.length - 1) * (this.SLOT + COL_GAP) + BOX_PAD + this.SLOT;
-    const centerX = (spanLeft + spanRight) / 2;
-    const PANEL_W = 280, HEAD_H = 30, ROW_H = 24, GAP_Y = 40, GAP_X = 28;
-    const top = maxBottom + GAP_Y;
-    state.powerBoxEls = state.powerBoxEls || {};
+    const GAP_Y = 40;
+    state.powerBoxEls = {};
     state.feedRowEls = {};
     const edit = Mode.on("schema");
+    let bottom = maxBottom;
+    for (const g of this._locOrder || []) {
+      const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === g.locId);
+      if (!panels.length) continue;
+      // Низ содержимого = max(низ стоек, низ кармана устройств) → щитки под всем.
+      const contentBottom = Math.max(g.rackBottom, g.areaH ? g.devTop + g.areaH : 0);
+      // Центр = середина охвата «стойки + карман».
+      const spanLeft = this._colX(g.minCol);
+      const spanRight = g.areaW ? g.devX + g.areaW
+        : this._colX(g.maxCol) + this.SLOT + BOX_PAD;
+      bottom = Math.max(bottom, this._renderPanelRow(
+        canvas, panels, (spanLeft + spanRight) / 2, contentBottom + GAP_Y, edit));
+    }
+    return bottom;
+  }
+
+  // Рисует РЯД щитков одной серверной, центрированный под её стойками (centerX),
+  // начиная с top. Возвращает низ ряда (для расчёта высоты холста).
+  _renderPanelRow(canvas, panels, centerX, top, edit) {
+    const PANEL_W = 280, HEAD_H = 30, ROW_H = 24, GAP_X = 28;
     const panelFeeds = panels.map(p =>
       (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === p.id));
     // В правке добавляется строка «+ фидер» → высота щитка на 1 ряд больше.
     const rowsOf = fs => edit ? fs.length + 1 : Math.max(1, fs.length);
     const maxH = Math.max(...panelFeeds.map(fs => HEAD_H + rowsOf(fs) * ROW_H + 8));
-    // Ряд щитков: ЛЕВЫЙ край ПЕРВОГО щитка привязан к центру (centerX-PANEL_W/2),
-    // новые щитки добавляются ВПРАВО и НЕ сдвигают уже стоящие (small_fix).
+    // Ряд щитков центрируется под своими стойками (весь ряд вокруг centerX),
+    // чтобы не вылезать за охват серверной в соседнюю.
     const rowW = panels.length * PANEL_W + (panels.length - 1) * GAP_X;
-    const x0 = centerX - PANEL_W / 2;
+    const x0 = centerX - rowW / 2;
     // Контур блока щитков «Силовые щиты» (позади карточек) — с подписью и заливкой,
     // как у контуров-типов устройств.
     const CONT_HEAD = 28, CONT_PAD = 14;
@@ -206,7 +216,7 @@ class _Mixin {
         d = `M ${fx} ${fy} C ${fx - 44} ${fy}, ${px2} ${midY}, ${px2} ${py}`;
       } else if (state.wirePath === "extend" && state.devCol[port.dev.id] != null) {
         const col = state.devCol[port.dev.id];
-        const corr = this.LEFT_PAD + (col + 1) * (this.SLOT + COL_GAP) - COL_GAP / 2 - 52;
+        const corr = this._colX(col) + this.SLOT + COL_GAP / 2 - 52;
         // Горизонтальный переход ведём НАД щитками (верхний край самого верхнего
         // щитка − отступ), чтобы линия не резала их боксы, затем коридором
         // колонки PDU вверх к его порту. state.powerBoxEls — боксы щитков.

@@ -126,9 +126,9 @@ export class DeviceManager {
     this.currentPanel = null;
     const panel = $("#detail");
     const sub = `${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}`;
-    // Хлебная крошка: «(Серверная 1) sw-access-02» — клик по локации → её детали.
+    // Хлебная крошка: «Серверная 1  sw-access-02» — клик по локации → её детали.
     const loc = dev.location;
-    const title = (loc ? `(<a class="crumb-loc">${loc.name}</a>) ` : "") + dev.name;
+    const title = (loc ? `<a class="crumb-loc">${loc.name}</a>&nbsp; ` : "") + dev.name;
     panel.innerHTML = this._detailHead(title, sub) + `<div class="placeholder">загружаю…</div>`;
     const ips = await apiAll("/ipam/ip-addresses/?device_id=" + dev.id);
     const ipByIface = {};

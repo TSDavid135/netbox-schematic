@@ -47,12 +47,10 @@ export class TreeManager {
     this._buildUngrouped(nav);
   }
 
-  // Дерево групп мест (Site Group — вложенная модель по parent). Заголовок —
-  // ещё и drop-таргет «в корень» (вынести группу из вложенности).
+  // Дерево групп мест (Site Group — вложенная модель по parent). Заголовок
+  // секции убран (как в «Сетях»); «вынести группу в корень» — через ПКМ
+  // «Переместить → корень» (drag-таргета-заголовка больше нет).
   _buildGroupsTree(nav) {
-    const head = mk("div", { className: "tree-groups-head", text: "Группы мест" });
-    this._makeDropTarget(head, "sitegroup", null, "parent");
-    nav.appendChild(head);
     this._addBtn(nav, "+ группа мест", "", () => this._createSiteGroup(null));
     const childrenOf = {};
     for (const g of (state.siteGroups || [])) {
@@ -61,14 +59,11 @@ export class TreeManager {
     }
     for (const g of (childrenOf.root || [])) this._buildGroupNode(nav, g, childrenOf, 0);
   }
-  // Площадки без группы (group=null) — отдельная секция; заголовок принимает
-  // площадку → снять группу (group:null).
+  // Площадки без группы (group=null) — без заголовка секции (убран). «Снять
+  // группу» — через ПКМ «Переместить → без группы».
   _buildUngrouped(nav) {
     const orphans = state.sites.filter(s => !s.group);
     if (!orphans.length) return;
-    const head = mk("div", { className: "tree-groups-head", text: "Без группы" });
-    this._makeDropTarget(head, "site", null, "group");
-    nav.appendChild(head);
     this._addBtn(nav, "+ площадка", "", () => this._createSite(null));
     for (const site of orphans) this._buildSiteNode(nav, site, 30);
   }

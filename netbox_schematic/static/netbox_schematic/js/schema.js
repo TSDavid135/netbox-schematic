@@ -28,6 +28,12 @@ function _mixin(target, ...protos) {
         Object.defineProperty(target, k, Object.getOwnPropertyDescriptor(p, k));
 }
 
+// Геометрия «карманов» off-rack устройств (контуры-типы СПРАВА от стоек своей
+// серверной): шапка/отступы контура, шаг сетки нод, зазоры между контурами,
+// перенос в под-колонку (SUBCOL_GAP) и отступ между карманом и следующей
+// серверной (AREA_SEP — с запасом под clamp-границы контуров, см. clampX).
+const OFFGEO = { HEAD_H: 40, PAD: 14, ROW_H: 108, HGAP: 20, VGAP: 24, SUBCOL_GAP: 44, AREA_SEP: 140 };
+
 export class SchemaManager {
   constructor(app) {
     this.app = app;
@@ -237,8 +243,13 @@ export class SchemaManager {
       }
     const spread = dev => Math.min(cablesOn[dev.id] || 0, 6) * 5;   // до +30px
 
+    // Пре-проход геометрии областей: x каждой колонки с учётом «карманов»
+    // устройств справа от стоек каждой серверной (следующая серверная начинается
+    // ПРАВЕЕ кармана предыдущей) + упаковка карманов и низы под щитки.
+    this._computeLocGeometry(group, devPorts, devsOf, spread);
+
     group.forEach((rack, col) => {
-      const x0 = LEFT_PAD + col * (this.SLOT + COL_GAP) + BOX_PAD;
+      const x0 = this._colX(col) + BOX_PAD;
       const box = mk("div", { className: "rackbox", html: `<span class="rb-label">стойка ${rack.name}</span>`,
         style: { left: (x0 - BOX_PAD) + "px", top: (TOP_PAD - 34) + "px", width: (this.SLOT + BOX_PAD) + "px" } });
       canvas.appendChild(box);
@@ -274,20 +285,18 @@ export class SchemaManager {
     // площадки/региона в дереве). Локация без внешних контуров.
     this._renderScopeContours(canvas, group, rackMeta);
 
-    // Электропитание: щитки под стойками, по центру всей ширины
-    // Power Panel рисуется НЕ юнитом стойки, а отдельным пунктирным блоком
-    // ПОД стойками, по центру (среднее арифметическое по горизонтали всего
-    // ряда стоек). Название «Щиток …» — в левом верхнем углу, как у стоек.
-    this._powerBaseBottom = maxBottom;   // низ ряда стоек — откуда рисуются щитки
+    // Устройства ВНЕ стоек — «карман» СПРАВА от стоек СВОЕЙ серверной (позиции
+    // посчитаны пре-проходом). Сироты (локации нет в области) — справа от всего.
+    const off = this._renderOffRack(canvas, group, devPorts);
+
+    // Электропитание: щитки КАЖДОЙ серверной — ПОД всем её содержимым (стойки +
+    // карман устройств), по центру общего охвата. Подпись — как у стоек.
+    this._powerBaseBottom = maxBottom;   // низ ряда стоек (для перерисовки щитков)
     maxBottom = this._renderPowerPanels(canvas, group, maxBottom);
 
-    // Устройства ВНЕ стоек: провайдер — НАД стойками, периферия — ВНИЗ под
-    // стойки своей локации (в контуре, если есть; иначе — под низом схемы).
-    const off = this._renderOffRack(canvas, group, devPorts, rackMeta, maxBottom);
-
     const rightPad = Math.max(EXTRA, LEFT_PAD), botPad = Math.max(EXTRA * 0.6, TOP_PAD);
-    const baseW = LEFT_PAD + group.length * (this.SLOT + COL_GAP) + rightPad;
-    canvas.style.width = Math.max(baseW, (off.right || 0) + 200) + "px";
+    const lastRight = group.length ? this._colX(group.length - 1) + this.SLOT : 300;
+    canvas.style.width = (Math.max(lastRight, off.right || 0) + rightPad) + "px";
     canvas.style.height = (Math.max(maxBottom, off.bottom || 0) + botPad) + "px";
     // Та же область — вернуть прежнюю позицию (не дёргать вид при появлении нод);
     // новая область / первая отрисовка — центрировать.
@@ -305,10 +314,11 @@ export class SchemaManager {
   // каждый контур — свои ноды сеткой по 2 в ширину; когда контур не влезает до
   // «подвала» (низа стоек/щитов), следующий уходит в новую колонку вправо.
   // Возвращает {right, bottom} — правый/нижний края (для размера холста).
-  _renderOffRack(canvas, group, devPorts, rackMeta, maxBottom) {
-    const off = state.devices.filter(d => d._off);
-    if (!off.length) return { right: 0, bottom: 0 };
-    const { LEFT_PAD, TOP_PAD, SLOT } = this;
+  _renderOffRack(canvas, group, devPorts) {
+    // Контуры-типы off-rack по локации — чтобы контур серверной их охватил
+    // (см. _fitContoursToWires). Сбрасываем ДО раннего выхода (нет off-rack).
+    state.offContours = {};
+    const { HEAD_H, PAD, ROW_H, HGAP } = OFFGEO;
     const place = (dev, x, y) => {
       const node = document.createElement("div");
       node.className = "node offrack off-" + dev._off;
@@ -324,54 +334,132 @@ export class SchemaManager {
       state.nodeEls[dev.id] = node;
       this._layoutNode(dev, node);   // сам поставит left = _fixedLeft для off-rack
     };
-    // Группировка по типу решения.
-    const groups = new Map();   // key → { label, order, locName, devs: [] }
-    for (const dev of off) {
-      const g = catalogGroup(dev);
-      let e = groups.get(g.key);
-      if (!e) { e = { label: g.label, order: g.order,
-        locName: (dev.location && dev.location.name) || "", devs: [] }; groups.set(g.key, e); }
-      e.devs.push(dev);
-    }
-    const list = [...groups.values()]
-      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
-
-    // Геометрия упаковки контуров. HEAD_H крупнее — ноды заметно ниже подписи.
-    const HEAD_H = 40, PAD = 14, ROW_H = 108, HGAP = 20, CONTOUR_GAP = 24, COL_GAP2 = 44;
-    const gx0 = LEFT_PAD + group.length * (SLOT + COL_GAP) + 40;
-    const startY = TOP_PAD;
-    const bottomLimit = Math.max(startY + 320, maxBottom);   // «подвал» — низ стоек/щитов
-    const nodeW = devs => Math.max(...devs.map(d => this._nodeParts(d, devPorts[d.id] || []).width));
-
-    let curX = gx0, curY = startY, colW = 0, right = gx0, bottom = startY;
-    for (const grp of list) {
-      const n = grp.devs.length;
-      const cols = Math.min(2, n), rows = Math.ceil(n / 2);
-      const nw = nodeW(grp.devs);
-      const contourW = PAD * 2 + cols * nw + (cols - 1) * HGAP;
-      const contourH = HEAD_H + rows * ROW_H + PAD;
-      // Перенос в новую колонку вправо, если контур не помещается до «подвала»
-      // (и он не первый в текущей колонке — иначе он всё равно должен стоять).
-      if (curY + contourH > bottomLimit && curY > startY) {
-        curX += colW + COL_GAP2; curY = startY; colW = 0;
+    let right = 0, bottom = 0;
+    // Материализация упаковки пре-прохода: контур-тип + ноды сеткой внутри.
+    const renderArea = (x, topY, packed, sink) => {
+      for (const it of packed.items) {
+        const bx = x + it.dx, by = topY + it.dy;
+        const box = this._contourEl("gb-type", it.grp.label,
+          { left: bx, top: by, width: it.cw, height: it.ch });
+        canvas.insertBefore(box, canvas.firstChild);
+        if (sink) sink.push(box);
+        it.grp.devs.forEach((dev, i) => {
+          const c = i % it.cols, r = Math.floor(i / it.cols);
+          place(dev, bx + PAD + c * (it.nw + HGAP), by + HEAD_H + r * ROW_H + 13);
+        });
+        right = Math.max(right, bx + it.cw);
+        bottom = Math.max(bottom, by + it.ch);
       }
-      // Пунктирный контур типа (без локации в подписи — она и так одна).
-      const box = this._contourEl("gb-type", grp.label,
-        { left: curX, top: curY, width: contourW, height: contourH });
-      canvas.insertBefore(box, canvas.firstChild);
-      // Ноды сеткой: max 2 в ширину, растут вниз.
-      grp.devs.forEach((dev, i) => {
-        const c = i % 2, r = Math.floor(i / 2);
-        const x = curX + PAD + c * (nw + HGAP);
-        const y = curY + HEAD_H + r * ROW_H + 13;   // +13 — под верхний ряд портов
-        place(dev, x, y);
-      });
-      right = Math.max(right, curX + contourW);
-      bottom = Math.max(bottom, curY + contourH);
-      colW = Math.max(colW, contourW);
-      curY += contourH + CONTOUR_GAP;
-    }
+    };
+    for (const g of this._locOrder || [])
+      if (g.items.length) renderArea(g.devX, g.devTop, g, state.offContours[g.locId] = []);
+    if (this._orphanArea)
+      renderArea(this._orphanArea.x, this._orphanArea.top, this._orphanArea, null);
     return { right, bottom };
+  }
+
+  // ── Геометрия областей (пре-проход, чистая математика) ──────────────────────
+  // Раскладка «по серверным»: стойки локации → СПРАВА её карман off-rack
+  // устройств (контуры-типы) → ПОД всем этим щитки; следующая серверная
+  // начинается правее кармана предыдущей. Считает: x каждой колонки
+  // (this._colXArr — карманы вставляют сдвиг), диапазоны/низы локаций и
+  // упаковку карманов (this._locGeom / this._locOrder), карман «сирот» без
+  // локации в области (this._orphanArea). Зовётся из render ДО раскладки стоек.
+  _computeLocGeometry(group, devPorts, devsOf, spread) {
+    const { LEFT_PAD, TOP_PAD } = this;
+    const step = this.SLOT + COL_GAP;
+    const gap = state.nodeGap ?? NODE_GAP;
+    const devTop = TOP_PAD - 34;             // верх кармана = верх боксов стоек
+    // Низ стойки — та же арифметика, что основной цикл render (y += 64+gap+spread).
+    const rackBottom = rack => {
+      let y = TOP_PAD;
+      for (const dev of devsOf(rack)) y += 64 + gap + spread(dev);
+      return y - 14;
+    };
+    // Стойки отсортированы площадка→серверная→стойка → колонки серверной подряд.
+    const locGeom = {}, locOrder = [];
+    let maxRB = 300;
+    group.forEach((rack, col) => {
+      const lid = rack.location && rack.location.id;
+      const rb = rackBottom(rack);
+      maxRB = Math.max(maxRB, rb);
+      if (lid == null) return;
+      let g = locGeom[lid];
+      if (!g) { g = locGeom[lid] = { locId: lid, minCol: col, maxCol: col,
+        rackBottom: 0, devTop, items: [], areaW: 0, areaH: 0 }; locOrder.push(g); }
+      g.minCol = Math.min(g.minCol, col); g.maxCol = Math.max(g.maxCol, col);
+      g.rackBottom = Math.max(g.rackBottom, rb);
+    });
+    // Off-rack устройства по серверным; без локации (или её нет в области) —
+    // к единственной серверной, если она одна, иначе — «сироты» справа от всего.
+    const byLoc = {}, orphans = [];
+    for (const dev of state.devices.filter(d => d._off)) {
+      let lid = dev.location && dev.location.id;
+      if ((lid == null || !locGeom[lid]) && locOrder.length === 1) lid = locOrder[0].locId;
+      if (lid != null && locGeom[lid]) (byLoc[lid] = byLoc[lid] || []).push(dev);
+      else orphans.push(dev);
+    }
+    // Упаковка кармана: контуры-типы колонкой сверху вниз; не влезает до низа
+    // стоек — новая под-колонка правее. items — относительные позиции (dx,dy).
+    const { HEAD_H, PAD, ROW_H, HGAP, VGAP, SUBCOL_GAP } = OFFGEO;
+    const nodeW = devs => Math.max(...devs.map(d => this._nodeParts(d, devPorts[d.id] || []).width));
+    const typeList = devs => {
+      const m = new Map();
+      for (const dev of devs) {
+        const t = catalogGroup(dev);
+        let e = m.get(t.key);
+        if (!e) { e = { label: t.label, order: t.order, devs: [] }; m.set(t.key, e); }
+        e.devs.push(dev);
+      }
+      return [...m.values()].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+    };
+    const pack = (devs, limitH) => {
+      const items = [];
+      let dx = 0, dy = 0, colW = 0, areaW = 0, areaH = 0;
+      for (const grp of typeList(devs)) {
+        const n = grp.devs.length, nw = nodeW(grp.devs);
+        const cols = Math.min(2, n), rows = Math.ceil(n / cols);
+        const cw = PAD * 2 + cols * nw + (cols - 1) * HGAP;
+        const ch = HEAD_H + rows * ROW_H + PAD;
+        if (dy > 0 && dy + ch > limitH) { dx += colW + SUBCOL_GAP; dy = 0; colW = 0; }
+        items.push({ grp, nw, cols, dx, dy, cw, ch });
+        colW = Math.max(colW, cw);
+        areaW = Math.max(areaW, dx + cw); areaH = Math.max(areaH, dy + ch);
+        dy += ch + VGAP;
+      }
+      return { items, areaW, areaH };
+    };
+    for (const g of locOrder)
+      Object.assign(g, pack(byLoc[g.locId] || [], Math.max(300, g.rackBottom - devTop)));
+    // x колонок: карман локации вставляет сдвиг ПЕРЕД колонками следующих
+    // локаций (боковой коридор проводов живёт в COL_GAP — карман его не трогает).
+    const colX = []; let extra = 0, prevLid = null;
+    group.forEach((rack, col) => {
+      const lid = rack.location && rack.location.id;
+      if (prevLid != null && lid !== prevLid) {
+        const pg = locGeom[prevLid];
+        if (pg && pg.areaW) extra += pg.areaW + OFFGEO.AREA_SEP;
+      }
+      prevLid = lid;
+      colX[col] = LEFT_PAD + col * step + extra;
+    });
+    this._colXArr = colX;
+    // Карман каждой серверной — сразу за её последней колонкой, после COL_GAP.
+    for (const g of locOrder) g.devX = this._colX(g.maxCol) + this.SLOT + COL_GAP;
+    this._locGeom = locGeom; this._locOrder = locOrder;
+    // Сироты — карман справа от всей схемы.
+    const last = locOrder[locOrder.length - 1];
+    const lastRight = group.length ? this._colX(group.length - 1) + this.SLOT : LEFT_PAD;
+    const schemaRight = last && last.areaW ? Math.max(lastRight, last.devX + last.areaW) : lastRight;
+    this._orphanArea = orphans.length
+      ? { x: schemaRight + 60, top: devTop, ...pack(orphans, Math.max(400, maxRB - devTop)) }
+      : null;
+  }
+  // Левый край слота колонки col (с учётом карманов). До пре-прохода (или вне
+  // диапазона) — прежняя равномерная сетка.
+  _colX(col) {
+    const a = this._colXArr;
+    return a && a[col] != null ? a[col] : this.LEFT_PAD + col * (this.SLOT + COL_GAP);
   }
 
   // Палитра устройств («+»): вкладки категорий + кнопки-устройства. Клик по

@@ -26,8 +26,8 @@ class _Mixin {
     const boxOf = (racks, padX, padTop, padBot) => {
       const cols = racks.map(r => rackMeta[r.id].col);
       const minCol = Math.min(...cols), maxCol = Math.max(...cols);
-      const left = LEFT_PAD + minCol * (this.SLOT + COL_GAP);
-      const right = LEFT_PAD + maxCol * (this.SLOT + COL_GAP) + this.SLOT + BOX_PAD;
+      const left = this._colX(minCol);
+      const right = this._colX(maxCol) + this.SLOT + BOX_PAD;
       const bottom = Math.max(...racks.map(r => rackMeta[r.id].bottom));
       return { left: left - padX, top: top0 - padTop,
         width: (right - left) + padX * 2, height: (bottom - top0) + padTop + padBot };
@@ -39,8 +39,12 @@ class _Mixin {
       if (lid == null) continue;
       const loc = racks[0].location;
       const base = boxOf(racks, 13, 22, 12);
+      // Диапазон колонок серверной — для горизонтального «прижима» (clamp), чтобы
+      // рамка не вылезла в колонки соседней серверной (см. _fitContoursToWires).
+      const cols = racks.map(r => rackMeta[r.id].col);
       const el = this._contourEl("gb-loc", "серверная " + (loc ? loc.name : "?"), base);
       locs.push({ el, base, kind: "loc", locId: lid, locName: loc ? loc.name : "",
+        minCol: Math.min(...cols), maxCol: Math.max(...cols),
         rackIds: new Set(racks.map(r => r.id)),
         siteId: racks[0].site && racks[0].site.id });
     }
@@ -122,21 +126,11 @@ class _Mixin {
       }
       return { left: x0, top: y0, width: x1 - x0, height: y1 - y0 };
     };
-    // Off-rack устройства (потребители) размещены СПРАВА/НАД стойками, но
-    // ПРИНАДЛЕЖАТ локации → контур должен их охватывать (позиции не меняем, только
-    // растим рамку — small_fix). Собираем ноды по локации; без локации —
-    // привязываем к единственному loc-контуру (если он один), иначе не трогаем.
-    const locCts = list.filter(c => c.kind === "loc");
-    const offByLoc = {};
-    for (const d of state.devices) {
-      if (!d._off) continue;
-      const node = state.nodeEls[d.id];
-      if (!node) continue;
-      let lid = d.location && d.location.id;
-      if (lid == null && locCts.length === 1) lid = locCts[0].locId;
-      if (lid == null) continue;
-      (offByLoc[lid] = offByLoc[lid] || []).push(node);
-    }
+    // Off-rack устройства (потребители) теперь лежат ПОД стойками СВОЕЙ серверной
+    // (см. _renderOffRack), сгруппированы в контуры-типы. Рамка серверной растёт
+    // ВНИЗ по этим контурам (state.offContours[locId]) — устройства оказываются
+    // ВНУТРИ своей серверной. Ключ — id локации (число ct.locId → строковый ключ).
+    const offByLoc = state.offContours || {};
     // Силовые щиты локации (боксы под стойками) — контур серверной должен их
     // ОХВАТЫВАТЬ (small_fix: при выборе Site щитки внутри контура). Боксы —
     // state.powerBoxEls[panel.id], привязка к локации — panel.location.id.
@@ -162,6 +156,23 @@ class _Mixin {
       ct.el.style.left = ct._box.left + "px"; ct.el.style.top = ct._box.top + "px";
       ct.el.style.width = ct._box.width + "px"; ct.el.style.height = ct._box.height + "px";
     };
+    // Когда серверных НЕСКОЛЬКО — их рамки прижимаем к «полосе» СВОЕЙ локации
+    // (стойки + карман off-rack устройств) по горизонтали (clamp), иначе рост
+    // под провода/щиты может завести рамку в полосу соседней серверной и она
+    // визуально окажется ВНУТРИ (баг «локация внутри локации»). Полосы соседних
+    // локаций разнесены пре-проходом (_computeLocGeometry, AREA_SEP).
+    const multiLoc = list.filter(c => c.kind === "loc").length > 1;
+    const clampX = ct => {
+      if (!multiLoc) return;
+      const g = (this._locGeom || {})[ct.locId];
+      if (!g) return;
+      const bandLeft = this._colX(g.minCol) - COL_GAP / 2;
+      const bandRight = g.areaW ? g.devX + g.areaW + 24
+        : this._colX(g.maxCol) + this.SLOT + COL_GAP / 2;
+      const left = Math.max(ct._box.left, bandLeft);
+      const right = Math.min(ct._box.left + ct._box.width, bandRight);
+      ct._box = { ...ct._box, left, width: Math.max(0, right - left) };
+    };
     // Phase 1 — серверные: рамка растёт под свои внутренние провода, ноды своих
     // стоек (широкие ноды не должны вылезать — small_fix п.1) И под off-rack
     // устройства этой локации (потребители справа / провайдер сверху — в контуре).
@@ -173,6 +184,7 @@ class _Mixin {
       // Щиты локации — pad 22, чтобы охватить и их подпись «Силовые щиты» сверху.
       const panelEls = panelsByLoc[ct.locId];
       if (panelEls && panelEls.length) ct._box = growByEls(ct._box, panelEls, 22);
+      clampX(ct);
       apply(ct);
     }
     // Phase 2 — площадки: объединение подросших серверных + внутренние провода

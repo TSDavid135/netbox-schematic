@@ -38,6 +38,7 @@ export class IpamCanvas {
     this.dragged = false;   // был перенос → подавить click после mouseup
     this._lastNet = null;   // открытые детали {n, place} — для перерисовки
     this.zoom = 1;          // масштаб полотна (колесо), пан — скроллом #ipam-scroll
+    this.collapsed = new Set();   // id свёрнутых папок-групп в дереве (переживает renderTree)
     // Призрак «Сюда» при переносе сети: mouseover всплывает → closest(".place")
     // даёт самое ВЛОЖЕННОЕ место под курсором (регион ⊃ площадка ⊃ локация).
     this._dragOver = e => {
@@ -192,10 +193,15 @@ export class IpamCanvas {
         || !byKey.get(SCOPE_KEY[p.scope_type] + ":" + p.scope_id))
       .map(({ p, cidr }) => ({ p, cidr, ...this._netUsage(p, cidr) }));
 
-    // сортировки
-    const sortPlace = n => { n.children.sort((a, b) => a.name.localeCompare(b.name));
+    // сортировки. Как на «Инфраструктуре»: внутри узла сперва идут площадки/
+    // серверные, а ПОДГРУППЫ (папки) — ВНИЗУ. Иначе папка в середине путает —
+    // кажется, что следующие элементы родителя лежат внутри неё.
+    const kindRank = { location: 0, site: 1, sitegroup: 2 };
+    const byKindThenName = (a, b) =>
+      (kindRank[a.kind] - kindRank[b.kind]) || a.name.localeCompare(b.name);
+    const sortPlace = n => { n.children.sort(byKindThenName);
       n.nets.sort((a, b) => a.cidr.base - b.cidr.base); n.children.forEach(sortPlace); };
-    roots.sort((a, b) => a.name.localeCompare(b.name));
+    roots.sort(byKindThenName);
     roots.forEach(sortPlace);
     this.roots = roots;
   }
@@ -228,17 +234,32 @@ export class IpamCanvas {
   }
 
   _treeNode(node, depth) {
-    const icon = { region: "map-marker-radius", sitegroup: "folder-network", site: "office-building", location: "server" }[node.kind] || "";
+    // Иконки — те же, что в дереве «Инфраструктуры» (tree.js): 📁 группа мест,
+    // 🗺 площадка, 📍 серверная. Цвета задаёт CSS (.it-node.k-* .mdi).
+    const icon = { region: "map-marker-radius", sitegroup: "folder-outline", site: "map-outline", location: "map-marker" }[node.kind] || "";
+    // Папки (группы мест) — сворачиваемы, как на «Инфраструктуре»: отдельная
+    // кнопка-стрелка (клик по ней сворачивает, не трогая фокус).
+    const isFolder = node.kind === "sitegroup";
+    const collapsed = isFolder && this.collapsed.has(node.id);
+    const chevron = isFolder
+      ? `<button class="it-chevron" tabindex="-1" title="Свернуть / развернуть"><i class="mdi mdi-chevron-${collapsed ? "right" : "down"}"></i></button>`
+      : "";
     // Узел-место: клик — фокус; при переносе сети — drop-таргет (подсветка
     // .drop-hl, отпустил ЛКМ на узле → сеть привязывается к этому месту).
-    const row = mk("div", { className: "it-node k-" + node.kind, style: { paddingLeft: (8 + depth * 14) + "px" },
-      html: `<i class="mdi mdi-${icon}"></i><span class="it-name">${node.name}</span>`,
+    const row = mk("div", { className: "it-node k-" + node.kind + (collapsed ? " collapsed" : ""),
+      style: { paddingLeft: (8 + depth * 14) + "px" },
+      html: `${chevron}<i class="mdi mdi-${icon}"></i><span class="it-name">${node.name}</span>`,
       on: {
         click: () => { if (!this.dragged) this._focusPlace(node); },
         contextmenu: e => this._menu(e, node),
       } });
+    if (isFolder) {
+      const chev = row.querySelector(".it-chevron");
+      if (chev) chev.addEventListener("click", e => { e.stopPropagation(); this._toggleCollapse(node.id); });
+    }
     row._placeNode = node;   // цель дропа сети (подсветка/дроп — _setDropTarget/onUp)
     const wrap = mk("div", {}, row);
+    if (collapsed) return wrap;   // свёрнута — сети и вложенные места не рисуем
     for (const n of node.nets) {
       // Сеть в дереве: клик — детали; в правке перетаскивается на узлы-места
       // (та же механика, что помещения на «Инфраструктуре»).
@@ -250,8 +271,17 @@ export class IpamCanvas {
       this._makeNetDraggable(netEl, n, node, true);   // сеть в дереве
       wrap.appendChild(netEl);
     }
-    for (const ch of node.children) wrap.appendChild(this._treeNode(ch, depth + 1));
+    // Если у места ЕСТЬ сети — вложенные места сдвигаем на уровень ГЛУБЖE сетей,
+    // чтобы они визуально были «под сетью» (как локации внутри сети площадки на
+    // холсте). Без сетей — обычный отступ.
+    const childDepth = node.nets.length ? depth + 2 : depth + 1;
+    for (const ch of node.children) wrap.appendChild(this._treeNode(ch, childDepth));
     return wrap;
+  }
+  // Свернуть/развернуть папку-группу в дереве и перерисовать дерево.
+  _toggleCollapse(id) {
+    if (this.collapsed.has(id)) this.collapsed.delete(id); else this.collapsed.add(id);
+    this.renderTree();
   }
 
   // холст: блоки-места, внутри сети, внутри адреса
