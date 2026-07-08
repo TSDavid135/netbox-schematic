@@ -27,4 +27,9 @@ class SchematicView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context['canvas'] = self.canvas
         context['canvas_title'] = CANVASES.get(self.canvas, '')
+        # Блок пользователя в шапке (как в оригинальном NetBox): показываем имя
+        # залогиненного пользователя со ссылками на его профиль/выход.
+        user = self.request.user
+        context['user_name'] = user.get_full_name() or user.get_username()
+        context['user_login'] = user.get_username()
         return context

@@ -63,14 +63,20 @@ export class IpForm {
     this._setFree(null);
     this._closeList();
 
-    // Кандидаты-префиксы: авто (по VLAN интерфейса / сайту устройства) — сверху,
-    // затем все остальные. Каждый пункт value = его id.
+    // Кандидаты-префиксы: сети, привязанные к МЕСТУ устройства через холст «Сети»
+    // (prefix.scope: локация/сайт/регион/группа) или VLAN интерфейса — ОТДЕЛЬНОЙ
+    // группой сверху и предвыбраны; остальные — ниже. Value пункта = id префикса.
     const prefixes = this._candidatePrefixes(dev, iface);
+    const auto = prefixes.filter(p => p._auto), rest = prefixes.filter(p => !p._auto);
+    const optHtml = p => `<option value="${p.id}">${p.prefix}${p.description ? " — " + p.description : ""}</option>`;
     const sel = this.pop.querySelector(".if-prefix");
-    sel.innerHTML = prefixes.map(p =>
-      `<option value="${p.id}">${p.prefix}${p._auto ? " ★" : ""}${p.description ? " — " + p.description : ""}</option>`).join("");
+    const html =
+      (auto.length ? `<optgroup label="★ сети места устройства">${auto.map(optHtml).join("")}</optgroup>` : "") +
+      (rest.length ? `<optgroup label="все сети">${rest.map(optHtml).join("")}</optgroup>` : "");
+    sel.innerHTML = html || `<option value="">— сетей нет —</option>`;
     this._show(ev);
-    if (prefixes.length) { sel.value = prefixes[0].id; await this._selectPrefix(prefixes[0].id); }
+    const first = auto[0] || rest[0];
+    if (first) { sel.value = first.id; await this._selectPrefix(first.id); }
     else { this.cur = null; this.pop.querySelector(".if-mask").textContent = "/?"; }
     this.octs[0].focus();
   }

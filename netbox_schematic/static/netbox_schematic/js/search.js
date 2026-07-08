@@ -30,21 +30,14 @@ export class SearchManager {
   // #schempwrap занимает пространство между ресайзером и паспортом; его правый
   // край = где заканчивается схема. Ставим поле так, чтобы его правый край
   // совпадал с правым краем схемы, а левый не заезжал за середину топбара.
+  // Поле поиска теперь В ПОТОКЕ шапки (обычный flex-элемент), не плавает над
+  // топбаром → кнопки Обновить/тема/юзер стоят СПРАВА от него. Здесь только
+  // прячем поиск, если холст схемы не отрисован (страница «в разработке»).
   position() {
     if (!this.box) return;
-    const bar = $("#topbar"), wrap = $("#schempwrap");
-    if (!bar || !wrap) return;
-    const barRect = bar.getBoundingClientRect();
-    const wrapRect = wrap.getBoundingClientRect();
-    // если схема скрыта (холст в разработке) — прячем поиск
-    if (wrapRect.width === 0) { this.box.style.display = "none"; return; }
-    this.box.style.display = "";
-    const right = Math.max(8, barRect.right - wrapRect.right);
-    // ширина поля: до ~340px, но не шире правой части топбара
-    const avail = wrapRect.width - 12;
-    const width = Math.max(150, Math.min(320, avail));
-    this.box.style.right = right + "px";
-    this.box.style.width = width + "px";
+    const wrap = $("#schempwrap");
+    const hidden = !wrap || wrap.getBoundingClientRect().width === 0;
+    this.box.style.display = hidden ? "none" : "";
   }
 
   _wire() {

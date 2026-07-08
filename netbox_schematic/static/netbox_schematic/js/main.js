@@ -43,6 +43,23 @@ app.renderAll = group => renderAll(group);
   });
 }
 
+// Экспорт / Импорт — пока заглушки (семантику уточним). Кнопки на месте, слева
+// от поиска; действие сообщает, что функция в разработке.
+for (const id of ["exportbtn", "importbtn"]) {
+  const b = $("#" + id);
+  if (b) b.addEventListener("click", () =>
+    setStatus((id === "exportbtn" ? "Экспорт" : "Импорт") + " — в разработке"));
+}
+
+// Меню пользователя в шапке (клик по имени → выпадашка; клик вне — закрыть).
+{
+  const box = $("#userbox"), btn = $("#userbtn");
+  if (box && btn) {
+    btn.addEventListener("click", e => { e.stopPropagation(); box.classList.toggle("open"); });
+    document.addEventListener("click", e => { if (!box.contains(e.target)) box.classList.remove("open"); });
+  }
+}
+
 app.device.wireModal();
 initTheme();
 
@@ -51,7 +68,7 @@ async function connect() {
   state.base = "";
   setStatus("подключаюсь…");
   try {
-    const [regions, siteGroups, sites, locations, racks, roles, dtypes, prefixes, , panels, feeds, wlinks, circuits, cterms, cprov, ctypes] = await Promise.all([
+    const [regions, siteGroups, sites, locations, racks, roles, dtypes, prefixes, , panels, feeds, wlinks, circuits, cterms, cprov, ctypes, allDevices] = await Promise.all([
       apiAll("/dcim/regions/"), apiAll("/dcim/site-groups/"),
       apiAll("/dcim/sites/"), apiAll("/dcim/locations/"), apiAll("/dcim/racks/"),
       apiAll("/dcim/device-roles/"), apiAll("/dcim/device-types/"), apiAll("/ipam/prefixes/"),
@@ -60,6 +77,7 @@ async function connect() {
       apiAll("/wireless/wireless-links/"),   // слой «Wireless» (радио-линки между интерфейсами)
       apiAll("/circuits/circuits/"), apiAll("/circuits/circuit-terminations/"),  // слой «Circuits»
       apiAll("/circuits/providers/"), apiAll("/circuits/circuit-types/"),  // для назначения circuit
+      apiAll("/dcim/devices/"),   // ВСЕ устройства — для показа в дереве под локациями
     ]);
     state.regions = regions;
     state.siteGroups = siteGroups;
@@ -69,6 +87,7 @@ async function connect() {
     state.roles = {}; roles.forEach(r => state.roles[r.id] = r);
     state.dtypes = {}; dtypes.forEach(t => state.dtypes[t.id] = t);
     state.racks = racks;
+    state.allDevices = allDevices;   // для дерева (устройства под локациями)
     state.powerPanels = panels;
     state.powerFeeds = feeds;
     state.wirelessLinks = wlinks;
@@ -114,6 +133,32 @@ async function renderAll(group) {
   }
   const seen = new Set();
   state.cables = cables.filter(c => !seen.has(c.id) && seen.add(c.id));
+
+  // Устройства ВНЕ стоек (конечные потребители / провайдер) в площадках области.
+  // Основной запрос берёт только по rack_id — этих он не видит. Грузим отдельно
+  // их самих + порты + кабели; помечаем _off = "provider" (над стойками) либо
+  // "periph" (сеткой справа). Классификация по роли (см. схему рендера).
+  const siteIds = [...new Set(group.map(r => r.site && r.site.id).filter(Boolean))];
+  if (siteIds.length) {
+    const siteQ = siteIds.map(id => "site_id=" + id).join("&");
+    const loaded = new Set(state.devices.map(d => d.id));
+    const offDevs = (await apiAll("/dcim/devices/?" + siteQ)).filter(d => !d.rack && !loaded.has(d.id));
+    if (offDevs.length) {
+      const offQ = offDevs.map(d => "device_id=" + d.id).join("&");
+      const [offCables, ...offPorts] = await Promise.all([
+        apiAll("/dcim/cables/?" + offQ),
+        ...PORT_KINDS.map(k => apiAll(`/dcim/${k.ep}/?${offQ}`)),
+      ]);
+      for (const d of offDevs) {
+        state.devRack[d.id] = null;
+        const r = (d.role && (d.role.name + " " + (d.role.slug || ""))) || "";
+        d._off = /provider|провайдер|провайдер/i.test(r) ? "provider" : "periph";
+        state.devices.push(d);
+      }
+      PORT_KINDS.forEach((k, ki) => portLists[ki].push(...offPorts[ki]));
+      for (const c of offCables) if (!seen.has(c.id) && seen.add(c.id)) state.cables.push(c);
+    }
+  }
   // IP по интерфейсу: assigned_object_type=dcim.interface, assigned_object_id.
   state.ipsByIface = {};
   for (const ip of ips) {

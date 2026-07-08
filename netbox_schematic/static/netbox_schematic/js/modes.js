@@ -6,11 +6,11 @@
 
 import { $ } from "./core.js";
 
-export const MODES = ["tree", "rack", "schema"];
+export const MODES = ["tree", "rack", "schema", "detail"];
 
 class ModeManager {
   constructor() {
-    this.listeners = { tree: [], rack: [], schema: [] };
+    this.listeners = { tree: [], rack: [], schema: [], detail: [] };
     // делегирование: любой клик по .modebtn переключает её режим
     document.addEventListener("click", ev => {
       const btn = ev.target.closest(".modebtn");

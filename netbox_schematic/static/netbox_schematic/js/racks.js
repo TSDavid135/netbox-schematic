@@ -16,11 +16,18 @@ export class RackManager {
     this.app = app;
     Mode.onChange("rack", () => this._rerender());   // раскрытие/свёртка при смене режима
     // Сворачивание блока «Стойки»: ◄ в его заголовке прячет блок (body.rack-
-    // collapsed), ► слева от «Схема соединений» возвращает. Делегируем на
-    // document — кнопки пересоздаются при каждой перерисовке заголовков.
+    // collapsed), ► слева от «Схема соединений» возвращает. Состояние
+    // ПЕРЕЖИВАЕТ перезагрузку (localStorage). Делегируем на document — кнопки
+    // пересоздаются при каждой перерисовке заголовков.
+    if (localStorage.getItem("schematic-rackCollapsed") === "1")
+      document.body.classList.add("rack-collapsed");
+    const setCollapsed = on => {
+      document.body.classList.toggle("rack-collapsed", on);
+      localStorage.setItem("schematic-rackCollapsed", on ? "1" : "0");
+    };
     document.addEventListener("click", ev => {
-      if (ev.target.closest("#rack-collapse")) document.body.classList.add("rack-collapsed");
-      else if (ev.target.closest("#rack-expand")) document.body.classList.remove("rack-collapsed");
+      if (ev.target.closest("#rack-collapse")) setCollapsed(true);
+      else if (ev.target.closest("#rack-expand")) setCollapsed(false);
     });
   }
 
@@ -65,7 +72,16 @@ export class RackManager {
     pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></p><div id="racks"></div>`;
     Mode.syncButtons("rack");
     const wrap = $("#racks");
+    // Разделитель между локациями (когда в колонке стойки нескольких серверных):
+    // горизонтальная линия с именем локации перед её стойками.
+    const multiLoc = new Set(group.map(r => r.location && r.location.id)).size > 1;
+    let prevLoc = null;
     for (const rack of group) {
+      const locId = rack.location && rack.location.id;
+      if (multiLoc && locId !== prevLoc)
+        wrap.appendChild(mk("div", { className: "rack-loc-sep",
+          html: `<i class="mdi mdi-map-marker"></i> ${(rack.location && rack.location.name) || "—"}` }));
+      prevLoc = locId;
       const occ = state.rackOcc[rack.id] = new Set();
       for (const dev of byRack[rack.id]) {
         if (dev.position == null) continue;

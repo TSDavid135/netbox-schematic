@@ -37,6 +37,34 @@
   /* Кнопка ручного обновления данных из NetBox */
   #syncbtn { color: var(--muted); }
   #syncbtn:hover { color: var(--accent); }
+  /* «NetBox» в бренде — кликабельная ссылка на главную NetBox. */
+  #topbar .brand .brand-link { color: inherit; text-decoration: none; }
+  #topbar .brand .brand-link:hover { color: var(--accent); }
+  /* Экспорт/Импорт (заглушки) — слева от поиска, стиль как у «Обновить». */
+  .tb-act { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .tb-act:hover { color: var(--accent); }
+  /* Блок пользователя в шапке (как в NetBox): имя + выпадающее меню. */
+  #userbox { position: relative; }
+  #userbtn {
+    display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+    background: transparent; border: 1px solid transparent; max-width: 220px;
+  }
+  #userbtn:hover, #userbox.open #userbtn { color: var(--text); border-color: var(--line); background: var(--panel-2); }
+  #userbtn .mdi-account-circle { font-size: 18px; }
+  #userbtn .ub-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+  #userbtn .ub-caret { font-size: 12px; color: var(--muted); }
+  #usermenu {
+    display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+    min-width: 180px; background: var(--overlay-bg); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--overlay-shadow); overflow: hidden; padding: 4px;
+  }
+  #userbox.open #usermenu { display: block; }
+  #usermenu a {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px;
+    color: var(--text); text-decoration: none; font-size: 13px;
+  }
+  #usermenu a:hover { background: var(--panel-2); color: var(--accent); }
+  #usermenu a .mdi { font-size: 15px; color: var(--muted); }
   /* Поиск устройства (#devsearch) и фильтр по ролям (#rolefilter) вынесены
      в panels.css. */
   /* Переключатель режима — надпись по центру сверху блока. «Просмотр» синим,
@@ -158,6 +186,63 @@
   #schempane .pane-title { position: sticky; top: 0; left: 16px; padding: 16px 0 0 16px; z-index: 5; }
   #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
   #schemoverlay > * { pointer-events: auto; }
+  /* Палитра устройств «+» — панель в стеке справа сверху, ПОД «UI». Изначально
+     свёрнута (paletteCollapsed=true). Тело фиксированной высоты (см. .pl-grid),
+     чтобы шапка панели не «ездила» при смене категории / малом числе устройств. */
+  #palette {
+    font-size: 12px; color: var(--muted);
+    background: var(--overlay-bg); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--overlay-shadow);
+    width: 240px; overflow: hidden;
+  }
+  #palette .pl-toggle {
+    display: flex; align-items: center; gap: 6px; justify-content: space-between;
+    font-weight: 600; color: var(--text); cursor: pointer; user-select: none; padding: 8px 12px;
+  }
+  #palette .pl-toggle .arrow { margin-left: auto; transition: transform 0.18s; font-size: 10px; color: var(--muted); }
+  #palette.collapsed { width: 36px; min-width: 36px; height: 36px; cursor: pointer; }
+  #palette.collapsed .pl-toggle { padding: 0; height: 100%; justify-content: center; }
+  #palette.collapsed .pl-body, #palette.collapsed .arrow { display: none; }
+  #palette .pl-body { padding: 0 10px 10px; }
+  #palette .pl-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  #palette .pl-tab {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 6px 0; font-size: 16px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--muted); cursor: pointer;
+  }
+  #palette .pl-tab:hover { color: var(--text); }
+  #palette .pl-tab.active { border-color: var(--accent); color: var(--accent); background: var(--panel-2); }
+  #palette .pl-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    min-height: 172px; align-content: start;   /* статичная высота (3 ряда) */
+  }
+  #palette .pl-item {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 8px 2px 5px; border: 1px solid var(--line); border-radius: 7px;
+    background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  #palette .pl-item .mdi { font-size: 22px; color: var(--accent); }
+  #palette .pl-item span { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.1; }
+  #palette .pl-item:hover { border-color: var(--accent); background: var(--panel-2); }
+  #palette .pl-hint { font-size: 10px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+  /* Призрак устройства у курсора во время переноса. */
+  .pl-ghost {
+    position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, -50%);
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 8px 12px; border-radius: 10px; background: var(--overlay-bg);
+    border: 1px solid var(--accent); box-shadow: var(--overlay-shadow);
+  }
+  .pl-ghost .mdi { font-size: 22px; color: var(--accent); }
+  .pl-ghost span { font-size: 11px; color: var(--text); }
+  body.placing { cursor: crosshair; }
+  /* Локация-контур как цель дропа: тёмно-синяя заливка + большой «+» по центру. */
+  .groupbox.gb-loc.pl-drop {
+    background: rgba(24,58,110,0.55); border-color: var(--accent); border-width: 3px;
+  }
+  .groupbox.gb-loc.pl-drop::after {
+    content: "+"; position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 72px; font-weight: 300; color: #fff; opacity: 0.9;
+  }
   #detail {
     width: 330px; flex-shrink: 0; overflow-y: auto;
     background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px;
@@ -211,12 +296,17 @@
   .tree-region.clickable:hover { color: var(--text); }
   .tree-site { padding: 6px 14px 2px 30px; font-weight: 600; cursor: pointer; border-radius: 4px; }
   .tree-site:hover { background: var(--panel-2); }
-  /* Группы мест (Site Group) — независимая секция внизу дерева */
-  .tree-groups-head {
-    padding: 10px 14px 3px; margin-top: 8px; border-top: 1px solid var(--line);
-    font-weight: 700; font-size: 10px; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--muted);
+  /* Иконки уровней дерева: 📁 группа, 🗺 площадка, 📍 серверная (глиф не влияет
+     на textContent → _nodeInfo читает имя корректно). */
+  .tree-ic { margin-right: 6px; font-size: 13px; vertical-align: -1px; color: var(--muted); }
+  .tree-sitegroup .tree-ic { color: var(--power); }
+  .tree-site .tree-ic { color: var(--accent); }
+  /* Стрелка сворачивания группы — отдельная кнопка (клик по ней не грузит схему). */
+  .tree-chevron {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 0; margin-right: 2px; font-size: 14px; line-height: 1; vertical-align: -2px;
   }
+  .tree-chevron:hover { color: var(--text); }
   .tree-sitegroup {
     padding: 7px 14px 2px; font-weight: 700; font-size: 12px; text-transform: uppercase;
     letter-spacing: 0.03em; color: var(--muted); cursor: pointer;
@@ -235,17 +325,17 @@
      (не полоска слева); это «есть на схеме», но корень не они. Ховер — темнее.
      Двойной класс — чтобы перебить одиночные :hover у .tree-loc/.tree-rack. */
   .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
-  .tree-panel.on-schema, .tree-feed.on-schema {
-    background: color-mix(in srgb, var(--muted) 16%, transparent);
+  .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
+    background: color-mix(in srgb, var(--muted) 16%, transparent); border-radius: 0;
   }
   .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
-  .tree-panel.on-schema:hover, .tree-feed.on-schema:hover {
+  .tree-panel.on-schema:hover, .tree-feed.on-schema:hover, .tree-dev.on-schema:hover {
     background: color-mix(in srgb, var(--muted) 32%, transparent);
   }
-  /* Потомки-стойки/щитки/фидеры выбранной области — синий (accent) текст:
-     видно, что «эта стойка/щиток на схеме». Корень остаётся .scope-active
-     (accent + полоска слева), поэтому не путается с потомками. */
-  .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema {
+  /* Потомки-стойки/щитки/фидеры/устройства выбранной области — синий (accent)
+     текст: видно, что «это на схеме». Корень остаётся .scope-active (accent +
+     полоска слева), поэтому не путается с потомками. */
+  .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
     color: var(--accent); font-weight: 600;
   }
   /* Shift-мультивыбор узлов дерева — акцентная заливка + полоска слева. */
@@ -253,6 +343,12 @@
   .tree-loc.multi-sel, .tree-rack.multi-sel, .tree-panel.multi-sel, .tree-feed.multi-sel {
     background: color-mix(in srgb, var(--accent) 24%, transparent);
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+  /* Кандидаты того же уровня, что ещё можно добавить к выбору — зелёная обводка. */
+  .tree-region.multi-cand, .tree-sitegroup.multi-cand, .tree-site.multi-cand,
+  .tree-loc.multi-cand, .tree-rack.multi-cand, .tree-panel.multi-cand, .tree-feed.multi-cand {
+    background: color-mix(in srgb, var(--ok) 10%, transparent);
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ok) 60%, transparent);
   }
   .tree-loc {
     display: block; width: 100%; text-align: left; background: none; border: none;
@@ -266,7 +362,7 @@
     border-radius: 0; padding: 3px 14px 3px 66px; color: var(--muted);
     font-family: var(--mono); font-size: 12px; cursor: pointer;
   }
-  .tree-rack:hover { background: var(--panel-2); color: var(--text); }
+  .tree-rack:hover { background: var(--panel-2); }
   /* Все стойки выбранной локации активны — меняется цвет текста (accent).
      Полоска слева остаётся только у родительской .tree-loc.active — она
      единственный «жирный» индикатор, чтобы не спорить с активными стойками. */
@@ -274,13 +370,27 @@
   /* Конкретно выбранная стойка — чуть плотнее фон, БЕЗ отдельной полоски */
   .tree-rack.current { background: var(--panel-2); }
   /* Силовой щит (Power Panel) и фидер (Power Feed) — ветвь питания дерева.
-     Не кликабельны (пока), цвет питания; фидер на уровень глубже щита. */
+     Кликабельны (клик → паспорт щита), перетаскиваемы и выделяемы Shift'ом;
+     цвет питания; фидер на уровень глубже щита. */
   .tree-panel, .tree-feed {
-    display: block; text-align: left; font-family: var(--mono); font-size: 12px;
-    color: var(--power); padding: 3px 14px;
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    font-family: var(--mono); font-size: 12px; color: var(--power);
+    padding: 3px 14px; cursor: pointer;
   }
+  .tree-panel:hover, .tree-feed:hover { background: var(--panel-2); }
+  .tree-panel .tree-ic { color: inherit; }   /* иконка щита — в цвет питания */
   .tree-panel { padding-left: 66px; }
   .tree-feed { padding-left: 84px; color: var(--muted); }
+  /* Устройства в дереве (потребители «вне стоек») — по умолчанию приглушены
+     (var(--muted), как стойки/фидеры); при загрузке локации-родителя получают
+     .on-schema (accent, см. выше). Клик открывает паспорт. */
+  .tree-dev {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    border-radius: 0; padding: 3px 14px; color: var(--muted); font-family: var(--mono);
+    font-size: 12px; cursor: pointer;
+  }
+  .tree-dev:hover { background: var(--panel-2); }
+  .tree-dev .tree-ic { font-size: 13px; }
   /* drag-and-drop: тянущийся узел приглушён; НЕвалидные цели тускнеют, ВАЛИДНЫЕ
      остаются яркими и слегка подсвечены (видно, куда можно бросить); наведённая
      валидная цель показывает «Вставить сюда». Текст в дереве не выделяется. */
@@ -292,7 +402,8 @@
   .dragging { opacity: 0.45; font-weight: 600; }
   .drag-fade { opacity: 0.28; pointer-events: none; }   /* невалидная цель — тускло и не мешает */
   .drag-ok { opacity: 1; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-  .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok, .tree-panel.drop-ok {
+  .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok,
+  .tree-panel.drop-ok {
     background: rgba(79,195,232,0.18); box-shadow: inset 3px 0 0 var(--accent);
     border-radius: 4px; color: var(--accent); font-weight: 600; opacity: 1;
   }
@@ -326,6 +437,15 @@
      этого и нужен): flex-wrap раскладывает по две+ стойки в ряд. */
   #racks { flex: 1; overflow: auto; display: flex; flex-flow: row wrap; align-content: flex-start; gap: 26px 40px; padding: 6px 20px 40px 42px; }
   #racks .rack { flex: 0 0 auto; }
+  /* Разделитель локаций в колонке стоек — на всю ширину (ломает ряд flex-wrap),
+     горизонтальная линия + имя серверной. */
+  #racks .rack-loc-sep {
+    flex: 0 0 100%; width: 100%; display: flex; align-items: center; gap: 6px;
+    border-top: 1px solid var(--line); padding-top: 12px; margin: 6px 0 -10px;
+    color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+  }
+  #racks .rack-loc-sep:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  #racks .rack-loc-sep .mdi { color: var(--accent); font-size: 13px; }
   .rack h3 { margin: 0 0 8px; font-size: 15px; font-family: var(--mono); color: var(--accent); }
   .rack-frame {
     position: relative; width: 280px;
@@ -426,7 +546,8 @@
 
   .rackbox {
     position: absolute; z-index: 0;
-    border: 1.5px dashed rgba(147,161,175,0.3); border-radius: 12px;
+    border: 1.5px dashed rgba(147,161,175,0.6); border-radius: 12px;
+    background: color-mix(in srgb, var(--muted) 6%, transparent);
     transition: opacity 0.15s;
   }
   .rackbox .rb-label { position: absolute; top: 8px; left: 14px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
@@ -436,14 +557,30 @@
      оранжевым (power). Прозрачная заливка, только пунктирная рамка + подпись
      в левом верхнем углу; лежат позади стоек. */
   .groupbox { position: absolute; z-index: 0; border-radius: 16px; pointer-events: none; }
-  .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--accent) 90%, transparent); }
-  .groupbox.gb-site { border: 2px dashed color-mix(in srgb, var(--power) 90%, transparent); }
+  /* Серверные (location) и площадки (site) — НЕЙТРАЛЬНО-СЕРЫЕ рамки
+     (площадка чуть тусклее, чтобы уровни различались). */
+  .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--muted) 70%, transparent); }
+  .groupbox.gb-site { border: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
+  /* Логический контур по ТИПУ устройств вне стоек («Персональные компьютеры …»):
+     мягкая пунктирная рамка нейтрального цвета + лёгкая заливка, чтобы блоки
+     разных типов визуально отделялись, но не спорили с контурами серверных. */
+  .groupbox.gb-type {
+    border: 1.5px dashed color-mix(in srgb, var(--muted) 60%, transparent);
+    border-radius: 12px; background: color-mix(in srgb, var(--muted) 6%, transparent);
+  }
+  /* Контур блока силовых щитов — цвет питания + лёгкая заливка. */
+  .groupbox.gb-power {
+    border: 1.5px dashed color-mix(in srgb, var(--power) 70%, transparent);
+    border-radius: 12px; background: color-mix(in srgb, var(--power) 6%, transparent);
+  }
+  .groupbox.gb-power .gb-label { color: color-mix(in srgb, var(--power) 88%, var(--text)); }
   .groupbox .gb-label {
-    position: absolute; top: 6px; left: 16px; font-family: var(--mono);
+    position: absolute; top: 2px; left: 12px; font-family: var(--mono);
     font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
   }
-  .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--accent) 92%, var(--text)); }
-  .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--power) 92%, var(--text)); }
+  .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--muted) 45%, var(--text)); }
+  .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
+  .groupbox.gb-type .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
   /* Силовой щит (Power Panel) — карточка того же вида, что ноды в стойке
      (.node), с фидерами списком. Контент выровнен сверху-влево (не по центру,
      как обычная нода), у каждого фидера — порт на левой границе. */
@@ -494,6 +631,33 @@
   .node .nm { font-family: var(--mono); font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .node .nm:hover { color: var(--accent); }
   .node .mdl { font-size: 9px; color: var(--muted); margin-top: 1px; }
+  /* Узел ВНЕ стойки (off-rack) — компактнее и с иконкой решения слева.
+     Ниже обычного (питание/интерфейсы всё равно торчат по краям), в строку. */
+  .node.offrack {
+    height: 62px; flex-direction: row; align-items: center; justify-content: flex-start;
+    gap: 9px; padding: 0 12px;
+  }
+  .node.offrack .node-ic { font-size: 24px; line-height: 1; color: var(--accent); flex-shrink: 0; }
+  .node.offrack .node-tt { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+  .node.offrack .node-nmrow { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .node.offrack .nm { font-size: 12px; }
+  .node.offrack .mdl { margin-top: 0; white-space: nowrap; }
+  /* IP первого интерфейса рядом с именем (или кнопка «+ адрес», если IP нет). */
+  .node.offrack .node-ip { font-family: var(--mono); font-size: 10px; color: var(--ok); }
+  .node.offrack .node-addip {
+    font-size: 9px; padding: 0 5px; border-radius: 4px; line-height: 1.5; white-space: nowrap; flex-shrink: 0;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
+  }
+  .node.offrack .node-addip:hover { color: var(--accent); border-color: var(--accent); }
+  /* Карандаш редактирования — по центру правой грани ноды (только в правке). */
+  .node-edit {
+    position: absolute; right: -11px; top: 50%; transform: translateY(-50%);
+    width: 22px; height: 22px; border-radius: 50%; z-index: 6;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
+  }
+  .node-edit:hover { color: var(--accent); border-color: var(--accent); }
+  .node-edit .mdi { font-size: 13px; line-height: 1; }
   .edge-label {
     position: absolute; font-size: 8px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.07em; pointer-events: none;
@@ -513,7 +677,7 @@
   .port.p-iface  { border-color: var(--accent); }
   .port.p-front  { border-color: var(--front); border-radius: 3px; }
   .port.p-rear   { border-color: var(--rear); border-radius: 3px; }
-  .port.p-pin    { border-color: var(--power); }
+  .port.p-pin    { border-color: var(--power); }   /* вход питания — ПОРТ, круглый (в него коннектится фидер) */
   .port.p-pout   { border-color: var(--power); border-radius: 3px; }
   .port.p-con    { border-color: var(--console); }
   .port.p-consrv { border-color: var(--console); border-radius: 3px; }
@@ -735,17 +899,17 @@
   #ipform .if-prefix { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 13px; }
   #ipform .if-addr-row { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
   #ipform .if-oct {
-    width: 34px; text-align: center; background: var(--bg); color: var(--text);
-    border: 1px solid var(--line); border-radius: 6px; padding: 6px 2px; font-family: var(--mono); font-size: 13px;
+    width: 30px; text-align: center; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 1px; font-family: var(--mono); font-size: 13px;
   }
   #ipform .if-oct:focus { border-color: var(--accent); outline: none; }
   #ipform .if-sep { color: var(--muted); font-weight: 600; }
-  #ipform .if-mask { color: var(--muted); font-family: var(--mono); font-size: 13px; margin: 0 3px; min-width: 26px; }
+  #ipform .if-mask { color: var(--muted); font-family: var(--mono); font-size: 13px; margin: 0 2px; min-width: 22px; }
   #ipform .if-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--muted); flex-shrink: 0; }
   #ipform .if-dot.ok { border-color: var(--ok); background: var(--ok); }
   #ipform .if-dot.busy { border-color: var(--err); background: var(--err); }
   #ipform .if-dot.out { border-color: var(--power); background: transparent; }
-  #ipform .if-list-btn { margin-left: 2px; padding: 5px 7px; border-radius: 6px; font-size: 13px; flex-shrink: 0; }
+  #ipform .if-list-btn { margin-left: 1px; padding: 5px 6px; border-radius: 6px; font-size: 13px; flex-shrink: 0; }
   #ipform .if-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 12px; }
   #ipform .if-btns button { padding: 4px 11px; font-size: 13px; border-radius: 6px; }
   #ipform .if-cancel:hover { border-color: var(--err); color: var(--err); }
@@ -784,12 +948,33 @@
   #tip .t-mut { color: var(--muted); font-size: 11px; margin-top: 3px; }
 
   /* детали: чипы */
-  #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); }
+  /* Заголовок паспорта: относительный контейнер под переключатель режима
+     (data-mode=detail, .ms-corner в правом верхнем углу) + место справа. */
+  /* padding-right под кнопку режима (ms-corner, «ПРОСМОТР» ~100px) — чтобы длинный
+     заголовок не залезал под неё; сам заголовок переносится по словам. */
+  #detail .detail-head { position: relative; padding-right: 104px; margin-bottom: 12px; }
+  #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); overflow-wrap: anywhere; }
+  #detail .detail-head .sub { margin-bottom: 0; }
+  /* Хлебная крошка «Серверная 1» в заголовке паспорта устройства — кликабельна,
+     БЕЗ подчёркивания (только цвет), ховер — чуть ярче. */
+  #detail h2 .crumb-loc { color: var(--accent); cursor: pointer; font-weight: 400; text-decoration: none; }
+  #detail h2 .crumb-loc:hover { filter: brightness(1.2); }
+  /* Карандаш у названия щита — переименовать. */
+  #detail .head-edit {
+    margin-left: 6px; padding: 0 5px; border: none; background: none;
+    color: var(--muted); cursor: pointer; font-size: 13px; vertical-align: middle;
+  }
+  #detail .head-edit:hover { color: var(--accent); }
   #detail .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
   #detail h4 {
     margin: 16px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 4px;
   }
+  /* Сведения об устройстве (ключ→значение) под «Соединениями». */
+  #detail .dev-info { display: flex; flex-direction: column; gap: 4px; }
+  #detail .di-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+  #detail .di-k { color: var(--muted); flex-shrink: 0; }
+  #detail .di-v { color: var(--text); text-align: right; word-break: break-word; }
   .chip {
     display: inline-block; padding: 3px 10px; border-radius: 999px;
     background: var(--panel-2); border: 1px solid var(--line);
@@ -827,7 +1012,20 @@
   .c-portdot.p-pout   { border-color: var(--power); border-radius: 5px; }
   .c-portdot.p-feed   { border-color: var(--power); }
   .c-portdot.p-circuit{ border-color: var(--circuit); }
+  /* Занятый (связанный) порт — кружок ЗАКРАШЕН цветом типа, как на схеме. */
+  .c-portdot.used { color: var(--port-ink); font-weight: 700; }
+  .c-portdot.used.p-iface  { background: var(--accent); }
+  .c-portdot.used.p-front  { background: var(--front); }
+  .c-portdot.used.p-rear   { background: var(--rear); }
+  .c-portdot.used.p-con,
+  .c-portdot.used.p-consrv { background: var(--console); }
+  .c-portdot.used.p-pin,
+  .c-portdot.used.p-pout,
+  .c-portdot.used.p-feed   { background: var(--power); }
+  .c-portdot.used.p-circuit{ background: var(--circuit); }
   .iface-row { padding: 5px 0; border-bottom: 1px dotted rgba(255,255,255,0.06); display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+  .iface-row.linked { cursor: pointer; }
+  .iface-row.linked:hover { background: rgba(147,161,175,0.08); }
   .iface-row button { padding: 1px 9px; font-size: 11px; border-radius: 999px; margin-left: auto; }
   .conn {
     padding: 8px 10px; margin-bottom: 8px;
@@ -835,11 +1033,40 @@
   }
   .conn .side { line-height: 1.7; }
   .conn .mid { text-align: center; color: var(--accent); font-size: 14px; padding: 1px 0; }
+  /* Кнопки правки/удаления фидера в паспорте щита (режим правки). */
+  .conn .feed-acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+  .conn .feed-acts button { padding: 2px 8px; font-size: 12px; border-radius: 6px; }
+  .conn .feed-acts button.danger:hover { border-color: var(--err); color: var(--err); }
   .placeholder { color: var(--muted); padding: 30px 10px; text-align: center; font-size: 13px; }
+  /* Паспорт локации: строки устройств (клик → паспорт устройства). */
+  .loc-dev {
+    display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .loc-dev:hover { background: var(--panel-2); border-color: var(--line); }
+  .loc-dev .ld-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .loc-dev .ld-name { color: var(--text); font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .loc-dev .ld-mut { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 
   /* модалка */
-  #modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 10; }
-  #modal { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; width: 360px; }
+  /* Затемнение модалки — ВЫШЕ топбара/поиска (z:30), меню (55-60), чтобы поиск
+     не торчал сквозь него. Лоадер #reqspin (z:130) выше модалки. */
+  #modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 100; }
+  /* Индикатор загрузки — плашка сверху по центру, ПОВЕРХ модалки. */
+  #reqspin {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 130;
+    display: none; align-items: center; gap: 8px; pointer-events: none;
+    background: var(--overlay-bg); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; box-shadow: var(--overlay-shadow); font-size: 12px; color: var(--text);
+  }
+  #reqspin.on { display: inline-flex; }
+  #reqspin .rs-spinner {
+    width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    animation: rs-rot 0.7s linear infinite;
+  }
+  @keyframes rs-rot { to { transform: rotate(360deg); } }
+  #modal { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; width: 360px; max-height: 88vh; overflow-y: auto; }
   #modal h3 { margin: 0 0 14px; font-size: 15px; }
   #modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   #modal input, #modal select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 13px; }
