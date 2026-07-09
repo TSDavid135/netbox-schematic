@@ -150,6 +150,25 @@ export class DeviceManager {
         on: { click: () => this.syncComponents(dev) } }));
     }
 
+    // Сведения из БД по устройству — ПЕРВОЙ секцией (основные поля NetBox).
+    const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
+    const info = [
+      ["Статус", dev.status && (dev.status.label || dev.status.value)],
+      ["Роль", val(dev.role)], ["Тип", val(dev.device_type)],
+      ["Платформа", val(dev.platform)],
+      ["Площадка", val(dev.site)], ["Серверная", val(dev.location)],
+      ["Стойка", val(dev.rack)], ["Юнит", dev.position != null ? "U" + dev.position : ""],
+      ["Серийный №", dev.serial], ["Инв. №", dev.asset_tag],
+      ["Описание", dev.description],
+    ].filter(([, v]) => v);
+    if (info.length) {
+      panel.appendChild(mk("h4", { text: "Сведения" }));
+      const box = mk("div", { className: "dev-info" });
+      for (const [k, v] of info)
+        box.appendChild(mk("div", { className: "di-row", html: `<span class="di-k">${k}</span><span class="di-v">${v}</span>` }));
+      panel.appendChild(box);
+    }
+
     const ifacePorts = Object.values(state.ports)
       .filter(p => p.dev.id === dev.id && p.otype === "dcim.interface");
     if (ifacePorts.length) {
@@ -163,6 +182,17 @@ export class DeviceManager {
           html: portNameHtml(p.item.name, p.otype, linked) + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
         if (linked) row.addEventListener("mouseenter", () => this.app.schema._portHover(p, true));
         if (linked) row.addEventListener("mouseleave", () => this.app.schema._portHover(p, false));
+        // Тач: тап по строке связанного порта → подсветить его на схеме (в одиночном
+        // виде — раскрыть соседа) и опустить шторку деталей. Раньше подсветка шла
+        // через mouseenter, а закрытие деталей (mouseleave) её тут же сбрасывало.
+        if (linked) row.addEventListener("click", e => {
+          if (e.target.closest("button")) return;                 // +IP и пр. — не трогаем
+          if (!(matchMedia("(pointer: coarse)").matches || innerWidth <= 760)) return;
+          const s = this.app.schema;
+          if (state.single) s._revealFromPort(p.otype, p.item.id);
+          else if (s._traceLocal) s._traceLocal(p.item);
+          document.body.classList.remove("sheet-open");
+        });
         if (edit) {
           const ab = mk("button", { text: "+IP", on: { click: ev =>
             this.app.ipform.open(dev, p.item, ev) } });
@@ -192,24 +222,6 @@ export class DeviceManager {
           <div class="side">${sideHtml((c.b_terminations || [])[0])}</div>` }));
     }
 
-    // Сведения из БД по устройству (под «Соединениями») — основные поля NetBox.
-    const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
-    const info = [
-      ["Статус", dev.status && (dev.status.label || dev.status.value)],
-      ["Роль", val(dev.role)], ["Тип", val(dev.device_type)],
-      ["Платформа", val(dev.platform)],
-      ["Площадка", val(dev.site)], ["Серверная", val(dev.location)],
-      ["Стойка", val(dev.rack)], ["Юнит", dev.position != null ? "U" + dev.position : ""],
-      ["Серийный №", dev.serial], ["Инв. №", dev.asset_tag],
-      ["Описание", dev.description],
-    ].filter(([, v]) => v);
-    if (info.length) {
-      panel.appendChild(mk("h4", { text: "Сведения" }));
-      const box = mk("div", { className: "dev-info" });
-      for (const [k, v] of info)
-        box.appendChild(mk("div", { className: "di-row", html: `<span class="di-k">${k}</span><span class="di-v">${v}</span>` }));
-      panel.appendChild(box);
-    }
   }
 
   // Паспорт силового щита (Power Panel) — клик по названию щитка на схеме.

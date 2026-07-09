@@ -139,7 +139,8 @@ async function renderAll(group) {
   // их самих + порты + кабели; помечаем _off = "provider" (над стойками) либо
   // "periph" (сеткой справа). Классификация по роли (см. схему рендера).
   const siteIds = [...new Set(group.map(r => r.site && r.site.id).filter(Boolean))];
-  if (siteIds.length) {
+  // При загрузке ОДНОЙ стойки (scope "rack") внестоечные потребители не нужны.
+  if (siteIds.length && !(state.scope && state.scope.type === "rack")) {
     const siteQ = siteIds.map(id => "site_id=" + id).join("&");
     const loaded = new Set(state.devices.map(d => d.id));
     const offDevs = (await apiAll("/dcim/devices/?" + siteQ)).filter(d => !d.rack && !loaded.has(d.id));

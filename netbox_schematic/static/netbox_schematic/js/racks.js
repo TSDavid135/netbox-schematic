@@ -19,7 +19,9 @@ export class RackManager {
     // collapsed), ► слева от «Схема соединений» возвращает. Состояние
     // ПЕРЕЖИВАЕТ перезагрузку (localStorage). Делегируем на document — кнопки
     // пересоздаются при каждой перерисовке заголовков.
-    if (localStorage.getItem("schematic-rackCollapsed") === "1")
+    // По умолчанию блок стоек СВЁРНУТ (открывается по требованию — карандашом у
+    // стойки). Если раньше явно разворачивали — уважаем ("0").
+    if (localStorage.getItem("schematic-rackCollapsed") !== "0")
       document.body.classList.add("rack-collapsed");
     const setCollapsed = on => {
       document.body.classList.toggle("rack-collapsed", on);
@@ -66,7 +68,12 @@ export class RackManager {
   }
 
   render(group, byRack) {
+    this._clearArmed();   // сброс «армированного» юнита (тач two-tap) при перерисовке
     const pane = $("#rackpane");
+    // Блок стоек по требованию: для НЕ-стоечных областей сворачиваем (не мешает).
+    // Для scope "rack" НЕ трогаем — открывается карандашом у стойки (снимает
+    // rack-collapsed), иначе остаётся свёрнутым (дефолт). Так блок не вылезает сам.
+    if (!(state.scope && state.scope.type === "rack")) document.body.classList.add("rack-collapsed");
     const loc = currentLocationName();
     const title = loc ? `Стойки : ${loc}` : "Стойки";
     pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></p><div id="racks"></div>`;
@@ -207,6 +214,33 @@ export class RackManager {
       setStatus("юнит U" + unit + " занят", "err");
       return;
     }
+    // Тач/узкий экран: первый тап ПОДСВЕЧИВАЕТ юнит зелёным (ховера нет), второй по
+    // тому же — добавляет. На десктопе ховер уже показывает превью → сразу добавляем.
+    const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
+    if (touch && !(this._armedRack === rack.id && this._armedUnit === unit)) {
+      this._armUnit(frame, rack, unit);
+      return;
+    }
+    this._clearArmed();
+    this._openAddDevice(rack, unit);
+  }
+  // Тач: подсветить юнит зелёным перед добавлением («армируем»); второй тап добавит.
+  _armUnit(frame, rack, unit) {
+    this._clearArmed();
+    const lay = state.rackLay[rack.id];
+    const ov = document.createElement("div");
+    ov.className = "unit-hover armed";
+    ov.style.top = ((lay ? lay.unitY[unit] : (rack.u_height - unit) * UNIT_H) + 1) + "px";
+    ov.style.height = (UNIT_H - 3) + "px";
+    frame.appendChild(ov);
+    this._armedEl = ov; this._armedRack = rack.id; this._armedUnit = unit;
+    setStatus("U" + unit + " — тапни ещё раз, чтобы добавить аппаратуру", "");
+  }
+  _clearArmed() {
+    if (this._armedEl) { this._armedEl.remove(); this._armedEl = null; }
+    this._armedRack = null; this._armedUnit = null;
+  }
+  _openAddDevice(rack, unit) {
     this.app.openModal("Новое устройство", `Стойка ${rack.name}, юнит U${unit}`,
       [
         { id: "name", label: "Имя", placeholder: "srv-web-01" },

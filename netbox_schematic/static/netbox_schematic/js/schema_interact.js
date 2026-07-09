@@ -108,10 +108,24 @@ class _Mixin {
     // в «Беспроводном»+edit идёт в общий pending-поток ниже (→ WirelessLink).
     if (item.cable && !state.pending) {
       if (edit) { this._openLinkMenu(item, dev, dot, ev); return; }
-      // Просмотр: ОДИНОЧНОЕ нажатие — подсветить ТОЛЬКО связь (кабель между
-      // двумя портами). Продолжение (трасса через пач-панель) — по ДВОЙНОМУ
-      // (см. _onPortDblClick). Так одинаково работает на тач-устройствах.
+      // Одиночный вид: тап по занятому порту — подсветить порт и раскрыть соседнюю
+      // ноду рядом (прямой кабель). Тап по другому порту заменит соседа.
+      if (state.single) { this._revealFromPort(kind.otype, item.id); return; }
+      const key = portKey(kind.otype, item.id);
+      const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
+      // Тач: 1-й тап по порту — тултип + подсветка связи; 2-й тап по ТОМУ ЖЕ порту —
+      // трасса через пач-панели + закрыть тултип (dblclick на iOS ненадёжен, тултип
+      // всегда открывался первым). Десктоп — как было (клик = связь, dblclick = трасса).
+      if (touch && this._tipPort === key) {
+        this._tipPort = null;
+        const tip = $("#tip"); if (tip) tip.style.display = "none";
+        if (kind.ep === "interfaces" || kind.ep === "power-ports" || kind.ep === "power-outlets")
+          this._trace(kind.ep, item);
+        else this._traceLocal(item);
+        return;
+      }
       this._traceLocal(item);
+      this._tipPort = touch ? key : null;
       return;
     }
     if (!edit) {
@@ -291,6 +305,7 @@ class _Mixin {
     const a = aT && state.ports[termKey(aT)], b = bT && state.ports[termKey(bT)];
     if (a && b) {
       this._hoverWire(cable.id, a, b, true);
+      this._hlCables = new Set([cable.id]);   // пережить зум (см. redrawWires)
       this._armTraceClear();
       setStatus(`кабель: ${a.dev.name}/${a.item.name} ⇄ ${b.dev.name}/${b.item.name} — клик снимет`, "ok");
     }
@@ -300,6 +315,9 @@ class _Mixin {
   // front/rear/console продолжения нет → показываем просто связь.
   _onPortDblClick(kind, item) {
     if (Mode.on("schema") || state.pending || !item.cable) return;
+    // Single-view: двойной тап раскрывает ноду-НАЗНАЧЕНИЯ (в одиночном виде строить
+    // API-трассу нечего — на схеме только это устройство).
+    if (state.single) { this._revealFromPort(kind.otype, item.id); return; }
     if (kind.ep === "interfaces" || kind.ep === "power-ports" || kind.ep === "power-outlets")
       this._trace(kind.ep, item);
     else
@@ -310,6 +328,7 @@ class _Mixin {
     try {
       const segments = await api(`/dcim/${ep}/${item.id}/trace/`);
       const cableIds = new Set(segments.map(s => s[1] && s[1].id).filter(Boolean));
+      this._hlCables = cableIds;   // пережить зум: redrawWires восстановит подсветку проводов
       const portKeys = new Set(), devIds = new Set(), panelIds = new Set();
       for (const seg of segments)
         for (const side of [seg[0], seg[2]])
@@ -375,6 +394,7 @@ class _Mixin {
     document.querySelectorAll(".port.hl").forEach(p => p.classList.remove("hl"));
     document.querySelectorAll(".node.hl, .dev.hl, .node.conn-hl, .node.dim2").forEach(el => el.classList.remove("hl", "conn-hl", "dim2"));
     this._traceActive = false;
+    this._hlCables = null;
     if (this._traceHandlers) {
       document.removeEventListener("mousedown", this._traceHandlers.down, true);
       document.removeEventListener("mouseup", this._traceHandlers.up, true);

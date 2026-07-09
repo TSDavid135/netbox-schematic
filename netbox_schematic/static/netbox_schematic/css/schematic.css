@@ -6,7 +6,7 @@
   ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; border: 2px solid var(--bg); }
   ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
   ::-webkit-scrollbar-corner { background: transparent; }
-  html, body { height: 100%; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px;
@@ -25,6 +25,16 @@
   #topbar .brand .brand-schem { color: #00f2d4 !important; }
   /* Название холста — не капсом, с большой буквы, нейтральный акцент */
   #topbar .brand .brand-canvas { color: var(--accent); font-size: 15px; font-weight: 600; }
+  /* Переключатель схемы — нативный <select> (на iOS даёт штатный пикер). Стилизуем
+     под заголовок; штатную стрелку/вид оставляем как аффорданс «нажми». */
+  #topbar .brand .brand-sep { color: var(--muted); }
+  #topbar .brand .brand-canvas-select {
+    font: inherit; font-size: 15px; font-weight: 600; color: var(--accent);
+    background: transparent; border: none; cursor: pointer; padding: 2px 2px 2px 4px;
+    max-width: 52vw; vertical-align: baseline;
+  }
+  #topbar .brand .brand-canvas-select:focus { outline: none; }
+  #topbar .brand .brand-canvas-select:hover { color: var(--text); }
   .topbar-spacer { flex: 1; }
   #backlink {
     display: inline-flex; align-items: center; gap: 5px;
@@ -85,6 +95,9 @@
   .modeswitch.ms-corner { top: 9px; right: 12px; }
   .modeswitch.ms-intitle { top: 50%; right: 14px; transform: translateY(-50%); }
   .modeswitch.schem-mid { top: 16px; left: 50%; transform: translateX(-50%); }
+  /* Тумблер схемы — ВСТРОЕН в заголовок, сразу справа от названия (не абсолют). */
+  .modeswitch.schem-inline { position: static; transform: none; margin-left: 12px; vertical-align: middle; }
+  .modeswitch .mdi { font-size: 13px; }
   /* какая надпись видна — по aria-pressed (true = правка). В узких блоках
      (.compact: дерево, стойки) правка сокращается до «Редакт.». */
   .modeswitch .ms-edit-full, .modeswitch .ms-edit-short { display: none; }
@@ -181,10 +194,10 @@
   /* #schempwrap: неподвижная "рама" — #schempane скроллится/зумируется внутри неё,
      #schemoverlay лежит поверх рамы и НЕ скроллится вместе с содержимым схемы. */
   #schempwrap { flex: 1; position: relative; overflow: hidden; }
-  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; }
+  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-x pan-y; }
   #schempane.panning { cursor: grabbing; }
   #schempane .pane-title { position: sticky; top: 0; left: 16px; padding: 16px 0 0 16px; z-index: 5; }
-  #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+  #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; touch-action: manipulation; }
   #schemoverlay > * { pointer-events: auto; }
   /* Палитра устройств «+» — панель в стеке справа сверху, ПОД «UI». Изначально
      свёрнута (paletteCollapsed=true). Тело фиксированной высоты (см. .pl-grid),
@@ -372,8 +385,12 @@
   /* Силовой щит (Power Panel) и фидер (Power Feed) — ветвь питания дерева.
      Кликабельны (клик → паспорт щита), перетаскиваемы и выделяемы Shift'ом;
      цвет питания; фидер на уровень глубже щита. */
+  /* Щит/фидер — <div> (не <button>): без flex текст липнет к верху min-height
+     тач-цели (40px) и оставляет пустоту. Центрируем, как центрируют содержимое
+     кнопки-ноды дерева. */
   .tree-panel, .tree-feed {
-    display: block; width: 100%; text-align: left; background: none; border: none;
+    display: flex; align-items: center; width: 100%; text-align: left;
+    background: none; border: none;
     font-family: var(--mono); font-size: 12px; color: var(--power);
     padding: 3px 14px; cursor: pointer;
   }
@@ -510,6 +527,8 @@
     background: rgba(111,191,138,0.12); z-index: 4;
   }
   .unit-hover.busy { border-color: var(--err); background: rgba(224,122,106,0.14); }
+  /* Тач: «армированный» юнит (первый тап) — сплошная зелёная, ярче ховера. */
+  .unit-hover.armed { border-style: solid; background: color-mix(in srgb, var(--ok) 26%, transparent); box-shadow: 0 0 0 1px var(--ok); }
 
   /* 2D-схема */
   #schema { position: relative; width: max-content; min-width: 100%; min-height: 300px; transform-origin: 0 0; }
@@ -550,13 +569,25 @@
     background: color-mix(in srgb, var(--muted) 6%, transparent);
     transition: opacity 0.15s;
   }
-  .rackbox .rb-label { position: absolute; top: 8px; left: 14px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .rackbox .rb-head { position: absolute; top: 6px; left: 14px; display: flex; align-items: center; gap: 6px; }
+  .rackbox .rb-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  /* Карандаш «открыть эту стойку» — рядом с названием, виден только в режиме правки. */
+  .rackbox .rb-edit {
+    display: none; pointer-events: auto;
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 13px; padding: 1px 4px; border-radius: 4px; line-height: 1;
+  }
+  .rackbox .rb-edit:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  body.schema-edit .rackbox .rb-edit { display: inline-flex; align-items: center; }
   .rackbox.dim, .node.dim2 { opacity: 0.22; }
   /* Контуры-обёртки уровней иерархии (серверная / площадка) при выборе
      площадки или региона в дереве. Серверная — синим (accent), площадка —
      оранжевым (power). Прозрачная заливка, только пунктирная рамка + подпись
      в левом верхнем углу; лежат позади стоек. */
-  .groupbox { position: absolute; z-index: 0; border-radius: 16px; pointer-events: none; }
+  /* z-index:auto (не 0) — чтобы groupbox НЕ запирал потомка-подпись в своём
+     стек-контексте: сам контур/заливка остаются ПОЗАДИ проводов (#wires z:1), а
+     подпись .gb-label поднимается НАД проводами (z:2, см. ниже) и читается. */
+  .groupbox { position: absolute; z-index: auto; border-radius: 16px; pointer-events: none; }
   /* Серверные (location) и площадки (site) — НЕЙТРАЛЬНО-СЕРЫЕ рамки
      (площадка чуть тусклее, чтобы уровни различались). */
   .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--muted) 70%, transparent); }
@@ -577,6 +608,10 @@
   .groupbox .gb-label {
     position: absolute; top: 2px; left: 12px; font-family: var(--mono);
     font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    /* ПОВЕРХ проводов (#wires z:1) — иначе провод перекрывал подпись. Лёгкий
+       фон-ореол для читаемости, если провод проходит прямо под текстом. */
+    z-index: 2; background: color-mix(in srgb, var(--bg) 72%, transparent);
+    padding: 0 5px 1px; border-radius: 5px;
   }
   .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--muted) 45%, var(--text)); }
   .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }

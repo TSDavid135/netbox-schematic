@@ -17,6 +17,8 @@ class _Mixin {
   // (this._locOrder / _colX, см. _computeLocGeometry). Возвращает maxBottom.
   _renderPowerPanels(canvas, group, maxBottom) {
     if (!group.length) return maxBottom;
+    // Открыта ОДНА стойка (scope "rack") — щитки локации не показываем.
+    if (state.scope && state.scope.type === "rack") return maxBottom;
     const GAP_Y = 40;
     state.powerBoxEls = {};
     state.feedRowEls = {};

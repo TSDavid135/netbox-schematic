@@ -1,14 +1,18 @@
-# Python
+# Python / сборка (локальное тестирование — в git не уходит)
 __pycache__/
 *.egg-info/
 *.pyc
+build/
+dist/
+*.whl
+*.egg
 
-# Локальные настройки инструментов
+# Локальные настройки инструментов и артефакты
 .claude/
 .vscode/
 .idea/
 demo_seed.py
-
+deploy_paste.sh
 *.md
 !README.md
 !README.ru.md

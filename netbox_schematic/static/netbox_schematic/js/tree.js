@@ -12,7 +12,7 @@ const RING_DELAY = 150;              // пауза перед появление
 const HOLD_MS = 380;                 // время заполнения кольца до старта переноса
 const RING_LEN = 2 * Math.PI * 13;   // длина окружности r=13 (см. CSS/SVG)
 // Все узлы дерева (для затемнения невалидных целей при переносе).
-const TREE_NODE_SEL = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-rack,.tree-panel,.tree-feed";
+const TREE_NODE_SEL = ".tree-region,.tree-sitegroup,.tree-site,.tree-loc,.tree-rack,.tree-panel,.tree-feed,.tree-dev";
 // «Уровень» узла для Shift-мультивыбора = его РОДИТЕЛЬСКИЙ контейнер, а НЕ тип.
 // Узлы одного уровня выбираются/перемещаются/удаляются вместе: стойки и щитки
 // (и будущие устройства) живут в location → один уровень «location». Так выбор
@@ -21,8 +21,9 @@ const NODE_LEVEL = {
   region: "region", sitegroup: "sitegroup",
   site: "site",
   location: "location",
-  rack: "location", panel: "location",
+  rack: "rackpanel", panel: "rackpanel",   // стойки+щиты — свой уровень (НЕ = локации)
   feed: "panel",
+  device: "device",
 };
 
 export class TreeManager {
@@ -45,13 +46,15 @@ export class TreeManager {
     this.selection.clear();        // старые DOM-узлы больше не валидны
     this._buildGroupsTree(nav);
     this._buildUngrouped(nav);
+    this._exitMoveMode();   // старые drop-таргеты/режим невалидны после перестройки
+    this._updateSelBtn();
+    this._syncMoveBar();    // selection очищен в начале build → обновить панель
   }
 
   // Дерево групп мест (Site Group — вложенная модель по parent). Заголовок
   // секции убран (как в «Сетях»); «вынести группу в корень» — через ПКМ
   // «Переместить → корень» (drag-таргета-заголовка больше нет).
   _buildGroupsTree(nav) {
-    this._addBtn(nav, "+ группа мест", "", () => this._createSiteGroup(null));
     const childrenOf = {};
     for (const g of (state.siteGroups || [])) {
       const pid = (g.parent && g.parent.id) ?? "root";
@@ -64,7 +67,6 @@ export class TreeManager {
   _buildUngrouped(nav) {
     const orphans = state.sites.filter(s => !s.group);
     if (!orphans.length) return;
-    this._addBtn(nav, "+ площадка", "", () => this._createSite(null));
     for (const site of orphans) this._buildSiteNode(nav, site, 30);
   }
   // Один узел группы (📁) + её подгруппы (рекурсивно) и площадки (раскрытые).
@@ -89,9 +91,7 @@ export class TreeManager {
     this._makeDropTarget(gEl, "site", grp.id, "group");       // площадку → в эту группу
     this._makeDropTarget(gEl, "sitegroup", grp.id, "parent"); // подгруппу → в эту группу
     nav.appendChild(gEl);
-    if (collapsed) return;   // свёрнута — потомков и «+» не рисуем
-    this._addBtnAt(nav, "+ подгруппа", pad + 20, () => this._createSiteGroup({ id: grp.id, name: grp.name }));
-    this._addBtnAt(nav, "+ площадка", pad + 20, () => this._createSiteInGroup(grp));
+    if (collapsed) return;   // свёрнута — потомков не рисуем
     // Сначала площадки группы (раскрытые), ПОДГРУППЫ (папки) — ВНИЗУ: иначе
     // пустая свёрнутая/развёрнутая папка со стрелкой вниз путает — кажется, что
     // следующие площадки лежат внутри неё.
@@ -138,8 +138,6 @@ export class TreeManager {
     this._makeDraggable(s, "site", site.id, site.name);
     this._makeDropTarget(s, "location", site.id);
     nav.appendChild(s);
-    this._addBtnAt(nav, "+ серверная", 48 + shift, () =>
-      this._createLocation({ id: site.id, name: site.name }));
     const siteLocs = state.locations.filter(l => l.site && l.site.id === site.id);
     for (const loc of siteLocs) {
       const inGroup = state.racks.filter(r =>
@@ -153,24 +151,40 @@ export class TreeManager {
       lb.addEventListener("click", () => this.selectScope("location", loc.id, loc.name));
       this._makeDraggable(lb, "location", loc.id, loc.name);
       this._makeDropTarget(lb, "rack", loc.id);
-      this._makeDropTarget(lb, "panel", loc.id);   // сюда можно бросить щиток
+      this._makeDropTarget(lb, "panel", loc.id);    // сюда можно бросить щиток
+      this._makeDropTarget(lb, "device", loc.id);   // …и устройство (перенос в серверную)
       nav.appendChild(lb);
-      this._addBtnAt(nav, "+ стойка", 66 + shift, () =>
-        this._createRack({ id: site.id, name: site.name }, { id: loc.id, name: loc.name }));
       for (const rack of inGroup) {
         const rb = mk("button", {
           className: "tree-rack", dataset: { rack: rack.id, loc: loc.id, site: site.id },
           style: { paddingLeft: (66 + shift) + "px" },
           html: `<i class="mdi mdi-server tree-ic"></i>${rack.name}`,
         });
-        rb.addEventListener("click", () => this.selectScope("location", loc.id, loc.name, rack.id));
+        // Клик по стойке грузит ТОЛЬКО её (контур + свои устройства).
+        rb.addEventListener("click", () => this.selectScope("rack", rack.id, rack.name));
         this._makeDraggable(rb, "rack", rack.id, rack.name);
         nav.appendChild(rb);
+        // Устройства ВНУТРИ стойки — узлами с отступом (видно, что стойка — родитель);
+        // клик по каждому → single-view этого устройства.
+        const rackDevs = (state.allDevices || [])
+          .filter(d => d.rack && d.rack.id === rack.id)
+          .sort((a, b) => {
+            const ra = (a.role && a.role.name) || "￿", rb2 = (b.role && b.role.name) || "￿";
+            return ra.localeCompare(rb2) || (a.name || "").localeCompare(b.name || "");
+          });
+        for (const dev of rackDevs) nav.appendChild(this._devNode(dev, loc, 84 + shift));
       }
       this._buildPowerNodes(nav, site, loc, inGroup, shift);
       // Устройства ВНЕ стоек этой локации (потребители) — в дереве. Стоечные НЕ
       // показываем: они и так в колонке «Стойки» (иначе колонка теряет смысл).
-      for (const dev of (state.allDevices || []).filter(d => !d.rack && d.location && d.location.id === loc.id))
+      // Устройства вне стоек — сортируем по РОЛИ (потом по имени); без роли — вниз.
+      const locDevs = (state.allDevices || [])
+        .filter(d => !d.rack && d.location && d.location.id === loc.id)
+        .sort((a, b) => {
+          const ra = (a.role && a.role.name) || "￿", rb = (b.role && b.role.name) || "￿";
+          return ra.localeCompare(rb) || (a.name || "").localeCompare(b.name || "");
+        });
+      for (const dev of locDevs)
         nav.appendChild(this._devNode(dev, loc, 66 + shift));
     }
   }
@@ -202,16 +216,14 @@ export class TreeManager {
     return "mdi-server";
   }
   async _openDevice(dev, loc) {
-    await this.selectScope("location", loc.id, loc.name);
-    this.app.device.show(dev);   // паспорт устройства (перекрывает список локации)
+    await this.app.schema.showSingleDevice(dev);   // single-view: только это устройство + «волоски»
+    this.app.device.show(dev);                      // паспорт устройства (справа / шторка)
   }
 
   // Силовые щиты (Power Panel) серверной и их фидеры (Power Feed). Panel
   // привязан к Location, Feed — к Panel (+ опц. к стойке этой серверной).
   // Питание рисуется НЕ юнитом стойки, а отдельной ветвью дерева (сбоку).
   _buildPowerNodes(nav, site, loc, racksInLoc, shift = 0) {
-    this._addBtnAt(nav, "+ силовой щит", 66 + shift, () =>
-      this._createPanel({ id: site.id, name: site.name }, { id: loc.id, name: loc.name }));
     const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === loc.id);
     for (const panel of panels) {
       const pEl = mk("div", {
@@ -225,22 +237,11 @@ export class TreeManager {
       this._makeDraggable(pEl, "panel", panel.id, panel.name);   // щиток можно перетаскивать
       this._makeDropTarget(pEl, "feed", panel.id);               // сюда можно бросить фидер
       nav.appendChild(pEl);
-      this._addBtnAt(nav, "+ фидер", 84 + shift, () => this._createFeed(panel));
       // Сами фидеры в дереве НЕ показываем (по просьбе) — они видны/правятся в
       // паспорте щита (клик по щитку) и на схеме внутри щитка.
     }
   }
-  _addBtn(nav, text, lvl, fn) {
-    nav.appendChild(mk("button", { className: "tree-add " + lvl, text, on: { click: fn } }));
-  }
-  // Кнопка «+» с ПРОИЗВОЛЬНЫМ левым отступом (для вложенных групп/площадок).
-  _addBtnAt(nav, text, leftPx, fn) {
-    nav.appendChild(mk("button", { className: "tree-add", text,
-      style: { marginLeft: leftPx + "px", width: `calc(100% - ${leftPx + 12}px)` },
-      on: { click: fn } }));
-  }
-
-  // Создание сущностей (общие модалки для кнопок «+» и ПКМ-меню)
+  // Создание сущностей (общие модалки для ПКМ-меню «Добавить»)
   _createRegion() {
     this.app.openModal("Новый регион", "Верхний уровень: город / страна / округ",
       [{ id: "name", label: "Название", placeholder: "Санкт-Петербург" }],
@@ -386,9 +387,10 @@ export class TreeManager {
   // Состав: «Добавить ▸» (подменю с тем, что можно вложить), «Переместить»,
   // «Переименовать», «Удалить». Меню и подменю строятся под тип узла.
   API_PATH = { region: "/dcim/regions/", sitegroup: "/dcim/site-groups/", site: "/dcim/sites/",
-    location: "/dcim/locations/", rack: "/dcim/racks/", panel: "/dcim/power-panels/", feed: "/dcim/power-feeds/" };
+    location: "/dcim/locations/", rack: "/dcim/racks/", panel: "/dcim/power-panels/", feed: "/dcim/power-feeds/",
+    device: "/dcim/devices/" };
   KIND_RU = { region: "регион", sitegroup: "группу площадок", site: "площадку",
-    location: "серверную", rack: "стойку", panel: "щит", feed: "фидер" };
+    location: "серверную", rack: "стойку", panel: "щит", feed: "фидер", device: "устройство" };
 
   // Разбор узла дерева → {kind,id,name,site?,loc?}. null — если это не узел
   // (напр. «— без региона —» без data-region).
@@ -401,6 +403,7 @@ export class TreeManager {
     if (el.classList.contains("tree-region")) return d.region ? { kind: "region", id: +d.region, name: el.textContent.trim() } : null;
     if (el.classList.contains("tree-panel")) return { kind: "panel", id: +d.panel, name: el.textContent.trim() };
     if (el.classList.contains("tree-feed")) return { kind: "feed", id: +d.feed, name: el.textContent.trim() };
+    if (el.classList.contains("tree-dev")) return { kind: "device", id: +d.dev, name: el.textContent.trim(), loc: +d.loc };
     return null;
   }
   _site(id) { return state.sites.find(s => s.id === id) || { id, name: "" }; }
@@ -463,7 +466,7 @@ export class TreeManager {
     }));
   }
   _movable(info) {
-    return ["sitegroup", "site", "location", "rack", "panel", "feed"].includes(info.kind);
+    return ["sitegroup", "site", "location", "rack", "panel", "feed", "device"].includes(info.kind);
   }
 
   _openContextMenu(info, x, y) {
@@ -610,6 +613,8 @@ export class TreeManager {
     const tree = $("#tree");
     if (!tree) return;
     tree.querySelectorAll(".multi-cand").forEach(n => n.classList.remove("multi-cand"));
+    // Есть выбор → на мобиле приглушаем чекбоксы других уровней (нельзя смешивать).
+    document.body.classList.toggle("tree-sel-active", this.selection.size > 0);
     const level = this._selLevel();
     if (!level) return;
     for (const n of tree.querySelectorAll(TREE_NODE_SEL)) {
@@ -623,6 +628,7 @@ export class TreeManager {
     this.selection.forEach(n => n.classList.remove("multi-sel"));
     this.selection.clear();
     this._updateSelCandidates();   // снимет зелёные обводки кандидатов
+    this._syncMoveBar();           // мобильная панель действий — убрать
   }
   // Меню для группы выбранных: «Переместить (N)» (если все одного УРОВНЯ и он
   // перемещаемый — напр. стойки+щитки в location) и «Удалить (N)».
@@ -732,7 +738,9 @@ export class TreeManager {
   _racksFor(type, id) {
     const s = String(id);
     let racks;
-    if (type === "location")
+    if (type === "rack")
+      racks = state.racks.filter(r => String(r.id) === s);   // одна стойка
+    else if (type === "location")
       racks = state.racks.filter(r => r.location && String(r.location.id) === s);
     else if (type === "site")
       racks = state.racks.filter(r => r.site && String(r.site.id) === s);
@@ -808,7 +816,8 @@ export class TreeManager {
     // Выбранный корень — единственная жирная полоска (снимаем с него on-schema).
     const rootSel = { region: `.tree-region[data-region="${s}"]`,
       sitegroup: `.tree-sitegroup[data-sitegroup="${s}"]`,
-      site: `.tree-site[data-site="${s}"]`, location: `.tree-loc[data-loc="${s}"]` }[type];
+      site: `.tree-site[data-site="${s}"]`, location: `.tree-loc[data-loc="${s}"]`,
+      rack: `.tree-rack[data-rack="${s}"]` }[type];
     if (rootSel) document.querySelectorAll(rootSel).forEach(x => {
       x.classList.remove("on-schema"); x.classList.add("scope-active");
     });
@@ -921,6 +930,13 @@ export class TreeManager {
     el.addEventListener("mouseleave", () => this._clearDropLabel(el));
   }
   _wireGlobal() {
+    // Мобильные кнопки: «Выбрать» (режим выбора) в шапке дерева и «+» на схеме
+    // (каталог создания для текущей области). Статичны в шаблоне → привязка разово.
+    const selBtn = document.getElementById("tree-select-btn");
+    if (selBtn) selBtn.addEventListener("click", e => { e.stopPropagation(); this._toggleSelectMode(); });
+    const addBtn = document.getElementById("schem-add");
+    if (addBtn) addBtn.addEventListener("click", e => { e.stopPropagation(); this._openSchemAdd(); });
+
     document.addEventListener("mousemove", ev => {
       // Пока зажато на узле, но перенос ещё не начат: сдвиг мыши за порог сразу
       // запускает перенос (не надо ждать удержания) — так «нажал и потянул»
@@ -950,11 +966,22 @@ export class TreeManager {
     // обработчика узла (selectScope). Shift+клик — переключить выбор узла;
     // обычный клик без Shift — снять мультивыбор (и дать навигации сработать).
     document.addEventListener("click", ev => {
+      // Клик сразу ПОСЛЕ свайпа (тач-жест) — глушим: не навигировать и не сделать
+      // повторный тоггл выбора.
+      if (this._swiped) { this._swiped = false; ev.stopPropagation(); ev.preventDefault(); return; }
       const node = ev.target.closest(TREE_NODE_SEL);
+      // Мобильный режим выделения: тап по узлу — переключить выбор (не навигация).
+      if (document.body.classList.contains("tree-selecting") && !this.moveMode
+          && node && $("#tree").contains(node)) {
+        ev.preventDefault(); ev.stopPropagation();
+        this._toggleSelect(node); this._syncMoveBar(); return;
+      }
       if (ev.shiftKey && node && $("#tree").contains(node)) {
         ev.preventDefault(); ev.stopPropagation();
         this._toggleSelect(node);
-      } else if (!ev.shiftKey) {
+      } else if (!ev.shiftKey && !this.moveMode && !document.body.classList.contains("tree-selecting")) {
+        // В режиме «Выбрать» тап вне узла (напр. по кнопке панели) НЕ сбрасывает
+        // выбор — иначе «Переместить» гасил выделение до своего обработчика.
         this._clearSelection();
       }
     }, true);
@@ -1004,6 +1031,10 @@ export class TreeManager {
     }
     if (type === "feed")
       return { path: "/dcim/power-feeds/" + id + "/", body: { power_panel: parentId }, where: "щит" };
+    if (type === "device") {
+      const loc = state.locations.find(l => l.id === parentId);
+      return { path: "/dcim/devices/" + id + "/", body: { location: parentId, ...(loc && loc.site ? { site: loc.site.id } : {}) }, where: "серверную" };
+    }
     return null;
   }
   // Нельзя вложить группу в саму себя/свою подгруппу (цикл).
@@ -1050,12 +1081,200 @@ export class TreeManager {
     const tree = $("#tree");
     if (!tree) return;
     const CLS = { region: "region", sitegroup: "sitegroup", site: "site", location: "loc",
-      rack: "rack", panel: "panel", feed: "feed" };
+      rack: "rack", panel: "panel", feed: "feed", device: "dev" };
     for (const info of infos) {
       const key = CLS[info.kind];
       const n = key && tree.querySelector(`.tree-${key}[data-${key}="${info.id}"]`);
       if (n) { this.selection.add(n); n.classList.add("multi-sel"); }
     }
     this._updateSelCandidates();
+    this._syncMoveBar();
+  }
+
+  // ── Мобильный выбор/перенос/создание (без свайпов — на iOS ненадёжны) ────────
+  // Режим выбора включает кнопка «Выбрать» в шапке дерева: у всех строк — чекбокс,
+  // тап переключает выбор (обработчик в _wireGlobal, capture). Мультивыбор — одного
+  // уровня (_toggleSelect). Панель действий снизу: «Переместить/Удалить/Готово».
+  _toggleSelectMode() {
+    if (document.body.classList.contains("tree-selecting")) { this._exitSelectMode(); return; }
+    document.body.classList.add("tree-selecting");
+    this._updateSelBtn();
+    this._syncMoveBar();
+  }
+  _exitSelectMode() {
+    this._exitMoveMode();
+    this._clearSelection();
+    document.body.classList.remove("tree-selecting");
+    this._updateSelBtn();
+    this._syncMoveBar();
+  }
+  _updateSelBtn() {
+    const b = document.getElementById("tree-select-btn");
+    if (b) b.textContent = document.body.classList.contains("tree-selecting") ? "Отмена" : "Выбрать";
+  }
+  // «+» на схеме → каталог создания для ТЕКУЩЕЙ области (state.scope).
+  _scopeAddInfo() {
+    const s = state.scope;
+    if (!s) return null;
+    if (s.type === "location") { const loc = this._loc(s.id); return { kind: "location", id: s.id, name: s.name, site: loc && loc.site && loc.site.id }; }
+    if (s.type === "site") return { kind: "site", id: s.id, name: s.name };
+    if (s.type === "sitegroup") return { kind: "sitegroup", id: s.id, name: s.name };
+    return null;
+  }
+  _openSchemAdd() {
+    const info = this._scopeAddInfo();
+    if (!info) { setStatus("выбери место в дереве", ""); return; }
+    const opts = this._addOptions(info);
+    if (!opts.length) { setStatus("сюда нечего добавить", ""); return; }
+    this._openAddCatalog(info, opts);
+  }
+  // Плавающая панель действий (тач): в режиме выбора — Переместить/Удалить/Готово;
+  // в режиме переноса — «выбери, куда» + Отмена.
+  _syncMoveBar() {
+    const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
+    const selecting = document.body.classList.contains("tree-selecting");
+    let bar = document.getElementById("tree-actions");
+    if (!touch || (!selecting && !this.moveMode)) { if (bar) bar.remove(); return; }
+    if (!bar) { bar = mk("div", { id: "tree-actions" }); document.body.appendChild(bar); }
+    const n = this.selection.size;
+    if (this.moveMode) {
+      if (this._armedTarget) {                             // место выбрано → «Применить»
+        const info = this._nodeInfo(this._armedTarget);
+        bar.innerHTML = `<span class="ta-hint">Сюда: ${info ? info.name : "…"}</span>` +
+          `<button class="ta-apply">Применить</button><button class="ta-cancel">Отмена</button>`;
+        bar.querySelector(".ta-apply").addEventListener("click", e => { e.stopPropagation(); this._confirmMove(); });
+      } else {
+        bar.innerHTML = `<span class="ta-hint">Выбери, куда переместить (${n})</span><button class="ta-cancel">Отмена</button>`;
+      }
+      bar.querySelector(".ta-cancel").addEventListener("click", e => { e.stopPropagation(); this._exitMoveMode(); });
+    } else if (n) {
+      bar.innerHTML = `<button class="ta-move">Переместить (${n})</button>` +
+        `<button class="ta-del">Удалить (${n})</button><button class="ta-cancel">Отмена</button>`;
+      bar.querySelector(".ta-move").addEventListener("click", e => { e.stopPropagation(); this._startMoveMode(); });
+      bar.querySelector(".ta-del").addEventListener("click", e => { e.stopPropagation();
+        this._deleteMany([...this.selection].map(x => this._nodeInfo(x)).filter(Boolean)); });
+      bar.querySelector(".ta-cancel").addEventListener("click", e => { e.stopPropagation(); this._exitSelectMode(); });
+    } else {
+      bar.innerHTML = `<span class="ta-hint">Тапни элементы одного уровня</span><button class="ta-cancel">Отмена</button>`;
+      bar.querySelector(".ta-cancel").addEventListener("click", e => { e.stopPropagation(); this._exitSelectMode(); });
+    }
+  }
+  // Войти в режим переноса: валидные цели помечаем «← сюда?»; тап по цели выбирает
+  // её (подсветка), перенос — кнопкой «Применить» внизу (тот же API, что drag-drop).
+  _startMoveMode() {
+    const infos = [...this.selection].map(n => this._nodeInfo(n)).filter(Boolean);
+    if (!infos.length || !this._movable(infos[0])) { setStatus("эти элементы нельзя перемещать", "err"); return; }
+    const kind = infos[0].kind;
+    this._moveTargets = this.dropTargets.filter(t => t.accepts === kind);
+    if (!this._moveTargets.length) { setStatus("нет подходящих мест для переноса", ""); return; }
+    this.moveMode = { kind }; this._armedTarget = null;
+    document.body.classList.add("tree-moving");
+    for (const t of this._moveTargets) t.el.classList.add("move-target");
+    // В дереве оставляем ТОЛЬКО валидные цели и их контейнеры-навигаторы; остальное
+    // прячем: устройства/стойки/щиты → серверные; серверные → площадки + группы мест.
+    const SHOW = {
+      device: ["tree-loc"], rack: ["tree-loc"], panel: ["tree-loc"],
+      location: ["tree-site", "tree-sitegroup"],
+      site: ["tree-sitegroup"], sitegroup: ["tree-sitegroup"],
+      feed: ["tree-panel", "tree-loc"],
+    };
+    const show = SHOW[kind] || [];
+    for (const el of $("#tree").children) {
+      if (el.classList.contains("placeholder")) continue;
+      el.classList.toggle("move-hidden", !show.some(c => el.classList.contains(c)));
+    }
+    this._onMoveClick = ev => {
+      const tEl = ev.target.closest(".move-target");
+      if (tEl && $("#tree").contains(tEl)) {
+        ev.preventDefault(); ev.stopPropagation();
+        if (this._armedTarget) this._armedTarget.classList.remove("move-armed");
+        this._armedTarget = tEl; tEl.classList.add("move-armed");
+        this._syncMoveBar();                             // покажет «Применить»
+        return;
+      }
+      // Тап по дереву мимо цели — гасим (не навигировать/не грузить/не сворачивать:
+      // сворачивание перестроило бы дерево и порвало режим). Выход — кнопкой «Отмена».
+      if (ev.target.closest("#tree")) { ev.preventDefault(); ev.stopPropagation(); }
+    };
+    document.addEventListener("click", this._onMoveClick, true);
+    this._syncMoveBar();
+  }
+  _exitMoveMode() {
+    if (this._onMoveClick) { document.removeEventListener("click", this._onMoveClick, true); this._onMoveClick = null; }
+    if (!this.moveMode) return;
+    document.body.classList.remove("tree-moving");
+    (this._moveTargets || []).forEach(t => t.el.classList.remove("move-target", "move-armed"));
+    const tree = $("#tree");
+    if (tree) tree.querySelectorAll(".move-hidden").forEach(el => el.classList.remove("move-hidden"));
+    this._moveTargets = null; this._armedTarget = null; this.moveMode = null;
+    this._syncMoveBar();
+  }
+  // «Применить»: перенести выбранные в помеченное место и ВЫЙТИ из режима «Выбрать».
+  async _confirmMove() {
+    const t = this._moveTargets && this._moveTargets.find(x => x.el === this._armedTarget);
+    if (!t) { setStatus("сначала выбери место", ""); return; }
+    const tgt = { parentId: t.parentId, field: t.field };   // фикс до перестройки дерева
+    setStatus("перемещаю…");
+    // НЕ выходим из режима до конца: ждём перенос + reload (reload сам перестроит
+    // дерево и снимет move-режим), и только ПОСЛЕ загрузки выходим из «Выбрать».
+    await this._applyMoveMany(tgt);
+    this._exitMoveMode();          // страховка (если reload не перестроил)
+    this._exitSelectMode();
+  }
+  // Каталог создания вложенного (свайп-«+»): опции _addOptions, подменю решений —
+  // раскрыты в список. Тап по пункту → его fn (напр. addSolution → форма данных).
+  _openAddCatalog(info, opts) {
+    this._closeContextMenu();
+    const old = document.getElementById("add-catalog"); if (old) old.remove();
+    const sheet = mk("div", { id: "add-catalog" });
+    const close = () => sheet.remove();
+    const head = mk("div", { className: "ac-head", html: `<span>Добавить в «${info.name}»</span>` });
+    const xb = mk("button", { className: "ac-x", html: `<i class="mdi mdi-close"></i>` });
+    xb.addEventListener("click", e => { e.stopPropagation(); close(); });
+    head.appendChild(xb); sheet.appendChild(head);
+    const body = mk("div", { className: "ac-body" });
+    for (const o of opts) {
+      if (o.submenu && o.submenu.length) {
+        body.appendChild(mk("div", { className: "ac-cat", text: o.label }));
+        for (const s of o.submenu) body.appendChild(this._acItem(s, close));
+      } else if (o.fn) body.appendChild(this._acItem(o, close));
+    }
+    // Нет опций устройств (в списке только контейнеры — локация / site / группа) →
+    // подсказка + «Добавить в…» (выбрать серверную и класть устройство прямо в неё).
+    if (!opts.some(o => o.submenu)) {
+      body.appendChild(mk("div", { className: "ac-note", text: "Для добавления устройств загрузите локацию." }));
+      const into = mk("button", { className: "ac-into", text: "Добавить в…" });
+      into.addEventListener("click", e => { e.stopPropagation(); this._pickLocationForAdd(body); });
+      body.appendChild(into);
+    }
+    sheet.appendChild(body);
+    sheet.addEventListener("click", e => { if (e.target === sheet) close(); });
+    document.body.appendChild(sheet);
+  }
+  // «Добавить в…»: список серверных (в пределах текущей площадки, если она выбрана) →
+  // выбор открывает каталог создания уже для этой серверной (там есть устройства).
+  _pickLocationForAdd(body) {
+    const s = state.scope;
+    let list = state.locations || [];
+    if (s && s.type === "site") list = list.filter(l => l.site && l.site.id === s.id);
+    body.innerHTML = "";
+    body.appendChild(mk("div", { className: "ac-cat", text: "Куда добавить устройство" }));
+    if (!list.length) { body.appendChild(mk("div", { className: "ac-note", text: "Серверных нет — сначала создай локацию." })); return; }
+    for (const l of list) {
+      const row = mk("button", { className: "ac-item",
+        html: `<span>${(l.site ? l.site.name + " · " : "") + l.name}</span>` });
+      row.addEventListener("click", e => {
+        e.stopPropagation();
+        const doc = document.getElementById("add-catalog"); if (doc) doc.remove();
+        const info = { kind: "location", id: l.id, name: l.name, site: l.site && l.site.id };
+        this._openAddCatalog(info, this._addOptions(info));
+      });
+      body.appendChild(row);
+    }
+  }
+  _acItem(o, close) {
+    const row = mk("button", { className: "ac-item", html: `<span>${o.label}</span>` });
+    row.addEventListener("click", e => { e.stopPropagation(); close(); if (o.fn) o.fn(); });
+    return row;
   }
 }

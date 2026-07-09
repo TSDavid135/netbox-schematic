@@ -125,10 +125,14 @@ class _Mixin {
     // центрируем в слоте, иначе при перекладке (смена режима) нода уедет из
     // своего контура. В стойке — центрируем в слоте колонки (SLOT = ширина самой
     // широкой ноды, единая для всех колонок), чтобы широкие не вылезали в соседние.
-    if (dev._off)
-      node.style.left = (node._fixedLeft != null ? node._fixedLeft : node._x0) + "px";
-    else
-      node.style.left = (node._x0 + (this.SLOT - BOX_PAD - width) / 2) + "px";
+    // В трассе (single) позицию НЕ трогаем — её задают showSingleDevice/_placeChainNode;
+    // иначе при перекладке (переключение режима edit) ноды слетали бы к _fixedLeft (=0).
+    if (!state.single) {
+      if (dev._off)
+        node.style.left = (node._fixedLeft != null ? node._fixedLeft : node._x0) + "px";
+      else
+        node.style.left = (node._x0 + (this.SLOT - BOX_PAD - width) / 2) + "px";
+    }
 
     // Пересобрать содержимое: имя/модель + подписи + порты. Вне стойки (off-rack)
     // — компактная карточка с ИКОНКОЙ решения слева, без «· U…» (юнита нет), и
@@ -145,7 +149,7 @@ class _Mixin {
         if (firstIp) break;
       }
       const addr = firstIp ? `<span class="node-ip">${firstIp}</span>`
-        : (firstIface ? `<button class="node-addip" title="Назначить IP">+ адрес</button>` : "");
+        : (firstIface && edit ? `<button class="node-addip" title="Назначить IP">+ адрес</button>` : "");
       node.innerHTML = `<i class="mdi ${iconForDevice(dev)} node-ic"></i>` +
         `<span class="node-tt"><span class="node-nmrow"><span class="nm">${dev.name}</span>${addr}</span>` +
         `<span class="mdl">${dev.device_type.model}</span></span>`;

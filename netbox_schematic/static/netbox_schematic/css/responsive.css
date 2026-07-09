@@ -1,0 +1,267 @@
+/* ── Адаптив под планшеты/телефоны ─────────────────────────────────────────
+   Только media-queries → десктоп НЕ трогаем. Грузится последним (после ipam.css).
+   Каркас (drawer/шторка) — здесь; поведение оверлеев — в js/responsive.js.
+   Согласовано 2026-07-09: сайдбар → drawer по ☰, детали → шторка снизу, стойки на
+   мобиле скрыты (открытие стойки по требованию — отдельным чанком), «Слои»/«Фильтр»/
+   палитра/легенда на мобиле не нужны (добавление устройств — через дерево). */
+
+/* Гамбургер и скрим по умолчанию (десктоп) скрыты. */
+#navtoggle { display: none; background: none; border: none; color: var(--text);
+  cursor: pointer; font-size: 22px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
+#navtoggle:hover { background: var(--panel-2); }
+#mobile-scrim { display: none; }
+/* Тумблер режима в шапке и стрелка «ещё» — только мобилка (десктоп скрывает). */
+.modeswitch.topbar-mode, #topbar-more { display: none; }
+/* Обёртка доп-контролов шапки: на десктопе «прозрачна» (дети — прямо в #topbar). */
+#topbar-extra { display: contents; }
+/* Мобильный тултип порта: фикс-позицию (чуть ниже центра) ставит attachTip, тут —
+   крестик и рамки. #tip = pointer-events:none, крестик re-enable. */
+#tip.tip-fixed { max-width: 90vw; min-width: 240px; padding: 13px 38px 15px 16px;
+  font-size: 14px; line-height: 1.55; }
+#tip .tip-close { position: absolute; top: 4px; right: 6px; pointer-events: auto;
+  background: none; border: none; color: var(--muted); font-size: 26px; line-height: 1;
+  cursor: pointer; padding: 2px 8px; }
+#tip .tip-close:hover { color: var(--text); }
+/* Трасса «волоски»: короткий отрезок от занятого порта наружу (к незагруженной
+   ноде, растворяется). Общие кабели цепочки рисуются как обычные провода (.wire). */
+#wires path.whisker { fill: none; stroke-width: 3; stroke-linecap: round; }
+/* Появление узла в цепочке — короткая подсветка (прокрутка + вспышка обводки). */
+.node.trace-flash { animation: traceflash 0.9s ease-out; }
+@keyframes traceflash {
+  0% { box-shadow: 0 0 0 3px var(--accent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* ── Телефон / узкий экран ─────────────────────────────────────────────────*/
+@media (max-width: 760px) {
+  #navtoggle { display: inline-flex; align-items: center; }
+
+  /* Топбар компактнее: прячем второстепенное, оставляем иконки. */
+  /* Статус (#status, напр. «N устройств, M кабелей») на мобиле не нужен —
+     обратную связь даёт всплывающий лоадер #reqspin. */
+  #exportbtn, #importbtn, .brand-schem, .sync-txt, #backlink, #status { display: none; }
+  /* touch-action:manipulation убирает БРАУЗЕРНЫЙ двойной тап-зум в шапке (случайно
+     приближался к кнопкам). Схема — свой pinch (#schempane pan-x pan-y). */
+  #topbar { gap: 6px; padding: 6px 8px; touch-action: manipulation; flex-wrap: nowrap; }
+  /* Шапка строго в ОДНУ строку: бренд/селектор ужимаются, «ещё»-стрелка не переносится. */
+  #topbar .brand { min-width: 0; flex-shrink: 1; }
+  #topbar .brand .brand-canvas-select { max-width: 36vw; }
+  /* Тумблер режима 👁/✏️ — в ШАПКЕ (не на схеме), только на «Инфраструктуре». */
+  body[data-canvas="infra"] .modeswitch.topbar-mode {
+    display: inline-flex; position: static; transform: none; padding: 7px 11px; }
+  body[data-canvas="infra"] .modeswitch.topbar-mode .mdi { font-size: 22px; }
+  /* Стрелка «ещё» справа — раскрывает вторую строку доп-контролов (крупнее для тача). */
+  #topbar-more { display: inline-flex; align-items: center; background: none; border: none;
+    color: var(--muted); cursor: pointer; font-size: 26px; padding: 6px 10px; opacity: 0.55; }
+  #topbar-more:hover { opacity: 1; }
+  #topbar-more .mdi { transition: transform 0.2s; }
+  body.topbar-expanded #topbar-more .mdi { transform: rotate(180deg); }
+  /* Доп-контролы (поиск + обновить/тема/юзер) — ОДНА строка, ПОВЕРХ схемы (overlay
+     absolute), не двигает layout. Разворачивается по стрелке «ещё». */
+  #topbar { position: relative; }
+  #topbar-extra { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 44;
+    background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    box-shadow: 0 10px 22px rgba(0,0,0,0.4);
+    padding: 8px; align-items: center; gap: 6px; flex-wrap: nowrap; }
+  body.topbar-expanded #topbar-extra { display: flex; }
+  #topbar-extra #devsearch { flex: 1 1 auto; min-width: 0; max-width: none; height: 38px; }
+  /* Заголовок схемы («Схема соединений : …») на мобиле не нужен. */
+  #schempane .pane-title { display: none; }
+
+  /* Сайдбар → выезжающий drawer поверх схемы. */
+  #layout { position: relative; }
+  #sidebar {
+    position: absolute; top: 0; left: 0; bottom: 0; z-index: 45;
+    width: min(84vw, 320px); transform: translateX(-100%);
+    transition: transform 0.22s ease; box-shadow: 2px 0 20px rgba(0,0,0,0.45);
+    background: var(--panel);
+  }
+  body.nav-open #sidebar { transform: translateX(0); }
+
+  /* Скрим под drawer/шторкой (общий, закрывает оба — см. responsive.js). */
+  #mobile-scrim { position: absolute; inset: 0; z-index: 40; background: rgba(0,0,0,0.5); }
+  body.nav-open #mobile-scrim, body.sheet-open #mobile-scrim { display: block; }
+
+  /* Ресайзер скрыт; блок стоек (юниты) — шторка снизу, видна для scope "rack"
+     (открыл стойку карандашом). Свернуть — кнопкой в её заголовке (rack-collapsed). */
+  #resizer { display: none !important; }
+  #rackpane {
+    display: flex !important; position: absolute; left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; max-width: none; height: 70vh; z-index: 46;
+    border-radius: 16px 16px 0 0; border: 1px solid var(--line); border-bottom: none;
+    background: var(--panel); box-shadow: 0 -10px 26px rgba(0,0,0,0.5);
+    /* visibility:hidden у закрытой шторки — страховка от iOS-щели снизу (translateY
+       иногда оставляет ~1px…десятки px; фон/тень тогда «подглядывают» белым). */
+    transform: translateY(101%); visibility: hidden;
+    transition: transform 0.24s ease, visibility 0s linear 0.24s;
+  }
+  body:not(.rack-collapsed) #rackpane { transform: translateY(0); visibility: visible;
+    transition: transform 0.24s ease; }
+  /* Мобилка: блок стоек всегда в правке (просмотр не нужен) — тумблер режима и
+     кнопка сворачивания скрыты; закрытие — по скриму. */
+  .modeswitch[data-mode="rack"], #rack-collapse { display: none !important; }
+  body:not(.rack-collapsed) #mobile-scrim { display: block; }
+  /* Схема — на всю ширину. */
+  #schempwrap { flex: 1 1 100%; }
+  #ipam { position: relative; }
+  /* Скроллбары схемы/сетей на мобиле прячем: при зуме они «уезжают к центру» и
+     выглядят странно (пан — пальцем, они не нужны). */
+  #schempane, #ipam-scroll { scrollbar-width: none; }
+  #schempane::-webkit-scrollbar, #ipam-scroll::-webkit-scrollbar { display: none; }
+
+  /* Плавающие контролы, ненужные на мобиле (добавление — через дерево). */
+  #rolefilter, #layers, #viewswitch, #legend, #palette { display: none !important; }
+
+  /* Детали (Инфра/IPAM) → шторка снизу. */
+  #detail, #ipam-detail {
+    position: absolute; left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; max-width: none; height: 64vh; z-index: 46;
+    border-radius: 16px 16px 0 0; border: 1px solid var(--line); border-bottom: none;
+    background: var(--panel); box-shadow: 0 -10px 26px rgba(0,0,0,0.45);
+    transform: translateY(101%); visibility: hidden; overflow-y: auto;
+    transition: transform 0.24s ease, visibility 0s linear 0.24s;
+  }
+  /* Ручка-хват: ЛИПКАЯ полоса сверху шторки — видна всегда, даже когда детали
+     прокручены (position:sticky). Непрозрачный фон закрывает контент под собой;
+     сама «ручка» — центрированная полоска (background-image). Высота 32px даёт
+     отступ до названия (было слишком близко). Не в innerHTML → переживает
+     перерисовку деталей. */
+  #detail::before, #ipam-detail::before {
+    content: ""; position: sticky; top: 0; z-index: 4; display: block;
+    width: 100%; height: 32px; border-radius: 16px 16px 0 0;
+    background-color: var(--panel);
+    /* Сама «ручка» — СКРУГЛЁННАЯ пилюля (SVG rx), а не угловатый прямоугольник. */
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='6'><rect width='44' height='6' rx='3' fill='%238a95a1'/></svg>");
+    background-repeat: no-repeat; background-position: center 12px;
+  }
+  body.sheet-open #detail, body.sheet-open #ipam-detail { transform: translateY(0); visibility: visible;
+    transition: transform 0.24s ease; }
+
+  /* Окна параметров (модалка создания/правки, назначение IP, тип кабеля) — снизу,
+     как детали (переопределяем JS-позицию popover'ов через !important). */
+  #modal-bg { align-items: flex-end; }
+  #modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; max-height: 85vh; overflow-y: auto; }
+  #cablepop, #ipform {
+    left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important;
+    width: 100% !important; max-width: none; border-radius: 16px 16px 0 0;
+  }
+}
+
+/* ── Тач-цели (любая ширина, где грубый указатель) ─────────────────────────*/
+@media (pointer: coarse) {
+  .tree-loc, .tree-rack, .tree-site, .tree-sitegroup, .tree-panel, .tree-dev,
+  .it-node, .it-net, .cnav { min-height: 40px; }
+  .modebtn, #syncbtn, #themetoggle, #userbtn, #navtoggle { min-height: 38px; }
+  /* Стрелки сворачивания папок в дереве — крупнее (тач-цель). */
+  .tree-chevron, .it-chevron { padding: 5px 7px; }
+  .tree-chevron .mdi, .it-chevron .mdi { font-size: 20px; }
+}
+
+/* ── Мобильный выбор/перенос/создание дерева (без свайпов) ────────────────────*/
+/* Кнопка «Выбрать» в шапке дерева — только тач. */
+.tree-sel-toggle { display: none; }
+@media (pointer: coarse) {
+  /* Заголовок раздела дерева — нормальная строка: название слева, «Выбрать» справа. */
+  #side-infra .side-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 13px; padding: 12px 14px 9px;
+  }
+  /* Кнопка «Выбрать» — просто текст, без бордера/фона (flex-элемент справа). */
+  .tree-sel-toggle {
+    display: inline-block; flex-shrink: 0; background: none; border: none; color: var(--accent);
+    font-size: 13px; font-weight: 600; padding: 2px 4px; cursor: pointer;
+    text-transform: none; letter-spacing: 0;
+  }
+  body.tree-selecting .tree-sel-toggle { color: var(--ok); }
+}
+
+/* Заголовок раздела дерева («Инфраструктура» + «Выбрать») — липкий: всегда виден
+   при прокрутке иерархии. */
+.side-block > .side-head { position: sticky; top: 0; z-index: 3; background: var(--panel); }
+
+/* iOS НЕ приближается к полю при фокусе, если шрифт ≥ 16px — ставим 16px всем
+   полям модалок/форм/поиска (иначе браузер зумит к инпуту). */
+@media (pointer: coarse) {
+  #modal input, #modal select, #cablepop input, #cablepop select,
+  #ipform input, #ipform select, #devsearch-inp { font-size: 16px; }
+}
+
+/* Режим выбора: квадратик-чекбокс появляется ТОЛЬКО у выбранных и кандидатов
+   ОДНОГО уровня (относительно первого выбранного) — до первого выбора чекбоксов
+   нет вовсе. Строки НЕ красим (ни зелёным, ни синим) — индикатор только квадратик,
+   галочка появляется по мере выбора. */
+body.tree-selecting .multi-cand, body.tree-selecting .multi-sel {
+  position: relative; padding-right: 42px; background: none !important; box-shadow: none !important;
+}
+body.tree-selecting .multi-cand::after, body.tree-selecting .multi-sel::after {
+  content: ""; position: absolute; right: 13px; top: 50%; margin-top: -10px;
+  width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--muted);
+  background: var(--panel); box-sizing: border-box; transition: all 0.1s;
+}
+body.tree-selecting .multi-sel::after {
+  border-color: var(--accent); background: var(--accent)
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M9 16.2 4.8 12l-1.5 1.4L9 19 21 7l-1.4-1.4z' fill='white'/></svg>")
+    center / 14px no-repeat;
+}
+
+/* Режим переноса: цели мягко подсвечены; взведённая (1-й тап) — «← сюда?»; источники серые. */
+/* Все валидные цели сразу помечены «← сюда?» (без синей обводки); по тапу цель
+   «взводится» (акцент + фон), второй тап — перенос. */
+body.tree-moving .move-target { position: relative; padding-right: 76px; }
+body.tree-moving .move-target::after { content: "← сюда?"; position: absolute; right: 12px; top: 50%;
+  transform: translateY(-50%); font-size: 12px; color: var(--muted); opacity: 0.55; white-space: nowrap; }
+/* Выбранная цель — фон + полоска слева (метка «← сюда?» остаётся блеклой). */
+body.tree-moving .move-armed { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+body.tree-moving .multi-sel { opacity: 0.5; }
+/* В режиме переноса прячем всё, кроме валидных целей и их контейнеров. */
+.move-hidden { display: none !important; }
+
+/* Плавающая панель действий над выделением (снизу). */
+#tree-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: flex; gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 22px rgba(0,0,0,0.4);
+}
+#tree-actions button {
+  flex: 1; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+#tree-actions .ta-move { background: var(--accent); color: #fff; border-color: var(--accent); }
+#tree-actions .ta-apply { background: var(--ok); color: #fff; border-color: var(--ok); }
+#tree-actions .ta-del { color: #e5644d; }
+#tree-actions .ta-cancel { flex: 0 0 auto; }
+#tree-actions .ta-hint { flex: 1; align-self: center; color: var(--muted); font-size: 12.5px; }
+
+/* «+» на схеме (мобилка, режим правки ✏️) — каталог создания для текущей области. */
+#schem-add { display: none; }
+@media (pointer: coarse) {
+  body.schema-edit #schem-add {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; right: 16px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 43;
+    width: 54px; height: 54px; border-radius: 50%; background: var(--accent); color: #fff;
+    border: none; box-shadow: 0 6px 18px rgba(0,0,0,0.45); cursor: pointer;
+  }
+  body.schema-edit #schem-add .mdi { font-size: 30px; line-height: 1; }
+}
+
+/* Каталог создания («+» на схеме) — шторка снизу. */
+#add-catalog { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column;
+  justify-content: flex-end; background: rgba(0,0,0,0.45); }
+#add-catalog .ac-head { display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); padding: 14px 16px; border-radius: 16px 16px 0 0; font-weight: 600;
+  border-bottom: 1px solid var(--line); }
+#add-catalog .ac-x { background: none; border: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+#add-catalog .ac-body { background: var(--panel); max-height: 66vh; overflow-y: auto;
+  padding: 6px 0 calc(12px + env(safe-area-inset-bottom, 0px)); }
+#add-catalog .ac-cat { padding: 12px 16px 4px; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+#add-catalog .ac-item { display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 14px 16px; color: var(--text); font-size: 15px; cursor: pointer; }
+#add-catalog .ac-item:active { background: var(--panel-2); }
+#add-catalog .ac-note { padding: 12px 16px 4px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+/* «Добавить в…» — как обычный пункт списка (не большая кнопка), акцентом. */
+#add-catalog .ac-into {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 14px 16px; color: var(--accent); font-size: 15px; font-weight: 600; cursor: pointer;
+}
+#add-catalog .ac-into:active { background: var(--panel-2); }

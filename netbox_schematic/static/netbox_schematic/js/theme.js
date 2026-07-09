@@ -4,7 +4,8 @@ import { $ } from "./core.js";
 
 function applyThemeIcon() {
   const light = document.documentElement.classList.contains("light");
-  $("#themetoggle").innerHTML = `<i class="mdi mdi-${light ? "weather-night" : "white-balance-sunny"}"></i>`;
+  // Иконка NetBox — лампочка: горит в светлой теме, погашена в тёмной.
+  $("#themetoggle").innerHTML = `<i class="mdi mdi-${light ? "lightbulb-on-outline" : "lightbulb-outline"}"></i>`;
 }
 
 export function initTheme() {

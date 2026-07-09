@@ -106,9 +106,9 @@ export class IpForm {
     };
     const auto = new Set();
     for (const p of all) {
-      if ((p.vlan && vlanIds.has(p.vlan.id)) ||
-          (siteId && p.site && p.site.id === siteId) ||
-          scopeMatch(p)) auto.add(p.id);
+      // Legacy `p.site` убран: в NetBox 4.2+ у Prefix нет поля site (заменено на
+      // generic scope) → сопоставление только через scopeMatch (scope_type/id).
+      if ((p.vlan && vlanIds.has(p.vlan.id)) || scopeMatch(p)) auto.add(p.id);
     }
     const tagged = all.map(p => ({ ...p, _auto: auto.has(p.id) }));
     // Авто — вперёд, затем по префиксу.

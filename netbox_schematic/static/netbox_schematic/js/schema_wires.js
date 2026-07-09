@@ -71,6 +71,9 @@ class _Mixin {
   redrawWires() {
     const svg = $("#wires");
     if (!svg) return;
+    // Трасса (single-view/цепочка): свой рендер — общие кабели + волоски
+    // (переживает зум/перерисовку), роутер стоек тут не применим.
+    if (state.single) { this._drawTrace(); return; }
     const canvas = $("#schema");
     svg.setAttribute("width", canvas.scrollWidth);
     svg.setAttribute("height", canvas.scrollHeight);
@@ -98,6 +101,15 @@ class _Mixin {
     if (this.app.filter) this.app.filter.apply();
     // …и подсветку активного слоя (иначе при зуме выделение слоя сбрасывалось).
     if (this.app.layers) this.app.layers.reapplyToWires();
+    // …и подсветку ЗАФИКСИРОВАННОЙ трассы: провода пересозданы и потеряли hl/dim
+    // (ноды/порты сохранили) → возвращаем классы на новые пути. Баг: при зуме
+    // подсветка провода сбрасывалась, хотя порты продолжали гореть.
+    if (this._traceActive && this._hlCables) {
+      svg.querySelectorAll("path.wire").forEach(p => {
+        const mine = this._hlCables.has(+p.dataset.cable);
+        p.classList.toggle("hl", mine); p.classList.toggle("dim", !mine);
+      });
+    }
     // Радио-линии под текущий режим/слой (drawRadioLinks сам решает рисовать/
     // нет). НЕ зовём applyViewMode отсюда — иначе рекурсия через relayoutNodes.
     this.drawRadioLinks();

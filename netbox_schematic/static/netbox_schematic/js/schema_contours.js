@@ -20,7 +20,7 @@ class _Mixin {
   _renderScopeContours(canvas, group, rackMeta) {
     this._contours = [];   // сбрасываем ссылки (переживают redrawWires для fit)
     const scope = state.scope;
-    if (!scope || scope.type === "location" || !group.length) return;
+    if (!scope || scope.type === "location" || scope.type === "rack" || !group.length) return;
     const { LEFT_PAD, TOP_PAD } = this;
     const top0 = TOP_PAD - 34;   // верх бокса стойки
     const boxOf = (racks, padX, padTop, padBot) => {

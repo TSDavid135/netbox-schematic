@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="{% static 'netbox_schematic/css/schematic.css' %}">
 <link rel="stylesheet" href="{% static 'netbox_schematic/css/panels.css' %}">
 <link rel="stylesheet" href="{% static 'netbox_schematic/css/ipam.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/responsive.css' %}">
 <script>
   // Применяем сохранённую тему до отрисовки, чтобы не мигало. Дефолт — тёмная.
   if (localStorage.getItem("schematic-theme") === "light")
@@ -18,13 +19,23 @@
 </script>
 </head>
 <body data-canvas="{{ canvas }}">
+<script>
+  // Свёрнутость блока стоек читаем ДО отрисовки — иначе блок «дёргается» при
+  // загрузке (успевает показаться и свернуться). По умолчанию свёрнут.
+  if (localStorage.getItem("schematic-rackCollapsed") !== "0")
+    document.body.classList.add("rack-collapsed");
+</script>
 <form style="display:none">{% csrf_token %}</form>
 
 <div id="topbar">
+  <button id="navtoggle" title="Меню / дерево" aria-label="Открыть меню"><i class="mdi mdi-menu"></i></button>
   <a id="backlink" href="/"><i class="mdi mdi-arrow-left"></i> На главную</a>
-  <span class="brand"><a href="/" class="brand-link" title="Главная NetBox">NetBox</a> <small class="side-head brand-schem">Схематика</small><span class="brand-canvas"> · {{ canvas_title }}</span></span>
+  <span class="brand"><a href="/" class="brand-link" title="Главная NetBox">NetBox</a> <small class="side-head brand-schem">Схематика</small><span class="brand-sep"> · </span><select id="canvas-switch" class="brand-canvas-select" aria-label="Выбор схемы"><option value="{% url 'plugins:netbox_schematic:schematic' %}"{% if canvas == 'infra' %} selected{% endif %}>Инфраструктура</option><option value="{% url 'plugins:netbox_schematic:network' %}"{% if canvas == 'network' %} selected{% endif %}>Сети</option><option value="{% url 'plugins:netbox_schematic:virtualization' %}"{% if canvas == 'virtualization' %} selected{% endif %}>Виртуализация</option><option value="{% url 'plugins:netbox_schematic:vpn' %}"{% if canvas == 'vpn' %} selected{% endif %}>Туннели</option></select></span>
   <span id="status">не подключено</span>
   <span class="topbar-spacer"></span>
+  <button class="modebtn modeswitch topbar-mode" data-mode="schema" aria-pressed="false" title="Режим: просмотр / редактирование"><span class="ms-view"><i class="mdi mdi-eye"></i></span><span class="ms-edit-full"><i class="mdi mdi-pencil"></i></span><span class="ms-edit-short"><i class="mdi mdi-pencil"></i></span></button>
+  <button id="topbar-more" title="Ещё: поиск, тема, обновить"><i class="mdi mdi-chevron-down"></i></button>
+  <div id="topbar-extra">
   <button id="exportbtn" class="tb-act" title="Экспорт (в разработке)"><i class="mdi mdi-tray-arrow-up"></i> <span class="tb-txt">Экспорт</span></button>
   <button id="importbtn" class="tb-act" title="Импорт (в разработке)"><i class="mdi mdi-tray-arrow-down"></i> <span class="tb-txt">Импорт</span></button>
   <div id="devsearch" title="Поиск устройства по имени">
@@ -35,7 +46,7 @@
   </div>
   <button id="cancelconn"><i class="mdi mdi-close"></i> Отмена привязки</button>
   <button id="syncbtn" title="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
-  <button id="themetoggle" title="Светлая / тёмная тема"><i class="mdi mdi-white-balance-sunny"></i></button>
+  <button id="themetoggle" title="Светлая / тёмная тема"><i class="mdi mdi-lightbulb-outline"></i></button>
   <div id="userbox" title="{{ user_login }}">
     <button id="userbtn"><i class="mdi mdi-account-circle"></i><span class="ub-name">{{ user_name }}</span><i class="mdi mdi-chevron-down ub-caret"></i></button>
     <div id="usermenu">
@@ -44,26 +55,20 @@
       <a href="/logout/"><i class="mdi mdi-logout"></i> Выйти</a>
     </div>
   </div>
+  </div>
 </div>
 
 <div id="layout">
+  <div id="mobile-scrim"></div>
   <nav id="sidebar">
     <div id="side-infra" class="side-block">
-      <button class="modebtn modeswitch compact ms-corner" data-mode="tree" aria-pressed="false" title="Правка дерева: создание регионов/площадок/серверных/стоек и перенос"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
-      <div class="side-head">Инфраструктура</div>
+      <div class="side-head">Инфраструктура<button id="tree-select-btn" class="tree-sel-toggle" title="Выбрать несколько для переноса">Выбрать</button></div>
       <div id="tree"><div class="placeholder">Подключись —<br>появятся серверные</div></div>
     </div>
     <div id="side-ipam" class="side-block">
       <button class="modebtn modeswitch compact ms-corner" data-mode="ipamtree" aria-pressed="false" title="Просмотр / Редактирование дерева: перетаскивание сетей, создание по ПКМ"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
       <div class="side-head">Места и сети</div>
       <div id="ipam-tree-side"><div class="placeholder">Загружаю…</div></div>
-    </div>
-    <div id="canvasnav">
-      <div class="side-head">Схематика</div>
-      <a class="cnav" data-c="infra" href="{% url 'plugins:netbox_schematic:schematic' %}">Инфраструктура</a>
-      <a class="cnav" data-c="network" href="{% url 'plugins:netbox_schematic:network' %}">Сети</a>
-      <a class="cnav" data-c="virtualization" href="{% url 'plugins:netbox_schematic:virtualization' %}">Виртуализация</a>
-      <a class="cnav" data-c="vpn" href="{% url 'plugins:netbox_schematic:vpn' %}">Туннели</a>
     </div>
   </nav>
   <section id="rackpane">
@@ -111,6 +116,7 @@
   <circle class="fg" cx="15" cy="15" r="13"></circle>
 </svg>
 
+<button id="schem-add" title="Добавить в текущую область"><i class="mdi mdi-plus"></i></button>
 <div id="reqspin"><span class="rs-spinner"></span><span>Загрузка…</span></div>
 <div id="tip"></div>
 <div id="linkmenu">
@@ -166,5 +172,6 @@
 </div></div>
 
 <script type="module" src="{% static 'netbox_schematic/js/main.js' %}"></script>
+<script type="module" src="{% static 'netbox_schematic/js/responsive.js' %}"></script>
 </body>
 </html>

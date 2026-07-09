@@ -12,7 +12,7 @@ export const state = {
   wirelessLinks: [],                 // радио-линки между интерфейсами (слой «Wireless»)
   circuits: [], circuitTerms: [],    // провайдерские каналы + терминации (слой «Circuits»)
   circuitProviders: [], circuitTypes: [],   // справочники для назначения circuit
-  ipamAggs: [], ipamPrefixes: [], ipamIps: [], ipamLocations: [],   // холст «Сеть / IPAM»
+  ipamPrefixes: [], ipamIps: [], ipamLocations: [],   // холст «Сеть / IPAM»
   roles: {}, dtypes: {},
   racks: [], group: [], groupKey: null,
   scope: null,                       // выбранная область {type:'region'|'site'|'location', id, name}
@@ -165,7 +165,7 @@ export const px = v => parseFloat(v) || 0;
 // aria-pressed — вся обвязка (modes.js, main.js) работает по ним. extra —
 // доп. класс для позиционирования в конкретном блоке (напр. schem-mid).
 export const modeBtn = (mode, extra = "") =>
-  `<button class="modebtn modeswitch ${extra}" data-mode="${mode}" aria-pressed="false" title="Переключить режим: просмотр / редактирование"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>`;
+  `<button class="modebtn modeswitch ${extra}" data-mode="${mode}" aria-pressed="false" title="Переключить режим: просмотр / редактирование"><span class="ms-view"><i class="mdi mdi-eye"></i> Просмотр</span><span class="ms-edit-full"><i class="mdi mdi-pencil"></i> Редактирование</span><span class="ms-edit-short"><i class="mdi mdi-pencil"></i> Редакт.</span></button>`;
 // Блёклый цвет из hex роли ("607d8b" → "rgba(96,125,139,a)").
 export function softColor(hex, a = 0.16) {
   const h = (hex || "607d8b").replace("#", "");
@@ -195,16 +195,36 @@ export function currentLocationName() {
 
 // Кастомный тултип
 const tip = $("#tip");
+// Тач/узкий экран: тултип фиксируем чуть НИЖЕ центра (палец не перекрывает порт) и
+// даём крестик — на тач нет mouseleave, чтобы закрыть.
+const tipTouch = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
 export function attachTip(el, htmlFn) {
   const move = ev => {
     tip.style.left = Math.min(ev.clientX + 14, innerWidth - 310) + "px";
     tip.style.top = (ev.clientY + 16) + "px";
   };
   el.addEventListener("mouseenter", ev => {
+    // В режиме правки схемы тултип не нужен (клик по порту = связь, а не инфо).
+    if (document.body.classList.contains("schema-edit")) return;
     tip.innerHTML = htmlFn();
+    if (tipTouch()) {
+      tip.classList.add("tip-fixed");
+      tip.style.left = "50%"; tip.style.top = "60%"; tip.style.transform = "translateX(-50%)";
+      tip.insertAdjacentHTML("afterbegin", `<button class="tip-close" aria-label="Закрыть">&times;</button>`);
+      const c = tip.querySelector(".tip-close");
+      if (c) c.addEventListener("click", e => {
+        e.stopPropagation();
+        tip.style.display = "none";
+        // Закрытие тултипа снимает и подсветку кабеля/трассы (слушает schema.js).
+        document.dispatchEvent(new Event("schematic:tipclose"));
+      });
+    } else {
+      tip.classList.remove("tip-fixed");
+      tip.style.transform = "";
+      move(ev);
+    }
     tip.style.display = "block";
-    move(ev);
   });
-  el.addEventListener("mousemove", move);
-  el.addEventListener("mouseleave", () => tip.style.display = "none");
+  el.addEventListener("mousemove", ev => { if (!tipTouch()) move(ev); });
+  el.addEventListener("mouseleave", () => { if (!tipTouch()) tip.style.display = "none"; });
 }

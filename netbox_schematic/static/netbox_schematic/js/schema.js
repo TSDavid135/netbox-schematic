@@ -14,6 +14,7 @@ import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, gro
 import { NodeMethods } from "./schema_nodes.js";
 import { ContourMethods } from "./schema_contours.js";
 import { PowerMethods } from "./schema_power.js";
+import { iconForDevice } from "./solutions.js";
 import { WireMethods } from "./schema_wires.js";
 import { InteractMethods } from "./schema_interact.js";
 import { SOLUTIONS, SOLUTION_CATS, catalogGroup } from "./solutions.js";
@@ -50,15 +51,17 @@ export class SchemaManager {
       // Смена режима стройки без полного renderAll: перекладка узлов (в net —
       // зелёные назначаемые порты и wireless-«+»), перерисовка щитков («+ фидер»).
       if (Object.keys(state.nodeEls).length) {
-        this.relayoutNodes();
-        this._rerenderPowerPanels();
-        this.redrawWires();
+        this.relayoutNodes();   // порты/ширина под режим (в трассе позиции нод сохраняются)
+        // Щитки/полный redraw — только в обычном виде; в трассе relayoutNodes уже
+        // перерисовал провода (_drawTrace), щитков там нет.
+        if (!state.single) { this._rerenderPowerPanels(); this.redrawWires(); }
       }
     });
   }
 
   render(group, byRack, devPorts) {
     this._lastRender = { group, byRack, devPorts };   // для перерисовки (промежуток нод)
+    state.single = null;   // обычный рендер области → выходим из single-view
     const pane = $("#schempane");
     // Сохранить позицию скролла, если перерисовываем ТУ ЖЕ область (новая нода,
     // reload, смена промежутка) — иначе центрировать (первая отрисовка / смена
@@ -69,11 +72,10 @@ export class SchemaManager {
     this._computePads(pane);
     const loc = currentLocationName();
     const title = loc ? `Схема соединений : ${loc}` : "Схема соединений";
-    pane.innerHTML = `<p class="pane-title"><button id="rack-expand" class="pane-toggle" title="Показать блок стоек"><i class="mdi mdi-chevron-right"></i></button><span class="pt-label">${title}</span></p>
+    pane.innerHTML = `<p class="pane-title"><button id="rack-expand" class="pane-toggle" title="Показать блок стоек"><i class="mdi mdi-chevron-right"></i></button><span class="pt-label">${title}</span>${modeBtn("schema", "schem-inline")}</p>
       <div id="schema"><svg id="wires" class="${state.wiresAbovePorts ? "above-ports" : ""}"></svg></div>
       <div id="zoomhint">масштаб 100% · Ctrl+колесо или колесо</div>`;
     $("#schemoverlay").innerHTML = `
-      ${modeBtn("schema", "schem-mid")}
       <div id="schem-topright">
         <div class="st-topbar">
           <div id="viewswitch" title="Режим отображения схемы" data-view="${state.viewMode}">
@@ -250,12 +252,23 @@ export class SchemaManager {
 
     group.forEach((rack, col) => {
       const x0 = this._colX(col) + BOX_PAD;
-      const box = mk("div", { className: "rackbox", html: `<span class="rb-label">стойка ${rack.name}</span>`,
+      const box = mk("div", { className: "rackbox", dataset: { rack: rack.id },
+        html: `<span class="rb-head"><span class="rb-label">стойка ${rack.name}</span>` +
+          `<button class="rb-edit" title="Открыть эту стойку для правки"><i class="mdi mdi-pencil"></i></button></span>`,
         style: { left: (x0 - BOX_PAD) + "px", top: (TOP_PAD - 34) + "px", width: (this.SLOT + BOX_PAD) + "px" } });
+      // Карандаш у названия (виден в режиме правки) → открыть ТОЛЬКО эту стойку.
+      box.querySelector(".rb-edit").addEventListener("click", e => {
+        e.stopPropagation();
+        // Карандаш = правка ЭТОЙ стойки → сразу включаем режим правки блока стоек
+        // (и на мобиле, и на десктопе: раз развернули карандашом — значит редактируем).
+        document.body.classList.add("rack-edit");
+        document.body.classList.remove("rack-collapsed");   // показать блок (юниты)
+        this.app.tree.selectScope("rack", rack.id, rack.name, null, true);   // force — открыть эту стойку
+      });
       canvas.appendChild(box);
       state.rackBoxEls[rack.id] = box;
 
-      let y = TOP_PAD;
+      let y = TOP_PAD + 14;   // ноды чуть ниже верхнего края стойки (отступ от названия)
       let idx = 0;
       const devs = devsOf(rack);
       for (const dev of devs) {
@@ -306,6 +319,331 @@ export class SchemaManager {
       pane.scrollLeft = (canvas.offsetWidth - pane.clientWidth) / 2;
       pane.scrollTop = (canvas.offsetHeight - pane.clientHeight) / 2;
     }
+  }
+
+  // ── Single-view: клик по устройству в дереве грузит ТОЛЬКО его ──────────────
+  // Одна нода-карточка + короткие «волоски» от занятых портов (без раскладки всей
+  // области). Возврат к обычному виду — клик по месту в дереве (selectScope→render).
+  // Двойной тап по порту (раскрытие ноды-назначения) — следующим шагом.
+  // Классификация off-rack (карточка с иконкой; у tree-устройств стойки нет).
+  _offKind(dev) {
+    const rn = (dev.role && (dev.role.name + " " + (dev.role.slug || ""))) || "";
+    return /provider|провайдер/i.test(rn) ? "provider" : "periph";
+  }
+  // Загрузить «граф» устройства: кабели + IP + порты (сгруппированы). Общий шаг
+  // для корня трассы (showSingleDevice) и для наращивания цепочки (_growChain).
+  async _fetchDeviceGraph(dev) {
+    const [cables, ips, ...portLists] = await Promise.all([
+      apiAll(`/dcim/cables/?device_id=${dev.id}`),
+      apiAll(`/ipam/ip-addresses/?device_id=${dev.id}`),
+      ...PORT_KINDS.map(k => apiAll(`/dcim/${k.ep}/?device_id=${dev.id}`)),
+    ]);
+    const ipsByIface = {};
+    for (const ip of ips) {
+      if (ip.assigned_object_type !== "dcim.interface" || !ip.assigned_object_id) continue;
+      (ipsByIface[ip.assigned_object_id] = ipsByIface[ip.assigned_object_id] || []).push(ip);
+    }
+    const groups = [];
+    PORT_KINDS.forEach((kind, ki) => { if (portLists[ki].length) groups.push({ kind, items: portLists[ki] }); });
+    groups.sort((a, b) => PORT_KINDS.indexOf(a.kind) - PORT_KINDS.indexOf(b.kind));
+    return { cables, ipsByIface, groups };
+  }
+  // Пустая нода-карточка устройства для трассы (off-rack вид: иконка + имя + порты).
+  _buildTraceNode(dev, groups) {
+    const node = document.createElement("div");
+    node.className = "node offrack off-" + dev._off + " single";
+    node.dataset.dev = dev.id;
+    node.dataset.role = dev.role ? dev.role.id : "0";
+    const role = (dev.role && state.roles[dev.role.id]) || { color: "607d8b" };
+    node.style.borderLeft = "3px solid #" + role.color;
+    node._x0 = 0; node._fixedLeft = 0;
+    node._groups = groups;
+    return node;
+  }
+  // Одиночный вид = КОРЕНЬ трассы: грузим только это устройство (полная нода +
+  // волоски на занятых портах), ставим по центру. Тап по занятому порту наращивает
+  // ЦЕПОЧКУ (_growChain): соседняя нода появляется рядом, общий кабель — реальной
+  // линией, прочие связи соседа — волосками; ноды не исчезают (можно идти по трассе).
+  async showSingleDevice(dev) {
+    setStatus("получаю " + dev.name + "…");
+    try {
+      const g = await this._fetchDeviceGraph(dev);
+      dev._off = this._offKind(dev);
+      Object.assign(state, {
+        group: [], devices: [dev], cables: g.cables,
+        devRack: { [dev.id]: null }, devCol: {}, devNodeIdx: {},
+        ports: {}, nodeEls: {}, rackDevEls: {}, rackBoxEls: {}, rackColEls: {},
+        offContours: {}, single: dev.id, chain: [dev.id],
+      });
+      state.ipsByIface = g.ipsByIface;
+      state._devPorts = { [dev.id]: g.groups };
+
+      const pane = $("#schempane");
+      pane.innerHTML = `<p class="pane-title"><span class="pt-label">${dev.name}</span></p>` +
+        `<div id="schema"><svg id="wires"></svg></div>`;
+      const canvas = $("#schema");
+      const overlay = $("#schemoverlay"); if (overlay) overlay.innerHTML = "";   // контролы области в трассе не нужны
+      const node = this._buildTraceNode(dev, g.groups);
+      canvas.appendChild(node);
+      state.nodeEls[dev.id] = node;
+      state.zoom = 1;   // трасса стартует 1:1 (иначе наследуется прежний зум)
+      this._layoutNode(dev, node);   // порты + ширина, заполняет state.ports
+      const nw = node.offsetWidth, nh = node.offsetHeight;
+      const pw = pane.clientWidth || 800, ph = pane.clientHeight || 600;
+      // Холст ~ размер вьюпорта → корневая нода по центру, без избыточной пустоты.
+      const cw = Math.max(pw, nw + 160), ch = Math.max(ph, nh + 160);
+      canvas.style.width = cw + "px"; canvas.style.height = ch + "px";
+      node.style.left = Math.round((cw - nw) / 2) + "px";
+      node.style.top = Math.round((ch - nh) / 2) + "px";
+      this.applyZoom();
+      this._drawTrace();
+      pane.scrollLeft = (cw - pw) / 2;
+      pane.scrollTop = (ch - ph) / 2;
+      setStatus("");
+    } catch (e) { setStatus("не удалось загрузить устройство: " + e.message, "err"); }
+  }
+  // Рендер ТРАССЫ (single-view/цепочка): занятый порт, чей дальний конец ТОЖЕ
+  // загружен (в state.ports) → реальный кабель между ними (гладкая кривая по
+  // нормалям портов, стилизуется как обычный провод — цвет/тултип/ховер). Прочие
+  // занятые порты (дальний конец не загружен) → «волоски». Зовётся из redrawWires.
+  _drawTrace() {
+    const svg = $("#wires"), canvas = $("#schema");
+    if (!svg || !canvas) return;
+    svg.setAttribute("width", canvas.scrollWidth);
+    svg.setAttribute("height", canvas.scrollHeight);
+    svg.innerHTML = "";
+    const NS = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(NS, "defs");
+    svg.appendChild(defs);
+    const base = canvas.getBoundingClientRect(), z = state.zoom || 1;
+    const center = el => { const r = el.getBoundingClientRect();
+      return [(r.left - base.left + r.width / 2) / z, (r.top - base.top + r.height / 2) / z]; };
+    const drawn = new Set();   // кабель рисуем ОДИН раз (оба конца — порты)
+    let wi = 0;
+    for (const key in state.ports) {
+      const p = state.ports[key];
+      if (!(p.item.cable || p.item.wireless_link)) continue;   // только занятые
+      const cbl = p.item.cable && state.cables.find(c => c.id === p.item.cable.id);
+      const farKey = cbl && this._otherTermKey(cbl, p);
+      const farP = farKey && state.ports[farKey];
+      if (cbl && farP) {
+        if (drawn.has(cbl.id)) continue;
+        drawn.add(cbl.id);
+        const d = this._traceCablePath(p, farP, center);
+        const isPower = p.otype.includes("power") || farP.otype.includes("power");
+        svg.appendChild(this._wirePathEl(cbl, p, farP, d, isPower));
+      } else {
+        this._whisker(svg, defs, p, center, wi++);
+      }
+    }
+  }
+  // Путь кабеля трассы между портами a и b. Если порты «смотрят» друг на друга
+  // (нормали направлены навстречу) — гладкая кубическая кривая в зазоре. Иначе
+  // (порт смотрит В СТОРОНУ от соседа — напр. front-порт панели сверху, когда
+  // сосед снизу) прямая кривая пряталась бы ЗА ТЕЛОМ ноды (провода под нодами) и
+  // казалась «растворённой» → ведём ортогонально В ОБХОД сбоку от этой ноды.
+  _traceCablePath(a, b, center) {
+    const [ax, ay] = center(a.el), [bx, by] = center(b.el);
+    const dA = a.side === "t" ? -1 : 1, dB = b.side === "t" ? -1 : 1;
+    const aFacesB = (dA < 0 && by < ay) || (dA > 0 && by > ay);
+    const bFacesA = (dB < 0 && ay < by) || (dB > 0 && ay > by);
+    if (aFacesB && bFacesA) {
+      const K = 46, ay2 = ay + dA * K, by2 = by + dB * K;
+      return `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${ax.toFixed(1)} ${ay2.toFixed(1)}, ` +
+        `${bx.toFixed(1)} ${by2.toFixed(1)}, ${bx.toFixed(1)} ${by.toFixed(1)}`;
+    }
+    // Обход: выходим по нормалям обоих портов и огибаем СБОКУ ноду того порта,
+    // что смотрит наружу (её тело закрыло бы прямой кабель).
+    const STUB = 26;
+    const aS = [ax, ay + dA * STUB], bS = [bx, by + dB * STUB];
+    const awayIsA = !aFacesB;                                  // чей порт смотрит наружу
+    const nEl = state.nodeEls[awayIsA ? a.dev.id : b.dev.id];
+    const otherX = awayIsA ? bx : ax;                          // тянемся К дальнему концу
+    let laneX;
+    if (nEl) {
+      const nl = parseFloat(nEl.style.left) || 0, nw = nEl.offsetWidth;
+      laneX = otherX >= nl + nw / 2 ? nl + nw + 26 : nl - 26;  // коридор со стороны дальнего конца
+    } else laneX = Math.min(ax, bx) - 30;
+    return smoothPath([[ax, ay], aS, [laneX, aS[1]], [laneX, bS[1]], bS, [bx, by]]);
+  }
+  // Дальний конец кабеля c для порта p — ключ state.ports (termKey второй терминации).
+  _otherTermKey(c, p) {
+    for (const t of [...(c.a_terminations || []), ...(c.b_terminations || [])]) {
+      if (t.object_type === p.otype && t.object_id === p.item.id) continue;   // ближний конец
+      return termKey(t);
+    }
+    return null;
+  }
+  // «Волосок»: короткий отрезок от занятого порта наружу (по стороне), тающий в
+  // прозрачность («кабель уходит к незагруженной ноде»).
+  _whisker(svg, defs, p, center, i) {
+    const NS = "http://www.w3.org/2000/svg";
+    const [cx, cy] = center(p.el);
+    const dir = p.side === "t" ? -1 : 1;   // t — вверх, b — вниз
+    const ey = cy + dir * 36;
+    const gid = "wh" + i;
+    const grad = document.createElementNS(NS, "linearGradient");
+    grad.id = gid;
+    grad.setAttribute("gradientUnits", "userSpaceOnUse");
+    grad.setAttribute("x1", cx.toFixed(1)); grad.setAttribute("y1", cy.toFixed(1));
+    grad.setAttribute("x2", cx.toFixed(1)); grad.setAttribute("y2", ey.toFixed(1));
+    grad.innerHTML = `<stop offset="0" style="stop-color:var(--accent);stop-opacity:0.85"/>` +
+      `<stop offset="1" style="stop-color:var(--accent);stop-opacity:0"/>`;
+    defs.appendChild(grad);
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("d", `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${ey.toFixed(1)}`);
+    path.setAttribute("class", "whisker");
+    path.setAttribute("stroke", `url(#${gid})`);
+    path.dataset.port = portKey(p.otype, p.item.id);
+    svg.appendChild(path);
+  }
+
+  // Дальнее устройство кабеля этого порта (для раскрытия в single-view). Берём из
+  // вложенного object.device дальней терминации кабеля.
+  _farDevForPort(key) {
+    const p = state.ports[key];
+    if (!p || !p.item.cable) return null;
+    const cable = (state.cables || []).find(c => c.id === p.item.cable.id);
+    if (!cable) return null;
+    for (const t of [...(cable.a_terminations || []), ...(cable.b_terminations || [])]) {
+      if (t.object_type === p.otype && t.object_id === p.item.id) continue;   // ближний конец
+      return { cable, dev: t.object && t.object.device, farPort: t.object };
+    }
+    return null;
+  }
+  // Тап по занятому порту в трассе → нарастить цепочку этим кабелем.
+  _revealFromPort(otype, id) {
+    const tip = $("#tip"); if (tip) tip.style.display = "none";
+    this._tipPort = null;
+    this._growChain(portKey(otype, id));
+  }
+  // Нарастить ЦЕПОЧКУ: подгрузить дальнее устройство кабеля ПОЛНОЙ нодой (со своими
+  // портами), поставить рядом с нодой тапнутого порта. _drawTrace сам соединит
+  // общие кабели реальными линиями, прочее — волосками. Ноды не исчезают.
+  async _growChain(key) {
+    const p = state.ports[key];
+    if (!p || !p.item.cable) return;
+    const far = this._farDevForPort(key);
+    if (!far || !far.dev) { setStatus("не вижу, куда ведёт кабель", ""); return; }
+    // Уже в цепочке — не дублируем, просто прокручиваем к ней.
+    if ((state.chain || []).includes(far.dev.id)) { this._flashNode(far.dev.id); return; }
+    setStatus("получаю " + far.dev.name + "…");
+    try {
+      let full = (state.allDevices || []).find(d => d.id === far.dev.id);
+      if (!full || !full.device_type) full = await api("/dcim/devices/" + far.dev.id + "/");
+      const g = await this._fetchDeviceGraph(full);
+      full._off = this._offKind(full);
+      state.devices.push(full);
+      (state.chain = state.chain || []).push(full.id);
+      state.devRack[full.id] = null;
+      state._devPorts[full.id] = g.groups;
+      Object.assign(state.ipsByIface, g.ipsByIface);
+      const have = new Set(state.cables.map(c => c.id));   // дедуп: общий кабель уже есть
+      for (const c of g.cables) if (!have.has(c.id)) state.cables.push(c);
+      const canvas = $("#schema");
+      const node = this._buildTraceNode(full, g.groups);
+      canvas.appendChild(node);
+      state.nodeEls[full.id] = node;
+      this._layoutNode(full, node);      // порты + ширина, добавляет в state.ports
+      this._placeChainNode(node, full, p);
+      this._padTraceCanvas();            // запас пустого места вокруг — чтобы панорамировать дальше
+      this._drawTrace();
+      this._flashNode(full.id);
+      setStatus("");
+    } catch (e) { setStatus("не удалось: " + e.message, "err"); }
+  }
+  // Разместить новую ноду цепочки рядом с нодой тапнутого порта p (сверху/снизу —
+  // куда смотрит порт), выровняв её порт этого кабеля под p (кабель ровнее). Не
+  // наложиться на уже стоящие ноды (сдвиг в сторону тапа); растим/сдвигаем холст.
+  _placeChainNode(node, dev, p) {
+    const canvas = $("#schema"), pane = $("#schempane"), z = state.zoom || 1;
+    const nw2 = node.offsetWidth, nh2 = node.offsetHeight;
+    const base = canvas.getBoundingClientRect(), pr = p.el.getBoundingClientRect();
+    const pcx = (pr.left - base.left + pr.width / 2) / z, pcy = (pr.top - base.top + pr.height / 2) / z;
+    const up = p.side === "t";   // верхний порт → сосед ВВЕРХ; нижний → ВПРАВО
+    const GAP = 120, M = 40;     // просторнее: ноды «выше»/«вправо», обходы не липнут
+    let left, top;
+    if (up) {
+      // выровнять дальний порт этого кабеля под p (кабель ровнее)
+      let farOffX = nw2 / 2;
+      for (const k in state.ports) {
+        const q = state.ports[k];
+        if (q.dev.id === dev.id && q.item.cable && p.item.cable && q.item.cable.id === p.item.cable.id) {
+          farOffX = q.el.offsetLeft + q.el.offsetWidth / 2; break;
+        }
+      }
+      left = Math.round(pcx - farOffX);
+      top = Math.round(pcy - GAP - nh2);
+    } else {
+      // Нижние порты ВНИЗ не растим (путались/налезали) — сосед СПРАВА от родителя,
+      // по вертикали на уровне тапнутого порта; кабель уходит в зазор между ними.
+      const pn = state.nodeEls[p.dev.id];
+      left = Math.round((parseFloat(pn.style.left) || 0) + pn.offsetWidth + GAP);
+      top = Math.round(pcy - nh2 / 2);
+    }
+    // не перекрыть уже размещённые ноды — двигаем дальше в сторону тапа
+    const rects = Object.entries(state.nodeEls).filter(([id]) => +id !== dev.id)
+      .map(([, el]) => ({ l: parseFloat(el.style.left) || 0, t: parseFloat(el.style.top) || 0, w: el.offsetWidth, h: el.offsetHeight }));
+    for (let guard = 0; guard < 80; guard++) {
+      const hit = rects.some(r => left < r.l + r.w + M && left + nw2 > r.l - M && top < r.t + r.h + M && top + nh2 > r.t - M);
+      if (!hit) break;
+      if (up) top -= (nh2 + M); else left += (nw2 + M);   // толкаем в сторону роста (вверх / вправо)
+    }
+    // координаты < 0 → сдвигаем ВСЕ ноды и прокрутку; иначе растим холст вправо/вниз
+    let cw = parseFloat(canvas.style.width) || canvas.offsetWidth;
+    let ch = parseFloat(canvas.style.height) || canvas.offsetHeight;
+    const shiftX = left < 0 ? -left : 0, shiftY = top < 0 ? -top : 0;
+    if (shiftX || shiftY) {
+      for (const el of Object.values(state.nodeEls)) {
+        if (el === node) continue;
+        el.style.left = ((parseFloat(el.style.left) || 0) + shiftX) + "px";
+        el.style.top = ((parseFloat(el.style.top) || 0) + shiftY) + "px";
+      }
+      left += shiftX; top += shiftY;
+      pane.scrollLeft += shiftX * z; pane.scrollTop += shiftY * z;
+    }
+    node.style.left = left + "px"; node.style.top = top + "px";
+    canvas.style.width = Math.max(cw + shiftX, left + nw2 + 40) + "px";
+    canvas.style.height = Math.max(ch + shiftY, top + nh2 + 40) + "px";
+  }
+  // Запас пустого места вокруг всей трассы (≈ экран с каждой стороны), чтобы можно
+  // было свободно панорамировать/зумить дальше. Сдвигает всё, если контент близко
+  // к краю (координаты ≥ PAD), и растит холст.
+  _padTraceCanvas() {
+    const canvas = $("#schema"), pane = $("#schempane");
+    if (!canvas || !pane) return;
+    const els = Object.values(state.nodeEls);
+    if (!els.length) return;
+    const PAD = Math.round(Math.min(pane.clientWidth || 800, pane.clientHeight || 600) * 0.85) || 320;
+    let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    for (const el of els) {
+      const l = parseFloat(el.style.left) || 0, t = parseFloat(el.style.top) || 0;
+      minX = Math.min(minX, l); minY = Math.min(minY, t);
+      maxX = Math.max(maxX, l + el.offsetWidth); maxY = Math.max(maxY, t + el.offsetHeight);
+    }
+    const z = state.zoom || 1;
+    const shiftX = minX < PAD ? Math.round(PAD - minX) : 0, shiftY = minY < PAD ? Math.round(PAD - minY) : 0;
+    if (shiftX || shiftY) {
+      for (const el of els) {
+        el.style.left = ((parseFloat(el.style.left) || 0) + shiftX) + "px";
+        el.style.top = ((parseFloat(el.style.top) || 0) + shiftY) + "px";
+      }
+      pane.scrollLeft += shiftX * z; pane.scrollTop += shiftY * z;
+    }
+    canvas.style.width = (maxX + shiftX + PAD) + "px";
+    canvas.style.height = (maxY + shiftY + PAD) + "px";
+  }
+  // Прокрутить к ноде (по центру вьюпорта) + коротко подсветить (появление в цепочке).
+  _flashNode(id) {
+    const node = state.nodeEls[id], pane = $("#schempane");
+    if (!node || !pane) return;
+    const z = state.zoom || 1;
+    const cx = ((parseFloat(node.style.left) || 0) + node.offsetWidth / 2) * z;
+    const cy = ((parseFloat(node.style.top) || 0) + node.offsetHeight / 2) * z;
+    pane.scrollLeft = Math.max(0, cx - pane.clientWidth / 2);
+    pane.scrollTop = Math.max(0, cy - pane.clientHeight / 2);
+    node.classList.add("trace-flash");
+    setTimeout(() => node.classList.remove("trace-flash"), 900);
   }
 
   // Ноды устройств ВНЕ стоек (state.devices[]._off) — СПРАВА от стоек, сгруппи-
@@ -768,6 +1106,8 @@ export class SchemaManager {
     document.addEventListener("mousedown", ev => {
       if (state.linkCtx && !ev.target.closest("#linkmenu")) this._closeLinkMenu();
     });
+    // Крестик мобильного тултипа → снять подсветку кабеля/трассы.
+    document.addEventListener("schematic:tipclose", () => this._clearTrace());
     this._enablePanZoom();
     this._enableResize();
   }
@@ -776,7 +1116,7 @@ export class SchemaManager {
     let panning = false, moved = false, sx = 0, sy = 0, sl = 0, st = 0;
     pane.addEventListener("mousedown", ev => {
       if (ev.button !== 0) return;
-      if (ev.target.closest(".node") || ev.target.closest(".port") || ev.target.tagName === "path") return;
+      if (ev.target.closest(".node") || ev.target.closest(".port") || ev.target.closest(".rb-edit") || ev.target.tagName === "path") return;
       panning = true; moved = false;
       sx = ev.clientX; sy = ev.clientY; sl = pane.scrollLeft; st = pane.scrollTop;
       pane.classList.add("panning");
@@ -790,6 +1130,15 @@ export class SchemaManager {
       document.querySelectorAll(".node.text-sel").forEach(n => { if (n !== node) n.classList.remove("text-sel"); });
       if (node && !ev.target.closest(".port, .nm, .node-edit, .node-addip")) node.classList.toggle("text-sel");
     });
+    // Тач: тап в ПУСТОЕ место (не по порту/тултипу) закрывает тултип порта (п.4).
+    // Трассу снимает _armTraceClear отдельно. На десктопе тултип гаснет по mouseleave.
+    document.addEventListener("pointerdown", ev => {
+      const tip = $("#tip");
+      if (!tip || tip.style.display === "none") return;
+      if (ev.target.closest && ev.target.closest(".port, #tip")) return;
+      tip.style.display = "none";
+      this._tipPort = null;
+    }, true);
     window.addEventListener("mousemove", ev => {
       if (!panning) return;
       const dx = ev.clientX - sx, dy = ev.clientY - sy;
@@ -820,6 +1169,43 @@ export class SchemaManager {
       pane.scrollTop = cy * k - (ev.clientY - rect.top);
       this.redrawWires();
     }, { passive: false });
+
+    // Тач: pinch-зум двумя пальцами. Одним пальцем — нативная прокрутка #schempane
+    // как пан (touch-action:pan-x pan-y в CSS оставляет прокрутку, но отдаёт нам
+    // pinch). Масштаб держим за среднюю точку жеста (как колесо — за курсор).
+    // Провода масштабируются вместе с #schema (CSS transform), поэтому перерисовку
+    // делаем только в конце жеста — плавнее.
+    // Зум вокруг ФИКСИРОВАННОЙ точки контента под начальной серединой жеста + пан
+    // по движению середины; скролл зажат в допустимый диапазон — иначе пространство
+    // «дёргалось» и скроллбары улетали в центр при обратном зуме. Провода — в конце.
+    let pinchDist = 0, pinchZoom0 = 1, pinchCX = 0, pinchCY = 0;
+    pane.addEventListener("touchstart", ev => {
+      if (ev.touches.length !== 2) return;
+      const [a, b] = ev.touches;
+      pinchDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+      pinchZoom0 = state.zoom || 1;
+      const rect = pane.getBoundingClientRect();
+      const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+      pinchCX = (pane.scrollLeft + (mx - rect.left)) / pinchZoom0;   // точка контента (unscaled)
+      pinchCY = (pane.scrollTop + (my - rect.top)) / pinchZoom0;
+    }, { passive: true });
+    pane.addEventListener("touchmove", ev => {
+      if (ev.touches.length !== 2 || !pinchDist) return;
+      ev.preventDefault();
+      const [a, b] = ev.touches;
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      state.zoom = Math.min(2.5, Math.max(0.3, pinchZoom0 * (d / pinchDist)));
+      this.applyZoom();
+      const rect = pane.getBoundingClientRect();
+      const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+      const maxL = Math.max(0, pane.scrollWidth - pane.clientWidth);
+      const maxT = Math.max(0, pane.scrollHeight - pane.clientHeight);
+      pane.scrollLeft = Math.max(0, Math.min(maxL, pinchCX * state.zoom - (mx - rect.left)));
+      pane.scrollTop = Math.max(0, Math.min(maxT, pinchCY * state.zoom - (my - rect.top)));
+    }, { passive: false });
+    pane.addEventListener("touchend", ev => {
+      if (pinchDist && ev.touches.length < 2) { pinchDist = 0; this.redrawWires(); }
+    });
   }
   _enableResize() {
     const rz = $("#resizer"), pane = $("#rackpane");
