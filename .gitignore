@@ -1,14 +1,26 @@
-# Python
+# Python / сборка (локальное тестирование — в git не уходит)
 __pycache__/
 *.egg-info/
 *.pyc
+build/
+dist/
+*.whl
+*.egg
 
-# Локальные настройки инструментов
+# Локальные настройки инструментов и артефакты
 .claude/
 .vscode/
 .idea/
-
-# Черновые рабочие заметки (не для публикации)
-/.md
-small_fix.md
-UPDATES.md
+demo_seed.py
+deploy_paste.sh
+tests_paste.sh
+bench_update.sh
+stress/
+*.md
+!README.md
+!README.ru.md
+!docs/*.md
+!CHANGELOG.md
+sample_patchen*.xlsx
+example*.xlsx
+check_compat.sh

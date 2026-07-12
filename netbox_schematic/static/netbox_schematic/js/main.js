@@ -1,11 +1,11 @@
 "use strict";
-// Точка входа: связывает менеджеры через общий app-контекст
+// Entry point: wires managers together through a shared app context
 // app = { tree, rack, schema, device, openModal, renderAll, connect }.
-// Менеджеры зовут друг друга через app (напр. tree.selectScope → app.renderAll
-// → rack.render + schema.render). Общее состояние — в core.state.
+// Managers call each other via app (e.g. tree.selectScope → app.renderAll →
+// rack.render + schema.render). Shared state lives in core.state.
 
 import { $, state, PORT_KINDS } from "./core.js";
-import { apiAll, setStatus, loadCableTypes } from "./api.js";
+import { apiAll, apiAllByIds, apiPlugin, setStatus, loadCableTypes } from "./api.js";
 import { Mode } from "./modes.js";
 import { TreeManager } from "./tree.js";
 import { RackManager } from "./racks.js";
@@ -16,6 +16,9 @@ import { IpForm } from "./ipform.js";
 import { SearchManager } from "./search.js";
 import { RoleFilter } from "./filter.js";
 import { initTheme } from "./theme.js";
+import { ImportUI } from "./importui.js";
+import { ExportUI } from "./exportui.js";
+import { AuditUI } from "./auditui.js";
 
 const app = {};
 app.device = new DeviceManager(app);
@@ -26,14 +29,14 @@ app.rack = new RackManager(app);
 app.tree = new TreeManager(app);
 app.search = new SearchManager(app);
 app.filter = new RoleFilter(app);
-// Прокси-методы, которые менеджеры зовут через app
+// Proxy methods that managers call through app
 app.openModal = (...a) => app.device.openModal(...a);
 app.connect = () => connect();
 app.renderAll = group => renderAll(group);
 
-// Кнопка «Обновить» в шапке — ручной полный reconnect (справочники + дерево +
-// текущая группа). Авто-опроса изменений НЕ делаем: у NetBox нет ни WS, ни
-// push-уведомлений на клиент, а поллинг решили не тянуть (см. UPDATES.md).
+// Header «Обновить» button — manual full reconnect (reference lists + tree +
+// current group). No auto-polling: NetBox has no WS or client push, and we
+// chose not to add polling (see UPDATES.md).
 {
   const sync = $("#syncbtn");
   if (sync) sync.addEventListener("click", async () => {
@@ -43,15 +46,17 @@ app.renderAll = group => renderAll(group);
   });
 }
 
-// Экспорт / Импорт — пока заглушки (семантику уточним). Кнопки на месте, слева
-// от поиска; действие сообщает, что функция в разработке.
-for (const id of ["exportbtn", "importbtn"]) {
-  const b = $("#" + id);
-  if (b) b.addEventListener("click", () =>
-    setStatus((id === "exportbtn" ? "Экспорт" : "Импорт") + " — в разработке"));
+// Excel import / export — modals (ImportUI / ExportUI).
+{
+  app.importui = new ImportUI(app);
+  app.importui.bind();
+  app.exportui = new ExportUI(app);
+  app.exportui.bind();
+  app.auditui = new AuditUI(app);
+  app.auditui.bind();
 }
 
-// Меню пользователя в шапке (клик по имени → выпадашка; клик вне — закрыть).
+// Header user menu (click the name → dropdown; click outside → close).
 {
   const box = $("#userbox"), btn = $("#userbtn");
   if (box && btn) {
@@ -63,7 +68,7 @@ for (const id of ["exportbtn", "importbtn"]) {
 app.device.wireModal();
 initTheme();
 
-// Подключение: грузим справочники, строим дерево
+// Connect: load reference lists, build the tree
 async function connect() {
   state.base = "";
   setStatus("подключаюсь…");
@@ -72,12 +77,12 @@ async function connect() {
       apiAll("/dcim/regions/"), apiAll("/dcim/site-groups/"),
       apiAll("/dcim/sites/"), apiAll("/dcim/locations/"), apiAll("/dcim/racks/"),
       apiAll("/dcim/device-roles/"), apiAll("/dcim/device-types/"), apiAll("/ipam/prefixes/"),
-      loadCableTypes(),   // список типов кабеля из OPTIONS → state.cableTypes (пишет сам, результат пропускаем)
+      loadCableTypes(),   // cable types from OPTIONS → state.cableTypes (writes itself; result skipped)
       apiAll("/dcim/power-panels/"), apiAll("/dcim/power-feeds/"),
-      apiAll("/wireless/wireless-links/"),   // слой «Wireless» (радио-линки между интерфейсами)
-      apiAll("/circuits/circuits/"), apiAll("/circuits/circuit-terminations/"),  // слой «Circuits»
-      apiAll("/circuits/providers/"), apiAll("/circuits/circuit-types/"),  // для назначения circuit
-      apiAll("/dcim/devices/"),   // ВСЕ устройства — для показа в дереве под локациями
+      apiAll("/wireless/wireless-links/"),   // «Wireless» layer (radio links between interfaces)
+      apiAll("/circuits/circuits/"), apiAll("/circuits/circuit-terminations/"),  // «Circuits» layer
+      apiAll("/circuits/providers/"), apiAll("/circuits/circuit-types/"),  // for circuit assignment
+      apiAll("/dcim/devices/"),   // ALL devices — to show in the tree under locations
     ]);
     state.regions = regions;
     state.siteGroups = siteGroups;
@@ -87,7 +92,7 @@ async function connect() {
     state.roles = {}; roles.forEach(r => state.roles[r.id] = r);
     state.dtypes = {}; dtypes.forEach(t => state.dtypes[t.id] = t);
     state.racks = racks;
-    state.allDevices = allDevices;   // для дерева (устройства под локациями)
+    state.allDevices = allDevices;   // for the tree (devices under locations)
     state.powerPanels = panels;
     state.powerFeeds = feeds;
     state.wirelessLinks = wlinks;
@@ -102,7 +107,7 @@ async function connect() {
   }
 }
 
-// Полная перерисовка стоек + схемы для выбранной группы
+// Full re-render of racks + schema for the selected group
 async function renderAll(group) {
   state.group = group;
   state.devices = [];
@@ -115,61 +120,65 @@ async function renderAll(group) {
   state.rackBoxEls = {};
   state.rackColEls = {};
   state.rackOcc = {};
-  setStatus("загружаю…");
+  setStatus("получаю схему из NetBox…");
+  // Kill the old schema at once (its dots are «dead» — state.ports reset above)
+  // and show the loading indicator: otherwise switching folders leaves the stale
+  // «dead» schema up, and hovering its ports threw errors (see _portHover-guard).
+  const _pane = $("#schempane");
+  // Blank the old schema while loading (placeholder text). Progress is now
+  // SINGLE — a bar on the status block (body.busy → #status::after); the second bar is gone.
+  if (_pane) _pane.innerHTML = `<div class="pane-loading"><div class="pl-txt">загружаю схему…</div></div>`;
 
-  const rackQ = group.map(r => "rack_id=" + r.id).join("&");
+  const rackIds = group.map(r => r.id);
   const byRack = {};
   group.forEach(r => byRack[r.id] = []);
-  const [devices, cables, ips, ...portLists] = await Promise.all([
-    apiAll("/dcim/devices/?" + rackQ),
-    apiAll("/dcim/cables/?" + rackQ),
-    apiAll("/ipam/ip-addresses/?" + rackQ),   // IP группы → тултип/паспорт (в т.ч. wireless/circuit)
-    ...PORT_KINDS.map(k => apiAll(`/dcim/${k.ep}/?${rackQ}`)),
-  ]);
-  for (const d of devices) {
+  const siteIds = [...new Set(group.map(r => r.site && r.site.id).filter(Boolean))];
+  const singleRack = !!(state.scope && state.scope.type === "rack");
+
+  // ONE request — the whole scope graph (SchematicGraphView backend): devices +
+  // ports + cables + IP, compact and N+1-free. Was ~40 generic NetBox REST calls
+  // (pagination, heavy serializers) — minutes on a weak server; now one optimized
+  // request. rack_id — racks; site_id — sites (for off-rack); scope=rack — a single
+  // rack (off-rack not fetched).
+  const q = rackIds.map(id => "rack_id=" + id)
+    .concat(singleRack ? ["scope=rack"] : siteIds.map(id => "site_id=" + id))
+    .join("&");
+  let graph;
+  try {
+    graph = await apiPlugin("graph/?" + q);
+  } catch (e) {
+    if (_pane) _pane.innerHTML = `<div class="pane-loading"><div class="pl-txt pl-err">не удалось загрузить схему: ${e.message}</div></div>`;
+    setStatus("ошибка загрузки схемы: " + e.message, "err");
+    return;
+  }
+
+  // Devices. Off-rack ones (rack=null) get _off = provider|periph by role — as
+  // before (provider drawn above the racks, the rest in a grid on the right).
+  for (const d of (graph.devices || [])) {
     state.devRack[d.id] = d.rack ? d.rack.id : null;
-    if (d.rack && byRack[d.rack.id]) byRack[d.rack.id].push(d);
+    if (d.rack) { if (byRack[d.rack.id]) byRack[d.rack.id].push(d); }
+    else {
+      const r = (d.role && (d.role.name + " " + (d.role.slug || ""))) || "";
+      d._off = /provider|провайдер/i.test(r) ? "provider" : "periph";
+    }
     state.devices.push(d);
   }
-  const seen = new Set();
-  state.cables = cables.filter(c => !seen.has(c.id) && seen.add(c.id));
+  state.cables = graph.cables || [];
 
-  // Устройства ВНЕ стоек (конечные потребители / провайдер) в площадках области.
-  // Основной запрос берёт только по rack_id — этих он не видит. Грузим отдельно
-  // их самих + порты + кабели; помечаем _off = "provider" (над стойками) либо
-  // "periph" (сеткой справа). Классификация по роли (см. схему рендера).
-  const siteIds = [...new Set(group.map(r => r.site && r.site.id).filter(Boolean))];
-  if (siteIds.length) {
-    const siteQ = siteIds.map(id => "site_id=" + id).join("&");
-    const loaded = new Set(state.devices.map(d => d.id));
-    const offDevs = (await apiAll("/dcim/devices/?" + siteQ)).filter(d => !d.rack && !loaded.has(d.id));
-    if (offDevs.length) {
-      const offQ = offDevs.map(d => "device_id=" + d.id).join("&");
-      const [offCables, ...offPorts] = await Promise.all([
-        apiAll("/dcim/cables/?" + offQ),
-        ...PORT_KINDS.map(k => apiAll(`/dcim/${k.ep}/?${offQ}`)),
-      ]);
-      for (const d of offDevs) {
-        state.devRack[d.id] = null;
-        const r = (d.role && (d.role.name + " " + (d.role.slug || ""))) || "";
-        d._off = /provider|провайдер|провайдер/i.test(r) ? "provider" : "periph";
-        state.devices.push(d);
-      }
-      PORT_KINDS.forEach((k, ki) => portLists[ki].push(...offPorts[ki]));
-      for (const c of offCables) if (!seen.has(c.id) && seen.add(c.id)) state.cables.push(c);
-    }
-  }
-  // IP по интерфейсу: assigned_object_type=dcim.interface, assigned_object_id.
+  // IP by interface: assigned_object_type=dcim.interface, assigned_object_id.
   state.ipsByIface = {};
-  for (const ip of ips) {
+  for (const ip of (graph.ips || [])) {
     if (ip.assigned_object_type !== "dcim.interface" || !ip.assigned_object_id) continue;
     (state.ipsByIface[ip.assigned_object_id] = state.ipsByIface[ip.assigned_object_id] || []).push(ip);
   }
 
+  // Ports by device. graph.ports is grouped by KIND (key = otype without «dcim.»:
+  // interface/frontport/rearport/…) → spread into devPorts[devId] = [{kind, items}].
   const devPorts = {};
-  PORT_KINDS.forEach((kind, ki) => {
+  PORT_KINDS.forEach((kind) => {
+    const list = (graph.ports && graph.ports[kind.otype.replace(/^dcim\./, "")]) || [];
     const byDev = {};
-    for (const item of portLists[ki]) {
+    for (const item of list) {
       const did = item.device ? item.device.id : null;
       if (did == null) continue;
       (byDev[did] = byDev[did] || []).push(item);
@@ -183,10 +192,11 @@ async function renderAll(group) {
     devPorts[did].sort((a, b) => PORT_KINDS.indexOf(a.kind) - PORT_KINDS.indexOf(b.kind));
 
   state._devPorts = devPorts;
+  setStatus("рисую схему…");
   app.rack.render(group, byRack);
   app.schema.render(group, byRack, devPorts);
-  // renderPanel собирает state._wireless (пары радио-линков) — ДО redrawWires,
-  // иначе drawRadioLinks не найдёт пары при первой отрисовке в сетевом режиме.
+  // renderPanel collects state._wireless (radio-link pairs) — BEFORE redrawWires,
+  // else drawRadioLinks finds no pairs on the first draw in network mode.
   app.layers.renderPanel();
   app.schema.redrawWires();
   app.filter.render();
@@ -194,23 +204,23 @@ async function renderAll(group) {
   setStatus(`${state.devices.length} устройств, ${state.cables.length} кабелей`, "ok");
 }
 
-// старт: выбор холста
+// start: pick the canvas
 const CANVAS = document.body.dataset.canvas || "infra";
 if (CANVAS === "infra") {
   connect();
 } else if (CANVAS === "network") {
-  // Холст «Сеть / IPAM»: treemap занятости. Свой контейнер (#ipam), physical-
-  // панели скрыты классом body.ipam-mode.
+  // «Сеть / IPAM» canvas: usage treemap. Own container (#ipam), physical panels
+  // hidden by the body.ipam-mode class.
   import("./ipam.js").then(({ IpamCanvas }) => {
     document.body.classList.add("ipam-mode");
     app.ipam = new IpamCanvas(app);
     app.ipam.load();
     const sync = $("#syncbtn");
     if (sync) sync.addEventListener("click", () => app.ipam.load());
-    // Переключатель view/edit холста «Сети» (кнопка .modebtn[data-mode=ipam]
-    // в заголовке холста). Тогл body.ipam-edit + aria делает общий ModeManager
-    // (делегирование по .modebtn в modes.js) — мы лишь подписываемся на смену
-    // режима и перерисовываем (кнопки +сеть, draggable-ручки видны в edit).
+    // View/edit toggle of the «Сети» canvas (.modebtn[data-mode=ipam] in the
+    // canvas header). The shared ModeManager flips body.ipam-edit + aria
+    // (.modebtn delegation in modes.js) — we only subscribe to the change and
+    // re-render (+network buttons and draggable handles show in edit).
     Mode.onChange("ipam", () => app.ipam.render());
   });
 } else {

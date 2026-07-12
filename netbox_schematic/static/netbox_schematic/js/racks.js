@@ -1,25 +1,28 @@
 "use strict";
-// RackManager: стойки (размещение)
-// Рисует стойки с юнитами и устройствами. В режиме просмотра пустые прогоны
-// юнитов сворачиваются («↕ N»); режим правки стоек (Mode.on("rack")) их
-// раскрывает и разрешает создание устройства кликом по свободному юниту.
+// RackManager: racks (placement)
+// Draws racks with units and devices. In view mode, empty unit runs collapse
+// ("↕ N"); rack edit mode (Mode.on("rack")) expands them and allows creating
+// a device by clicking a free unit.
 
 import {
-  $, state, mk, px, softColor, attachTip, modeBtn, currentLocationName,
+  $, state, mk, px, softColor, attachTip, modeBtn, currentLocationName, slugify,
   UNIT_H, GAP_MIN, GAP_H,
 } from "./core.js";
-import { api, setStatus } from "./api.js";
+import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
+import { MANUFACTURER } from "./solutions.js";
 
 export class RackManager {
   constructor(app) {
     this.app = app;
-    Mode.onChange("rack", () => this._rerender());   // раскрытие/свёртка при смене режима
-    // Сворачивание блока «Стойки»: ◄ в его заголовке прячет блок (body.rack-
-    // collapsed), ► слева от «Схема соединений» возвращает. Состояние
-    // ПЕРЕЖИВАЕТ перезагрузку (localStorage). Делегируем на document — кнопки
-    // пересоздаются при каждой перерисовке заголовков.
-    if (localStorage.getItem("schematic-rackCollapsed") === "1")
+    Mode.onChange("rack", () => this._rerender());   // expand/collapse on mode change
+    // Collapsing the racks pane: ◄ in its header hides it (body.rack-collapsed),
+    // ► left of the schema header brings it back. State SURVIVES reloads
+    // (localStorage). Delegated to document — the buttons are recreated on
+    // every header redraw.
+    // The racks pane is COLLAPSED by default (opened on demand — via a rack's
+    // pencil). If it was explicitly expanded before, honor that ("0").
+    if (localStorage.getItem("schematic-rackCollapsed") !== "0")
       document.body.classList.add("rack-collapsed");
     const setCollapsed = on => {
       document.body.classList.toggle("rack-collapsed", on);
@@ -38,8 +41,8 @@ export class RackManager {
     this.render(state.group, byRack);
   }
 
-  // Раскладка юнитов: карта unit → yTop. В просмотре ≥GAP_MIN пустых подряд
-  // сворачиваются в полосу; в правке стоек — стойка раскрыта целиком.
+  // Unit layout: unit → yTop map. In view mode, ≥GAP_MIN consecutive empty
+  // units collapse into a strip; in rack edit mode the rack is fully expanded.
   layout(rack, occ) {
     const collapse = !Mode.on("rack");
     const unitY = {};
@@ -66,14 +69,24 @@ export class RackManager {
   }
 
   render(group, byRack) {
+    this._occClear();   // reset the unit selection + "Занять место?" dialog on redraw
     const pane = $("#rackpane");
+    // Auto-collapse the racks pane ONLY when the SCOPE actually changes to a
+    // non-rack one (keeps it out of the way). NOT on every re-render: a rack-mode
+    // toggle re-renders too, and must NOT re-collapse a pane the user has opened —
+    // that was the "mode button closes the «Стойки» block" bug.
+    const scopeKey = state.scope ? state.scope.type + ":" + state.scope.id : "";
+    if (scopeKey !== this._lastScopeKey) {
+      this._lastScopeKey = scopeKey;
+      if (!(state.scope && state.scope.type === "rack")) document.body.classList.add("rack-collapsed");
+    }
     const loc = currentLocationName();
     const title = loc ? `Стойки : ${loc}` : "Стойки";
-    pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span>${modeBtn("rack", "compact ms-intitle")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></p><div id="racks"></div>`;
+    pane.innerHTML = `<p class="pane-title"><span class="pt-label">${title}</span><span class="pt-actions">${modeBtn("rack", "compact pt-inline")}<button id="rack-collapse" class="pane-toggle" title="Свернуть блок стоек"><i class="mdi mdi-chevron-left"></i></button></span></p><div id="racks"></div>`;
     Mode.syncButtons("rack");
     const wrap = $("#racks");
-    // Разделитель между локациями (когда в колонке стойки нескольких серверных):
-    // горизонтальная линия с именем локации перед её стойками.
+    // Separator between locations (when the column holds racks from several
+    // rooms): a horizontal line with the location name before its racks.
     const multiLoc = new Set(group.map(r => r.location && r.location.id)).size > 1;
     let prevLoc = null;
     for (const rack of group) {
@@ -196,6 +209,10 @@ export class RackManager {
     if (rd) rd.classList.toggle("hl", on);
   }
 
+  // Rack edit mode: clicking a free unit doesn't open the modal at once — it
+  // builds a CONTIGUOUS selection (multi-unit gear occupies several cells). Each
+  // click extends/starts the green range; a "Занять место?" dialog with a pointer
+  // sits beside the rack. "Да" opens the create modal for that span.
   _onFrameClick(ev, rack) {
     if (!Mode.on("rack")) return;
     if (ev.target.closest(".dev")) return;
@@ -207,23 +224,237 @@ export class RackManager {
       setStatus("юнит U" + unit + " занят", "err");
       return;
     }
-    this.app.openModal("Новое устройство", `Стойка ${rack.name}, юнит U${unit}`,
+    this._occToggle(rack, frame, unit);
+  }
+  // Extend/start/clear the contiguous free-unit selection for `rack`.
+  _occToggle(rack, frame, unit) {
+    const free = u => u >= 1 && u <= rack.u_height &&
+      !(state.rackOcc[rack.id] && state.rackOcc[rack.id].has(u));
+    const s = this._occSel;
+    if (!s || s.rackId !== rack.id) {
+      this._occSel = { rackId: rack.id, lo: unit, hi: unit, frame, rack };
+    } else if (unit === s.lo - 1 && free(unit)) {
+      s.lo = unit;                                   // extend downward
+    } else if (unit === s.hi + 1 && free(unit)) {
+      s.hi = unit;                                   // extend upward
+    } else if (unit >= s.lo && unit <= s.hi) {
+      this._occClear(); return;                      // click inside → cancel
+    } else {
+      this._occSel = { rackId: rack.id, lo: unit, hi: unit, frame, rack };  // jump → new selection
+    }
+    this._occRender();
+  }
+  // Green overlays over the selected units + the "Занять место?" dialog (fixed on
+  // <body> so #racks overflow can't clip it; a CSS pointer aims at the rack).
+  _occRender() {
+    this._occClearEls();
+    const s = this._occSel;
+    if (!s) return;
+    const lay = state.rackLay[s.rackId];
+    const yOf = u => lay ? lay.unitY[u] : (s.rack.u_height - u) * UNIT_H;
+    this._occEls = [];
+    for (let u = s.lo; u <= s.hi; u++) {
+      const ov = mk("div", { className: "unit-hover armed occ-sel",
+        style: { top: (yOf(u) + 1) + "px", height: (UNIT_H - 3) + "px" } });
+      s.frame.appendChild(ov);
+      this._occEls.push(ov);
+    }
+    const n = s.hi - s.lo + 1;
+    const fr = s.frame.getBoundingClientRect();
+    const midY = fr.top + (yOf(s.hi) + yOf(s.lo) + UNIT_H) / 2;
+    const W = 140;
+    let left = fr.right + 14, side = "left";     // dialog right of rack, pointer aims left
+    if (left + W > innerWidth - 8) { left = fr.left - W - 14; side = "right"; }
+    const dlg = mk("div", { className: "occ-dialog pt-" + side,
+      html: `<div class="occ-q">Занять ${n > 1 ? n + " юнита" : "место"}?` +
+        `<div class="occ-u">U${s.lo}${n > 1 ? "–U" + s.hi : ""}</div></div>` +
+        `<div class="occ-btns"><button type="button" class="occ-no">Нет</button>` +
+        `<button type="button" class="occ-yes">Да</button></div>` });
+    dlg.style.left = Math.max(8, left) + "px";
+    dlg.style.top = midY + "px";
+    document.body.appendChild(dlg);
+    this._occDlg = dlg;
+    dlg.querySelector(".occ-no").addEventListener("click", () => this._occClear());
+    dlg.querySelector(".occ-yes").addEventListener("click", () => {
+      const rack = s.rack, lo = s.lo, span = n;
+      this._occClear();
+      this._openAddDevice(rack, lo, span);
+    });
+  }
+  _occClearEls() {
+    (this._occEls || []).forEach(e => e.remove());
+    this._occEls = [];
+    if (this._occDlg) { this._occDlg.remove(); this._occDlg = null; }
+  }
+  _occClear() { this._occClearEls(); this._occSel = null; }
+  _openAddDevice(rack, unit, span = 1) {
+    // Chosen stack from the side list (below). Empty → the device isn't stacked.
+    const sel = { vcId: null, pos: null, name: null };
+    // NetBox derives a device's height from its TYPE. So the selected span only
+    // becomes the footprint via a type of that height: when span>1 offer a
+    // "Блок NU" type (created on demand) and default to it — or to a real N-U
+    // type if one exists. Position is always the bottom selected cell.
+    const fit = span > 1 ? Object.values(state.dtypes).find(t => (+t.u_height || 1) === span) : null;
+    const typeOpts = Object.values(state.dtypes).map(t => ({ value: String(t.id), label: `${t.model} (${t.u_height}U)` }));
+    if (span > 1) typeOpts.unshift({ value: "__block__", label: `▭ Блок ${span}U (без модели)` });
+    const typeDefault = span > 1 ? (fit ? String(fit.id) : "__block__") : null;
+    const where = `Стойка ${rack.name}, юнит U${unit}` + (span > 1 ? `–U${unit + span - 1} (${span}U)` : "");
+    this.app.openModal("Новое устройство", where,
       [
         { id: "name", label: "Имя", placeholder: "srv-web-01" },
-        { id: "type", label: "Тип (модель)", type: "select",
-          options: Object.values(state.dtypes).map(t => ({ value: t.id, label: `${t.model} (${t.u_height}U)` })) },
+        { id: "type", label: "Тип (модель)", type: "select", options: typeOpts,
+          ...(typeDefault != null ? { value: typeDefault } : {}) },
         { id: "role", label: "Роль", type: "select",
           options: Object.values(state.roles).map(r => ({ value: r.id, label: r.name })) },
       ],
       async v => {
         if (!v.name) throw new Error("имя обязательно");
-        await api("/dcim/devices/", "POST", {
-          name: v.name, device_type: +v.type, role: +v.role,
+        const typeId = v.type === "__block__" ? await this._ensureBlockType(span) : +v.type;
+        const dev = await api("/dcim/devices/", "POST", {
+          name: v.name, device_type: typeId, role: +v.role,
           site: rack.site.id, rack: rack.id, position: unit,
           face: "front", status: "active",
         });
+        // If a stack was picked in the side list, join it. Position = the "/N"
+        // trailing the name (kept in sync when the stack was clicked), else sel.pos.
+        if (sel.vcId) {
+          const m = String(v.name).match(/\/(\d+)\s*$/);
+          const pos = m ? +m[1] : (sel.pos || 1);
+          try {
+            await api("/dcim/devices/" + dev.id + "/", "PATCH",
+              { virtual_chassis: sel.vcId, vc_position: pos });
+          } catch (e) { setStatus("устройство создано, но в стек не добавилось: " + e.message, "err"); }
+        }
         setStatus("создано: " + v.name + " в " + rack.name + " U" + unit, "ok");
-        await this.app.renderAll(state.group);
+        await this.app.tree.reload();   // refresh the tree too (new device appears)
+      },
+      "Создать",
+      { side: el => this._stackSide(el, sel) });
+  }
+
+  // Create/reuse a generic device type of exactly `span` U (no port templates)
+  // so a multi-unit selection can be filled even without a matching real model.
+  async _ensureBlockType(span) {
+    const model = "Блок " + span + "U";
+    const ex = Object.values(state.dtypes)
+      .find(t => (t.model || "").toLowerCase() === model.toLowerCase() && (+t.u_height || 1) === span);
+    if (ex) return ex.id;
+    const mfr = await this.app.device._ensureManufacturer(MANUFACTURER);
+    const dt = await api("/dcim/device-types/", "POST",
+      { manufacturer: mfr.id, model, slug: slugify(model), u_height: span });
+    state.dtypes[dt.id] = dt;
+    return dt.id;
+  }
+
+  // Right column of the create-device modal: the VirtualChassis (stack) list.
+  // Click a stack → assign it and rewrite the "Имя" field to "<base>/<pos>"
+  // (pos = next free vc_position). "Создать сейчас" makes a new stack inline.
+  _stackSide(sideEl, sel) {
+    this._closeStackPopover();   // fresh modal — drop any stale names popover
+    sideEl.innerHTML =
+      `<div class="ms-head"><span>Список стеков</span>` +
+      `<button type="button" class="ms-newvc">Создать сейчас</button></div>` +
+      `<div class="ms-list"><div class="placeholder">загрузка…</div></div>`;
+    const listEl = sideEl.querySelector(".ms-list");
+    const nameEl = () => $("#mf-name");
+    const setName = (pos, fallbackBase) => {
+      const el = nameEl();
+      if (!el) return;
+      const base = el.value.replace(/\/\d+\s*$/, "").trim();
+      el.value = (base || fallbackBase || "sw") + "/" + pos;
+    };
+    const pick = async (vc, item) => {
+      let members = [];
+      try { members = await apiAll("/dcim/devices/?virtual_chassis_id=" + vc.id); } catch (_) {}
+      const pos = members.reduce((mx, m) => Math.max(mx, m.vc_position || 0), 0) + 1;
+      sel.vcId = vc.id; sel.pos = pos; sel.name = vc.name;
+      setName(pos, vc.name);
+      listEl.querySelectorAll(".ms-item").forEach(x => x.classList.remove("sel"));
+      if (item) item.classList.add("sel");
+    };
+    const renderList = vcs => {
+      listEl.innerHTML = "";
+      if (!vcs.length) { listEl.innerHTML = `<div class="placeholder">стеков ещё нет</div>`; return; }
+      for (const vc of vcs) {
+        const item = mk("div", { className: "ms-item" + (sel.vcId === vc.id ? " sel" : ""),
+          html: `<i class="mdi mdi-layers-triple"></i><span class="ms-nm">${vc.name}</span>` });
+        // Members button — independent of selecting the stack (stopPropagation);
+        // opens a popover of the member switch NAMES outside the modal box.
+        const namesBtn = mk("button", { type: "button", className: "ms-names",
+          title: "Показать участников стека",
+          html: `${vc.member_count ?? "?"} <i class="mdi mdi-chevron-down"></i>` });
+        namesBtn.addEventListener("click", e => { e.stopPropagation(); this._stackNamesPopover(namesBtn, vc); });
+        item.appendChild(namesBtn);
+        item.addEventListener("click", () => pick(vc, item));
+        listEl.appendChild(item);
+      }
+    };
+    apiAll("/dcim/virtual-chassis/").then(renderList)
+      .catch(() => { listEl.innerHTML = `<div class="placeholder">не удалось загрузить</div>`; });
+    // "Создать сейчас" → inline name input → POST a new VC → select it.
+    sideEl.querySelector(".ms-newvc").addEventListener("click", () => {
+      if (sideEl.querySelector(".ms-newrow")) return;
+      const base = (nameEl() ? nameEl().value : "").replace(/\/\d+\s*$/, "").trim();
+      const row = mk("div", { className: "ms-newrow",
+        html: `<input class="ms-newinp" placeholder="Имя стека" value="${base}"><button type="button" class="ms-newok">✓</button>` });
+      sideEl.querySelector(".ms-head").after(row);
+      const inp = row.querySelector(".ms-newinp");
+      inp.focus();
+      const submit = async () => {
+        const nm = inp.value.trim();
+        if (!nm) return;
+        try {
+          const vc = await api("/dcim/virtual-chassis/", "POST", { name: nm });
+          row.remove();
+          const vcs = await apiAll("/dcim/virtual-chassis/");
+          sel.vcId = vc.id;          // preselect the new one when the list re-renders
+          renderList(vcs);
+          sel.pos = 1; sel.name = nm; setName(1, nm);
+        } catch (e) { setStatus("не создать стек: " + e.message, "err"); }
+      };
+      row.querySelector(".ms-newok").addEventListener("click", submit);
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+    });
+  }
+
+  // Popover (outside the modal box, on <body> so overflow:hidden doesn't clip it)
+  // listing the member switch NAMES of a stack — the "which names are taken"
+  // view. Anchored to the members button; closes on outside click / Escape.
+  _stackNamesPopover(anchor, vc) {
+    if (this._stackPop && this._stackPopVc === vc.id) { this._closeStackPopover(); return; }  // toggle
+    this._closeStackPopover();
+    const pop = mk("div", { className: "ms-pop",
+      html: `<div class="ms-pop-h">Стек «${vc.name}»</div><div class="ms-pop-b"><div class="placeholder">загрузка…</div></div>` });
+    document.body.appendChild(pop);
+    this._stackPop = pop; this._stackPopVc = vc.id;
+    const r = anchor.getBoundingClientRect();
+    const pw = 210;
+    let left = r.right + 8;
+    if (left + pw > innerWidth - 8) left = r.left - pw - 8;   // flip to the left if no room
+    pop.style.left = Math.max(8, left) + "px";
+    pop.style.top = Math.max(8, Math.min(r.top, innerHeight - 240)) + "px";
+    apiAll("/dcim/devices/?virtual_chassis_id=" + vc.id).then(members => {
+      const body = pop.querySelector(".ms-pop-b");
+      if (!members.length) { body.innerHTML = `<div class="placeholder">пусто</div>`; return; }
+      body.innerHTML = "";
+      members.slice().sort((a, b) => (a.vc_position ?? 1e9) - (b.vc_position ?? 1e9)).forEach(m => {
+        body.appendChild(mk("div", { className: "ms-pop-row",
+          html: `<span class="ms-pop-pos">${m.vc_position ?? "—"}</span><span class="ms-pop-nm">${m.name}</span>` }));
       });
+    }).catch(() => { pop.querySelector(".ms-pop-b").innerHTML = `<div class="placeholder">не загрузить</div>`; });
+    // Defer wiring so this very click doesn't immediately close it.
+    setTimeout(() => {
+      this._stackPopDoc = ev => {
+        if (!ev.target.closest(".ms-pop") && !ev.target.closest(".ms-names")) this._closeStackPopover();
+      };
+      this._stackPopKey = ev => { if (ev.key === "Escape") this._closeStackPopover(); };
+      document.addEventListener("mousedown", this._stackPopDoc);
+      document.addEventListener("keydown", this._stackPopKey);
+    }, 0);
+  }
+  _closeStackPopover() {
+    if (this._stackPop) { this._stackPop.remove(); this._stackPop = null; this._stackPopVc = null; }
+    if (this._stackPopDoc) { document.removeEventListener("mousedown", this._stackPopDoc); this._stackPopDoc = null; }
+    if (this._stackPopKey) { document.removeEventListener("keydown", this._stackPopKey); this._stackPopKey = null; }
   }
 }

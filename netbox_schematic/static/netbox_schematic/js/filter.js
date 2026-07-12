@@ -1,13 +1,11 @@
 "use strict";
-// Фильтр по ролям / кабелям
-// Кнопка «Fl» над «UI» в оверлее схемы. Раскрывает ДИНАМИЧЕСКИЙ список того,
-// что реально есть на текущей схеме: узлы (сгруппированы по роли устройства)
-// и отдельно провода (по семейству кабеля). Галочки скрывают/показывают —
-// это чистый CSS поверх уже нарисованного (data-role / data-fam), без
-// перезагрузки данных и без пересборки схемы.
-//
-// Что скрыто, помним в state.hiddenRoles / state.hiddenFams, чтобы фильтр
-// пережил перерисовку (renderAll пересоздаёт узлы/провода → reapply).
+// Role / cable filter.
+// The «Fl» button above «UI» in the schema overlay expands a DYNAMIC list of
+// what's on the current schema: nodes (grouped by device role) and wires (by
+// cable family). Checkboxes hide/show via pure CSS over what's already drawn
+// (data-role / data-fam) — no data reload, no schema rebuild. Hidden state
+// lives in state.hiddenRoles / state.hiddenFams so the filter survives
+// re-render (renderAll recreates nodes/wires → reapply).
 
 import { $, state, cableFamily, FAMILY_LABEL, FAMILY_ORDER, termKey } from "./core.js";
 
@@ -16,9 +14,9 @@ export class RoleFilter {
     this.app = app;
   }
 
-  // Перерисовать панель по текущим данным + применить скрытие к DOM.
-  // Зовётся из renderAll (после отрисовки схемы) и refreshCables (кабели могли
-  // появиться/исчезнуть). Панель могла ещё не существовать — тогда выходим.
+  // Rebuild the panel from current data + apply hiding to the DOM. Called
+  // from renderAll (after the schema draws) and refreshCables (cables may
+  // appear/vanish). Bail if the panel doesn't exist yet.
   render() {
     const body = $(".fl-body");
     if (!body) return;
@@ -56,7 +54,7 @@ export class RoleFilter {
     this.apply();
   }
 
-  // что есть на схеме
+  // what's on the schema
   _presentRoles() {
     const by = new Map();
     for (const dev of (state.devices || [])) {
@@ -81,7 +79,7 @@ export class RoleFilter {
       .map(fam => ({ fam, label: fam === "default" ? "без типа" : FAMILY_LABEL[fam], count: by.get(fam) }));
   }
 
-  // отрисовка секции
+  // render a section
   _section(title, rows) {
     const sec = document.createElement("div");
     sec.className = "fl-sec";
@@ -98,7 +96,7 @@ export class RoleFilter {
     row.className = "fl-row";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = !r.hidden;   // отмечена = видима
+    cb.checked = !r.hidden;   // checked = visible
     cb.addEventListener("change", () => r.toggle(!cb.checked));
     const sw = document.createElement("span");
     sw.className = "fl-sw " + (r.shape === "line" ? "fl-line" : "fl-box");
@@ -114,7 +112,7 @@ export class RoleFilter {
     return row;
   }
 
-  // скрытие / показ
+  // hide / show
   _toggleRole(id, hidden) {
     if (hidden) state.hiddenRoles[id] = true; else delete state.hiddenRoles[id];
     this.apply();
@@ -124,12 +122,12 @@ export class RoleFilter {
     this.apply();
   }
 
-  // Применить текущее состояние скрытия к DOM. Узлы — по data-role.
-  // Провод скрыт, если: (а) его семейство отключено, ИЛИ (б) хотя бы один его
-  // конец висит на узле скрытой роли (иначе провод «повис» бы в углу, т.к.
-  // геометрия берётся из bounding-rect портов скрытого узла).
+  // Apply the current hide state to the DOM. Nodes — by data-role. A wire is
+  // hidden if: (a) its family is off, OR (b) at least one end sits on a
+  // hidden-role node (else the wire would dangle in a corner, since its
+  // geometry comes from the hidden node's port bounding-rects).
   apply() {
-    // множество id устройств, чья роль скрыта
+    // set of device ids whose role is hidden
     const hiddenDev = new Set();
     for (const dev of (state.devices || [])) {
       const rid = dev.role ? dev.role.id : 0;
@@ -138,7 +136,7 @@ export class RoleFilter {
     document.querySelectorAll("#schema .node[data-role]").forEach(el => {
       el.classList.toggle("flt-hidden", !!state.hiddenRoles[el.dataset.role]);
     });
-    // кабель → id устройств на его концах (через state.cables + state.ports)
+    // cable → device ids at its ends (via state.cables + state.ports)
     document.querySelectorAll("#wires .wire[data-fam]").forEach(el => {
       const famHidden = !!state.hiddenFams[el.dataset.fam];
       const cid = +el.dataset.cable;
@@ -152,8 +150,8 @@ export class RoleFilter {
     if (!hiddenDev.size) return false;
     const c = (state.cables || []).find(x => x.id === cableId);
     if (!c) return false;
-    // конец кабеля → порт в state.ports → устройство (.dev). Терминации
-    // адресуются по object_type+object_id (termKey), как везде в плагине.
+    // cable end → port in state.ports → device (.dev). Terminations are keyed
+    // by object_type+object_id (termKey), as everywhere in the plugin.
     for (const t of [...(c.a_terminations || []), ...(c.b_terminations || [])]) {
       const port = state.ports[termKey(t)];
       if (port?.dev && hiddenDev.has(port.dev.id)) return true;

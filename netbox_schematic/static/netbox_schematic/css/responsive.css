@@ -1,0 +1,382 @@
+/* ── Responsive for tablets/phones ─────────────────────────────────────────
+   Media-queries only → desktop untouched. Loaded last (after ipam.css).
+   Layout (drawer/sheet) here; overlay behavior in js/responsive.js.
+   Agreed 2026-07-09: sidebar → drawer via ☰, details → bottom sheet, racks
+   hidden on mobile (open a rack on demand — separate chunk); Layers/Filter/
+   palette/legend not needed on mobile (add devices via the tree). */
+
+/* Hamburger and scrim hidden by default (desktop). */
+#navtoggle { display: none; background: none; border: none; color: var(--text);
+  cursor: pointer; font-size: 22px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
+#navtoggle:hover { background: var(--panel-2); }
+#mobile-scrim { display: none; }
+/* Topbar mode toggle and "more" arrow — mobile only (desktop hides). */
+.modeswitch.topbar-mode, #topbar-more { display: none; }
+/* Wrapper for extra topbar controls: "transparent" on desktop (children go straight into #topbar). */
+#topbar-extra { display: contents; }
+/* Import/Export wrapper — transparent on desktop (buttons flow into the topbar);
+   on phones it becomes a real flex row (see the mobile block). */
+#imp-exp-row { display: contents; }
+/* Mobile port tooltip: attachTip sets fixed position (just below center); here —
+   close button and frames. #tip = pointer-events:none, close button re-enables. */
+#tip.tip-fixed { max-width: 92vw; min-width: 270px; padding: 16px 40px 18px 18px;
+  font-size: 15.5px; line-height: 1.6; border-radius: 12px; }
+#tip.tip-fixed .t-title { font-size: 16.5px; }
+#tip.tip-fixed .t-mut { font-size: 13px; }
+#tip .tip-close { position: absolute; top: 4px; right: 6px; pointer-events: auto;
+  background: none; border: none; color: var(--muted); font-size: 26px; line-height: 1;
+  cursor: pointer; padding: 2px 8px; }
+#tip .tip-close:hover { color: var(--text); }
+/* Trace "whiskers": short stub from a used port outward (to an unloaded
+   node, fades out). Shared chain cables draw as normal wires (.wire). */
+#wires path.whisker { fill: none; stroke-width: 3; stroke-linecap: round; }
+/* Node appearing in a chain — brief highlight (scroll + outline flash). */
+.node.trace-flash { animation: traceflash 0.9s ease-out; }
+@keyframes traceflash {
+  0% { box-shadow: 0 0 0 3px var(--accent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+
+/* ── Phone & tablet ────────────────────────────────────────────────────────
+   Tablets get the SAME layout as phones (drawer tree, bottom sheets, compact
+   topbar) — there's no room for the desktop 3-column canvases below ~1024px.
+   Tablet-only deltas (keep the device palette, orientation-aware detail sheet)
+   live in the tablet blocks further down. */
+@media (max-width: 1024px) {
+  #navtoggle { display: inline-flex; align-items: center; }
+
+  /* Compact topbar: hide secondary items, keep icons. */
+  /* Status (#status, e.g. "N devices, M cables") not needed on mobile —
+     the popup loader #reqspin gives feedback. */
+  .brand-schem, .sync-txt, #backlink, #status { display: none; }
+  /* Export/Import ride in the "more" popup on phones (full label, room there). */
+  #exportbtn .tb-txt, #importbtn .tb-txt { display: inline; }
+  /* touch-action:manipulation removes the BROWSER double-tap zoom in the topbar
+     (accidentally zoomed on buttons). Schema has its own pinch (#schempane pan-x pan-y). */
+  #topbar { gap: 6px; padding: 6px 8px; touch-action: manipulation; flex-wrap: nowrap; }
+  /* Topbar strictly ONE line: brand/selector shrink, "more" arrow doesn't wrap. */
+  #topbar .brand { min-width: 0; flex-shrink: 1; }
+  #topbar .brand .brand-canvas-select { max-width: 36vw; }
+  /* Mode toggle 👁/✏️ — in the TOPBAR (not on the canvas). Each canvas shows the
+     button wired to ITS mode: Infrastructure → schema edit, Networks → IPAM edit
+     (the in-canvas title button is hidden below, so this is the only toggle). */
+  body[data-canvas="infra"] .topbar-mode[data-mode="schema"],
+  body[data-canvas="network"] .topbar-mode[data-mode="ipam"] {
+    display: inline-flex; position: static; transform: none; padding: 7px 11px; }
+  body[data-canvas="infra"] .topbar-mode[data-mode="schema"] .mdi,
+  body[data-canvas="network"] .topbar-mode[data-mode="ipam"] .mdi { font-size: 22px; }
+  /* "More" arrow on the right — opens a second row of extra controls (bigger for touch). */
+  #topbar-more { display: inline-flex; align-items: center; background: none; border: none;
+    color: var(--muted); cursor: pointer; font-size: 26px; padding: 6px 10px; opacity: 0.55; }
+  #topbar-more:hover { opacity: 1; }
+  #topbar-more .mdi { transition: transform 0.2s; }
+  body.topbar-expanded #topbar-more .mdi { transform: rotate(180deg); }
+  /* Extra controls (search + refresh/theme/user) — ONE row, OVER the schema
+     (absolute overlay), doesn't shift layout. Opened by the "more" arrow. */
+  #topbar { position: relative; }
+  #topbar-extra { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 44;
+    background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    box-shadow: 0 10px 22px rgba(0,0,0,0.4);
+    padding: 8px; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 8px; }
+  body.topbar-expanded #topbar-extra { display: flex; }
+  #topbar-extra #devsearch { flex: 1 1 90px; min-width: 0; max-width: none; height: 38px; }
+  /* Import + Export share ONE second row (row 1 = search + refresh + theme + user).
+     The wrapper is a full-width flex line ordered last; its two buttons split it. */
+  #topbar-extra #imp-exp-row {
+    order: 5; display: flex; flex: 1 1 100%; gap: 6px; }
+  #topbar-extra #imp-exp-row > button {
+    flex: 1; justify-content: center; height: 38px;
+    border: 1px solid var(--line); border-radius: 8px; }
+  /* Сети: Audit hidden (infra-only) → Import/Export flow inline with the icon
+     buttons in ONE row instead of taking their own full-width line. */
+  body[data-canvas="network"] #topbar-extra #imp-exp-row { flex: 1 1 auto; order: 0; }
+  /* Canvas titles not needed here — the mode toggle moved to the topbar and each
+     loaded place is captioned on the canvas itself. Hides the title's overlap
+     with the (now absent) in-canvas mode button too. */
+  #schempane .pane-title, #ipam-main .pane-title { display: none; }
+
+  /* Sidebar → sliding drawer over the schema. */
+  #layout { position: relative; }
+  #sidebar {
+    position: absolute; top: 0; left: 0; bottom: 0; z-index: 45;
+    width: min(84vw, 320px); transform: translateX(-100%);
+    transition: transform 0.22s ease; box-shadow: 2px 0 20px rgba(0,0,0,0.45);
+    background: var(--panel);
+  }
+  body.nav-open #sidebar { transform: translateX(0); }
+
+  /* Scrim under drawer/sheet (shared, covers both — see responsive.js). */
+  #mobile-scrim { position: absolute; inset: 0; z-index: 40; background: rgba(0,0,0,0.5); }
+  body.nav-open #mobile-scrim, body.sheet-open #mobile-scrim { display: block; }
+
+  /* Resizer hidden; rack pane (units) — bottom sheet, shown for scope "rack"
+     (opened a rack via pencil). Collapse via the button in its header (rack-collapsed). */
+  #resizer { display: none !important; }
+  #rackpane {
+    display: flex !important; position: absolute; left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; max-width: none; height: 70vh; z-index: 46;
+    border-radius: 16px 16px 0 0; border: 1px solid var(--line); border-bottom: none;
+    background: var(--panel); box-shadow: 0 -10px 26px rgba(0,0,0,0.5);
+    /* visibility:hidden on the closed sheet — guards against an iOS gap at the
+       bottom (translateY sometimes leaves ~1px…tens of px; bg/shadow then peek white). */
+    transform: translateY(101%); visibility: hidden;
+    transition: transform 0.24s ease, visibility 0s linear 0.24s;
+  }
+  body:not(.rack-collapsed) #rackpane { transform: translateY(0); visibility: visible;
+    transition: transform 0.24s ease; }
+  /* Mobile: rack pane always in edit mode (no view mode) — mode toggle and
+     collapse button hidden; close via scrim. */
+  .modeswitch[data-mode="rack"], #rack-collapse { display: none !important; }
+  body:not(.rack-collapsed) #mobile-scrim { display: block; }
+  /* Schema — full width. */
+  #schempwrap { flex: 1 1 100%; }
+  #ipam { position: relative; }
+  /* Hide schema/network scrollbars on mobile: on zoom they "drift to center"
+     and look odd (pan with a finger, not needed). */
+  #schempane, #ipam-scroll { scrollbar-width: none; }
+  #schempane::-webkit-scrollbar, #ipam-scroll::-webkit-scrollbar { display: none; }
+
+  /* Floating controls not needed on mobile. The palette STAYS (as the "+" square
+     under "UI") — on touch it taps open the add-catalog instead of dragging. */
+  #rolefilter, #layers, #viewswitch, #legend, .modeswitch.schem-topbtn { display: none !important; }
+
+  /* Details (Infra/IPAM) → bottom sheet. */
+  #detail, #ipam-detail {
+    position: absolute; left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; max-width: none; height: 64vh; z-index: 46;
+    border-radius: 16px 16px 0 0; border: 1px solid var(--line); border-bottom: none;
+    background: var(--panel); box-shadow: 0 -10px 26px rgba(0,0,0,0.45);
+    transform: translateY(101%); visibility: hidden; overflow-y: auto;
+    transition: transform 0.24s ease, visibility 0s linear 0.24s;
+  }
+  /* Grab handle: STICKY bar at the top of the sheet — always visible, even when
+     details scroll (position:sticky). Opaque bg covers content below; the "handle"
+     itself is a centered strip (background-image). Height 32px gives spacing to the
+     title (was too close). Not in innerHTML → survives detail re-render. */
+  #detail::before, #ipam-detail::before {
+    content: ""; position: sticky; top: 0; z-index: 4; display: block;
+    width: 100%; height: 32px; border-radius: 16px 16px 0 0;
+    background-color: var(--panel);
+    /* The "handle" itself — a ROUNDED pill (SVG rx), not a boxy rectangle. */
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='6'><rect width='44' height='6' rx='3' fill='%238a95a1'/></svg>");
+    background-repeat: no-repeat; background-position: center 12px;
+  }
+  body.sheet-open #detail, body.sheet-open #ipam-detail { transform: translateY(0); visibility: visible;
+    transition: transform 0.24s ease; }
+
+  /* Parameter windows (create/edit modal, IP assign, cable type) — at the bottom,
+     like details (override JS popover position via !important). */
+  #modal-bg { align-items: flex-end; }
+  #modal { width: 100%; max-width: none; border-radius: 16px 16px 0 0; max-height: 85vh; overflow-y: auto; }
+  #cablepop, #ipform {
+    left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important;
+    width: 100% !important; max-width: none; border-radius: 16px 16px 0 0;
+  }
+}
+
+/* ── Tablet-only deltas ─────────────────────────────────────────────────────
+   Tablets inherit the whole phone layout above; these blocks add back what a
+   tablet has the room and pointer precision for. */
+
+/* Bring back the device palette ("+" under "UI") so devices can be dragged onto
+   the Infrastructure schema — phones can't drag precisely, so they hide it and
+   add via the tree, and here the palette replaces that add-FAB. */
+@media (min-width: 761px) and (max-width: 1024px) {
+  #palette { display: block !important; }
+  body.schema-edit #schem-add { display: none !important; }
+}
+
+/* Landscape tablet (width ≥ height): the detail panel slides in from the RIGHT
+   — a phone-style overlay with a scrim, NOT a desktop column — with the grab
+   handle on its LEFT edge. Portrait keeps the bottom sheet inherited above.
+   Closed by tapping the scrim, Esc, or dragging it off to the right. */
+@media (min-width: 761px) and (max-width: 1024px) and (orientation: landscape) {
+  #detail, #ipam-detail {
+    left: auto; right: 0; top: 0; bottom: 0;
+    width: min(400px, 60vw); height: auto; max-width: none; padding-left: 34px;
+    border-radius: 16px 0 0 16px;
+    border: 1px solid var(--line); border-right: none; border-top: none; border-bottom: none;
+    box-shadow: -12px 0 28px rgba(0,0,0,0.45);
+    transform: translateX(101%);
+  }
+  body.sheet-open #detail, body.sheet-open #ipam-detail { transform: translateX(0); }
+  /* Grab handle — vertical bar on the LEFT edge (a rotated pill). */
+  #detail::before, #ipam-detail::before {
+    position: absolute; top: 0; bottom: 0; left: 0; right: auto;
+    width: 26px; height: auto; border-radius: 16px 0 0 16px;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='44'><rect width='6' height='44' rx='3' fill='%238a95a1'/></svg>");
+    background-position: 10px center;
+  }
+}
+
+/* ── Touch targets (any width with a coarse pointer) ─────────────────────────*/
+@media (pointer: coarse) {
+  .tree-loc, .tree-rack, .tree-site, .tree-sitegroup, .tree-panel, .tree-dev,
+  .it-node, .it-net, .cnav { min-height: 40px; }
+  .modebtn, #syncbtn, #themetoggle, #userbtn, #navtoggle { min-height: 38px; }
+  /* Bigger trace "×" for a fingertip. (#trace-expand keeps its desktop size —
+     it's already a comfortable target and shouldn't jump when a device-emulator
+     toggles a coarse pointer.) */
+  .trace-x { width: 28px; height: 28px; top: -12px; right: -12px; }
+  .trace-x .mdi { font-size: 18px; }
+  /* Tree folder collapse arrows — bigger (touch target). */
+  .tree-chevron, .it-chevron { padding: 5px 7px; }
+  .tree-chevron .mdi, .it-chevron .mdi { font-size: 20px; }
+}
+
+/* ── Mobile tree select/move/create (no swipes) ────────────────────*/
+/* "Select" button in the tree header — touch only. */
+.tree-sel-toggle { display: none; }
+@media (pointer: coarse) {
+  /* Tree section header — normal row: title left, "Select" right. */
+  #side-infra .side-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 13px; padding: 12px 14px 9px;
+  }
+  /* "Select" button — plain text, no border/bg (flex item on the right). */
+  .tree-sel-toggle {
+    display: inline-block; flex-shrink: 0; background: none; border: none; color: var(--accent);
+    font-size: 13px; font-weight: 600; padding: 2px 4px; cursor: pointer;
+    text-transform: none; letter-spacing: 0;
+  }
+  body.tree-selecting .tree-sel-toggle { color: var(--ok); }
+}
+
+/* Tree section header ("Infrastructure" + "Select") sits ABOVE the scroll box
+   (flex row, not sticky — see .side-block), so it's always visible and the
+   scrollbar starts under it. No positioning needed here. */
+
+/* ── Very narrow phones (iPhone SE ≈ 375px) ─────────────────────────────────
+   The brand "NetBox · <canvas>" wrapped onto a second line. Keep it to one line
+   and pull the mode eye tight against the "more" arrow to free that width. */
+@media (max-width: 400px) {
+  #topbar { gap: 3px; padding: 6px 6px; }
+  #topbar .brand { white-space: nowrap; min-width: 0; margin-right: 2px; }
+  #topbar .brand .brand-link { font-size: 15px; }
+  #topbar .brand .brand-canvas-select { max-width: 40vw; }
+  body[data-canvas="infra"] .topbar-mode[data-mode="schema"],
+  body[data-canvas="network"] .topbar-mode[data-mode="ipam"] { padding: 6px 6px; }
+  #topbar-more { padding: 6px 3px; margin-left: -3px; }
+}
+
+/* iOS won't zoom to a field on focus if font ≥ 16px — set 16px on all
+   modal/form/search fields (else the browser zooms to the input). */
+@media (pointer: coarse) {
+  #modal input, #modal select, #cablepop input, #cablepop select,
+  #ipform input, #ipform select, #devsearch-inp { font-size: 16px; }
+  /* The dark custom <select> reads poorly on a phone — hand form dropdowns back
+     to the OS so it renders its native control (iOS picker, Android menu). The
+     brand canvas switcher keeps its slim styled look. */
+  #modal select, #cablepop select, #ipform select {
+    -webkit-appearance: menulist; appearance: auto;
+    background: revert; color: revert; border: 1px solid var(--line);
+    background-image: none; padding: 8px 10px;
+  }
+}
+
+/* Select mode: checkbox square appears ONLY on selected and same-level
+   candidates (relative to the first selected) — none before the first pick.
+   Rows NOT colored (neither green nor blue) — only the square indicates;
+   the checkmark appears as you select. */
+body.tree-selecting .multi-cand, body.tree-selecting .multi-sel {
+  position: relative; padding-right: 42px; background: none !important; box-shadow: none !important;
+}
+body.tree-selecting .multi-cand::after, body.tree-selecting .multi-sel::after {
+  content: ""; position: absolute; right: 13px; top: 50%; margin-top: -10px;
+  width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--muted);
+  background: var(--panel); box-sizing: border-box; transition: all 0.1s;
+}
+body.tree-selecting .multi-sel::after {
+  border-color: var(--accent); background: var(--accent)
+    url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M9 16.2 4.8 12l-1.5 1.4L9 19 21 7l-1.4-1.4z' fill='white'/></svg>")
+    center / 14px no-repeat;
+}
+
+/* Move mode: targets softly highlighted; armed (1st tap) shows "here?"; sources grey. */
+/* All valid targets marked "here?" upfront (no blue outline); a tap "arms"
+   the target (accent + bg), second tap moves. */
+body.tree-moving .move-target, body.ipam-moving .move-target { position: relative; padding-right: 76px; }
+body.tree-moving .move-target::after, body.ipam-moving .move-target::after { content: "← сюда?"; position: absolute; right: 12px; top: 50%;
+  transform: translateY(-50%); font-size: 12px; color: var(--muted); opacity: 0.55; white-space: nowrap; }
+/* Selected target — bg + left stripe (the "here?" label stays faint). */
+body.tree-moving .move-armed, body.ipam-moving .move-armed { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+body.tree-moving .multi-sel { opacity: 0.5; }
+/* In move mode hide everything except valid targets and their containers. */
+.move-hidden { display: none !important; }
+
+/* Floating action bar above the selection (at the bottom). Shared by the
+   Infrastructure tree ("Выбрать") and the «Сети» tree multi-select. */
+#tree-actions, #ipam-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; display: flex; gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 22px rgba(0,0,0,0.4);
+}
+#tree-actions button, #ipam-actions button {
+  flex: 1; padding: 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--text); font-size: 14px; font-weight: 600; cursor: pointer;
+}
+#tree-actions .ta-move, #ipam-actions .ta-move { background: var(--accent); color: #fff; border-color: var(--accent); }
+#tree-actions .ta-apply, #ipam-actions .ta-apply { background: var(--ok); color: #fff; border-color: var(--ok); }
+#tree-actions .ta-del, #ipam-actions .ta-del { color: #e5644d; }
+#tree-actions .ta-cancel, #ipam-actions .ta-cancel { flex: 0 0 auto; }
+#tree-actions .ta-hint, #ipam-actions .ta-hint { flex: 1; align-self: center; color: var(--muted); font-size: 12.5px; }
+
+/* Round "+" FAB retired — the add-catalog is now opened by tapping the palette
+   "+" square (under "UI"); see schema.js palette wiring. */
+#schem-add { display: none !important; }
+
+/* Create catalog ("+" on the schema) — bottom sheet. */
+#add-catalog { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column;
+  justify-content: flex-end; background: rgba(0,0,0,0.45); }
+#add-catalog .ac-head { display: flex; align-items: center; justify-content: space-between;
+  background: var(--panel); padding: 14px 16px; border-radius: 16px 16px 0 0; font-weight: 600;
+  border-bottom: 1px solid var(--line); }
+#add-catalog .ac-x { background: none; border: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+#add-catalog .ac-body { background: var(--panel); max-height: 66vh; overflow-y: auto;
+  padding: 6px 0 calc(12px + env(safe-area-inset-bottom, 0px)); }
+#add-catalog .ac-cat { padding: 12px 16px 4px; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+#add-catalog .ac-item { display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 14px 16px; color: var(--text); font-size: 15px; cursor: pointer; }
+#add-catalog .ac-item:active { background: var(--panel-2); }
+#add-catalog .ac-note { padding: 12px 16px 4px; color: var(--muted); font-size: 13px; line-height: 1.4; }
+/* "Add to…" — like a normal list item (not a big button), in accent. */
+#add-catalog .ac-into {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  padding: 14px 16px; color: var(--accent); font-size: 15px; font-weight: 600; cursor: pointer;
+}
+#add-catalog .ac-into:active { background: var(--panel-2); }
+
+/* Plugin version doesn't matter on phone — hide (narrow screen). */
+/* Version badge stays on phones too — it just sits UNDER the drawer/sheets/
+   tree-actions (low z-index), so it shows when only the schema is up and is
+   covered the moment any panel slides in. */
+
+/* ── No sticky hover on touch ────────────────────────────────────────────────
+   On a touch device a tap leaves :hover set until the NEXT tap, so a row's
+   highlight lingers after its panel already changed. On hover-less pointers,
+   drop the hover background (the tap itself is the feedback). */
+@media (hover: none) {
+  .tree-loc:hover, .tree-rack:hover, .tree-site:hover, .tree-sitegroup:hover, .tree-dev:hover,
+  .tree-panel:hover, .tree-feed:hover, .tree-region.clickable:hover, .cnav:hover,
+  .it-node:not(.on-schema):hover, .it-net:not(.on-schema):hover, .imp-tn[data-dev]:hover,
+  #usermenu a:hover, .loc-dev:hover, .exp-node:hover, .ds-item:not(.active):hover,
+  #layers .ly-item:hover, #rolefilter .fl-row:hover, #palette .pl-item:hover, #palette .pl-tab:hover,
+  #viewswitch .vs-btn:not(.active):hover, .imp-rtab:not(.active):hover, .exp-toolbar button:hover,
+  #syncbtn:hover, #themetoggle:hover, #navtoggle:hover, #userbtn:hover, #backlink:hover,
+  #devsearch-clear:hover, .pane-toggle:hover, .net-block:hover {
+    background: transparent;
+  }
+  .tb-act:hover, #topbar .brand .brand-link:hover, #topbar .brand .brand-canvas-select:hover,
+  .it-chevron:hover, .tree-chevron:hover, #reqpill:hover { color: inherit; }
+  /* No blue/grey tap-flash on any control (the "вспышка" on UI / user / squares). */
+  * { -webkit-tap-highlight-color: transparent; }
+  /* Hover tooltips (topbar buttons) are useless on touch and flash on tap — off. */
+  [data-tip]::after, [data-tip]::before { content: none !important; }
+  /* User button: fully reset the hover (background already cleared above) so a tap
+     doesn't flash its color/border. The open-menu state keeps its own style. */
+  #userbtn:hover { color: var(--muted); border-color: transparent; }
+  /* The "+" (palette) square shows ONLY in edit mode on touch (like the old FAB). */
+  #palette { display: none !important; }
+  body.schema-edit #palette { display: block !important; }
+}

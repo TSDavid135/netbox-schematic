@@ -1,5 +1,5 @@
 "use strict";
-// DeviceManager: паспорт устройства + модалка создания
+// DeviceManager: device passport + create modal
 
 import { $, state, mk, modeBtn, slugify } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
@@ -8,8 +8,8 @@ import { MANUFACTURER } from "./solutions.js";
 
 const chip = (text, cls) => `<span class="chip ${cls || ""}">${text}</span>`;
 
-// Класс порт-кружка по типу терминации — цвет и ФИГУРА как на схеме (front/
-// rear/console-server/розетка — квадрат; остальное — круг). См. .c-portdot.p-*.
+// Port-dot class by termination type — color and SHAPE match the schema (front/
+// rear/console-server/outlet — square; else circle). See .c-portdot.p-*.
 const DOT_KIND = {
   "dcim.interface": "p-iface", "dcim.frontport": "p-front", "dcim.rearport": "p-rear",
   "dcim.consoleport": "p-con", "dcim.consoleserverport": "p-consrv",
@@ -17,14 +17,14 @@ const DOT_KIND = {
   "dcim.powerfeed": "p-feed", "circuits.circuittermination": "p-circuit",
 };
 
-// Имя порта/интерфейса компактно: закруглённый бейдж {тип + порт-кружок номера}.
-// Кружок вписан ВНУТРЬ бейджа (не режется) и покрашен под тип порта (otype).
-// Стек/слот — в нативном тултипе (title). otype опционален (по умолчанию iface).
-// used=true → кружок ЗАКРАШЕН цветом типа (как «занятый» порт на схеме).
+// Compact port/iface name: rounded badge {type + number port-dot}. Dot sits
+// INSIDE the badge (not clipped), colored by port type (otype). Stack/slot go
+// in the native tooltip (title). otype optional (default iface). used=true →
+// dot FILLED with the type color (like an occupied port on the schema).
 export function portNameHtml(name, otype, used) {
   const pn = parseIfaceName(name);
   const num = ifacePortNum(name);
-  // Подсказка: «Стек 1 · Слот 0 · Порт 3» (только имеющиеся части).
+  // Tooltip: «Стек 1 · Слот 0 · Порт 3» (only present parts).
   const title = pn.parts.map(p => `${p.label} ${p.value}`).join(" · ") || name;
   const kindCls = DOT_KIND[otype] || "p-iface";
   return `<span class="port-badge" title="${title}">` +
@@ -33,9 +33,9 @@ export function portNameHtml(name, otype, used) {
     `</span>`;
 }
 
-// Разбор имени интерфейса на «тип + позиция». Cisco-нотация: буквенный тип +
-// X/Y/Z (член-стека / слот / порт). Возвращает {type, parts:[{label,value}]}.
-// Если формат не X/Y/Z — parts = [{label:"Номер", value:<остаток>}] или пусто.
+// Parse iface name into «type + position». Cisco notation: alpha type +
+// X/Y/Z (stack member / slot / port). Returns {type, parts:[{label,value}]}.
+// Non-X/Y/Z format → parts = [{label:"Номер", value:<rest>}] or empty.
 export function parseIfaceName(name) {
   const m = String(name).match(/^([A-Za-z][A-Za-z .-]*?)\s*(\d+(?:\/\d+)*)?$/);
   if (!m) return { type: name, parts: [] };
@@ -50,7 +50,7 @@ export function parseIfaceName(name) {
     return { type, parts: [{ label: "Порт", value: nums[0] }] };
   return { type, parts: [] };
 }
-// «Хвостовой» номер порта имени — для порт-кружка в чипе (последнее число).
+// Trailing port number of the name — for the chip's port-dot (last digit).
 export function ifacePortNum(name) {
   const m = String(name).match(/(\d+)(?!.*\d)/);
   return m ? m[1] : "";
@@ -59,27 +59,39 @@ export function ifacePortNum(name) {
 export class DeviceManager {
   constructor(app) {
     this.app = app;
-    this.current = null;        // последнее показанное устройство (для перерисовки)
-    this.currentPanel = null;   // …или показанный силовой щит
-    // Смена режима (схемы ИЛИ собственного режима блока деталей) — перерисовать
-    // открытый паспорт, чтобы появились/исчезли кнопки правки (+IP, ✎ фидера,
-    // карандаш щита). Режим "detail" — переключатель прямо в блоке деталей.
+    this.current = null;        // last shown device (for re-render)
+    this.currentPanel = null;   // …or the shown power panel
+    this.currentStack = null;   // …or the shown VirtualChassis (stack) passport
+    // Mode change (schema OR the detail-block's own mode) re-renders the open
+    // passport so edit buttons appear/disappear (+IP, feeder ✎, panel pencil).
+    // "detail" mode — toggle right inside the detail block.
     const rerender = () => {
       if (this.current) this.show(this.current);
       else if (this.currentPanel) this.showPanel(this.currentPanel);
+      else if (this.currentStack) this.showStack(this.currentStack);
     };
     Mode.onChange("schema", rerender);
     Mode.onChange("detail", rerender);
   }
-  // Правка в блоке деталей доступна, если включён режим схемы ИЛИ собственный
-  // режим блока деталей (переключатель в его заголовке).
+  // Editing in the detail block is available if schema mode OR the block's own
+  // mode is on (toggle in its header).
   _editable() { return Mode.on("detail") || Mode.on("schema"); }
 
-  // Универсальная модалка: title, подпись where, поля, обработчик onSubmit.
-  openModal(title, where, fields, onSubmit, okLabel = "Создать") {
+  // Generic modal: title, where caption, fields, onSubmit handler.
+  // opts.side(sideEl) — optional renderer for a right-hand column (e.g. the
+  // stack list on device creation); absent → the column stays hidden.
+  openModal(title, where, fields, onSubmit, okLabel = "Создать", opts = {}) {
     $("#modal-title").textContent = title;
     $("#modal-where").textContent = where || "";
     $("#m-create").textContent = okLabel;
+    $("#m-create").disabled = false;   // fresh modal — ensure the confirm is clickable
+    // Right-hand side panel (two-column modal) — only when a renderer is given.
+    const side = $("#modal-side");
+    if (side) {
+      side.innerHTML = "";
+      if (opts.side) { side.style.display = ""; opts.side(side); }
+      else side.style.display = "none";
+    }
     const wrap = $("#modal-fields");
     wrap.innerHTML = "";
     for (const f of fields) {
@@ -107,29 +119,41 @@ export class DeviceManager {
   wireModal() {
     $("#m-cancel").addEventListener("click", () => $("#modal-bg").style.display = "none");
     $("#m-create").addEventListener("click", async () => {
+      const btn = $("#m-create");
+      if (btn.disabled) return;              // one click only — no double submit/delete
+      btn.disabled = true;                   // blocked visually + physically during the op
       try {
         await state.modalSubmit();
         $("#modal-bg").style.display = "none";
       } catch (e) {
         setStatus("не получилось: " + e.message, "err");
+      } finally {
+        btn.disabled = false;                // re-enable (modal is already hidden on success)
       }
     });
   }
 
-  // Заголовок паспорта с переключателем режима блока деталей (data-mode=detail).
-  _detailHead(title, sub) {
+  // Passport header with the detail-block mode toggle (data-mode=detail).
+  _detailHead(title, sub, over) {
     return `<div class="detail-head">${modeBtn("detail", "compact ms-corner")}` +
+      (over ? `<div class="crumb-over">${over}</div>` : "") +
       `<h2>${title}</h2><div class="sub">${sub}</div></div>`;
   }
   async show(dev) {
-    this.current = dev;
     this.currentPanel = null;
+    this.currentStack = null;
+    if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(null);
     const panel = $("#detail");
+    panel.innerHTML = `<div class="placeholder">загружаю…</div>`;   // instant click feedback
+    // Graph node is a «light» object (no status/platform/serial/location); for
+    // the passport we fetch the FULL device from NetBox (all default fields).
+    try { dev = await api("/dcim/devices/" + dev.id + "/"); } catch (e) { /* offline — render what we have */ }
+    this.current = dev;
     const sub = `${dev.device_type.model} · ${dev.role.name} · U${dev.position ?? "—"}`;
-    // Хлебная крошка: «Серверная 1  sw-access-02» — клик по локации → её детали.
+    // Location name ABOVE the device name (crumb → click opens the location).
     const loc = dev.location;
-    const title = (loc ? `<a class="crumb-loc">${loc.name}</a>&nbsp; ` : "") + dev.name;
-    panel.innerHTML = this._detailHead(title, sub) + `<div class="placeholder">загружаю…</div>`;
+    const over = loc ? `<a class="crumb-loc">${loc.name}</a>` : "";
+    panel.innerHTML = this._detailHead(dev.name, sub, over) + `<div class="placeholder">загружаю…</div>`;
     const ips = await apiAll("/ipam/ip-addresses/?device_id=" + dev.id);
     const ipByIface = {};
     ips.forEach(ip => {
@@ -137,18 +161,42 @@ export class DeviceManager {
       if (!ipByIface[k]) ipByIface[k] = [];
       ipByIface[k].push(ip.address);
     });
-    panel.innerHTML = this._detailHead(title, sub);
+    panel.innerHTML = this._detailHead(dev.name, sub, over);
     const crumb = panel.querySelector(".crumb-loc");
     if (crumb && loc) crumb.addEventListener("click", () => this.app.tree.selectScope("location", loc.id, loc.name));
     Mode.syncButtons("detail");
     const edit = this._editable();
-    // В правке: подтянуть недостающие компоненты из шаблонов device type
-    // (напр. после смены типа устройства — NetBox их сам не пересоздаёт).
+    // In edit: pull missing components from device type templates
+    // (e.g. after a device-type change — NetBox won't recreate them itself).
     if (edit) {
       panel.appendChild(mk("button", { className: "sync-comp-btn",
         html: `<i class="mdi mdi-sync"></i> Синхронизировать порты с типом`,
         on: { click: () => this.syncComponents(dev) } }));
     }
+
+    // Device DB info — as the FIRST section (core NetBox fields).
+    const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
+    const info = [
+      ["Статус", dev.status && (dev.status.label || dev.status.value)],
+      ["Роль", val(dev.role)], ["Тип", val(dev.device_type)],
+      ["Платформа", val(dev.platform)],
+      ["Площадка", val(dev.site)], ["Серверная", val(dev.location)],
+      ["Стойка", val(dev.rack)], ["Юнит", dev.position != null ? "U" + dev.position : ""],
+      ["Серийный №", dev.serial], ["Инв. №", dev.asset_tag],
+      ["Описание", dev.description],
+    ].filter(([, v]) => v);
+    if (info.length) {
+      panel.appendChild(mk("h4", { text: "Сведения" }));
+      const box = mk("div", { className: "dev-info" });
+      for (const [k, v] of info)
+        box.appendChild(mk("div", { className: "di-row", html: `<span class="di-k">${k}</span><span class="di-v">${v}</span>` }));
+      panel.appendChild(box);
+    }
+
+    // Stack (VirtualChassis) — above "Интерфейсы и IP". A switch stack is a
+    // self-contained grouping (no cables between members), so it lives in the
+    // passport, not on the canvas.
+    this._renderStackBlock(panel, dev, edit);
 
     const ifacePorts = Object.values(state.ports)
       .filter(p => p.dev.id === dev.id && p.otype === "dcim.interface");
@@ -156,20 +204,48 @@ export class DeviceManager {
       panel.appendChild(mk("h4", { text: "Интерфейсы и IP" }));
       for (const p of ifacePorts) {
         const addrs = (ipByIface[p.item.id] || []).map(a => chip(a, "c-ip")).join("");
-        // Связан ли интерфейс (кабель или радио-линк) → порт закрашен, а ховер
-        // по строке подсвечивает его на схеме (detail п.3).
+        // Iface linked (cable or radio-link) → port filled, and row hover
+        // highlights it on the schema (detail item 3).
         const linked = !!(p.item.cable || p.item.wireless_link);
         const row = mk("div", { className: "iface-row" + (linked ? " linked" : ""),
           html: portNameHtml(p.item.name, p.otype, linked) + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
         if (linked) row.addEventListener("mouseenter", () => this.app.schema._portHover(p, true));
         if (linked) row.addEventListener("mouseleave", () => this.app.schema._portHover(p, false));
+        // Touch: tap a linked-port row → highlight it on the schema (single view
+        // — reveal neighbor) and lower the detail sheet. Previously highlight ran
+        // via mouseenter, and closing details (mouseleave) reset it immediately.
+        if (linked) row.addEventListener("click", e => {
+          if (e.target.closest("button")) return;                 // +IP etc. — leave alone
+          if (!(matchMedia("(pointer: coarse)").matches || innerWidth <= 760)) return;
+          const s = this.app.schema;
+          if (state.single) s._revealFromPort(p.otype, p.item.id);
+          else if (s._traceLocal) s._traceLocal(p.item);
+          document.body.classList.remove("sheet-open");
+        });
         if (edit) {
           const ab = mk("button", { text: "+IP", on: { click: ev =>
             this.app.ipform.open(dev, p.item, ev) } });
           row.appendChild(ab);
+          if (!linked) {   // free port can be deleted (occupied — remove cable first)
+            const db = mk("button", { className: "iface-del", title: "Удалить порт",
+              html: `<i class="mdi mdi-close"></i>`, on: { click: async ev => {
+                ev.stopPropagation();
+                try {
+                  await api("/dcim/interfaces/" + p.item.id + "/", "DELETE");
+                  setStatus("порт удалён", "ok"); await this.app.tree.reload();
+                } catch (e) { setStatus("не удалить порт: " + e.message, "err"); }
+              } } });
+            row.appendChild(db);
+          }
         }
         panel.appendChild(row);
       }
+    }
+    // Add a port (any type) right on the device — build mode.
+    if (edit) {
+      panel.appendChild(mk("button", { className: "addport-btn",
+        html: `<i class="mdi mdi-plus"></i> Добавить порт`,
+        on: { click: () => this._addPort(dev) } }));
     }
 
     const conns = state.cables.filter(c =>
@@ -192,31 +268,15 @@ export class DeviceManager {
           <div class="side">${sideHtml((c.b_terminations || [])[0])}</div>` }));
     }
 
-    // Сведения из БД по устройству (под «Соединениями») — основные поля NetBox.
-    const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
-    const info = [
-      ["Статус", dev.status && (dev.status.label || dev.status.value)],
-      ["Роль", val(dev.role)], ["Тип", val(dev.device_type)],
-      ["Платформа", val(dev.platform)],
-      ["Площадка", val(dev.site)], ["Серверная", val(dev.location)],
-      ["Стойка", val(dev.rack)], ["Юнит", dev.position != null ? "U" + dev.position : ""],
-      ["Серийный №", dev.serial], ["Инв. №", dev.asset_tag],
-      ["Описание", dev.description],
-    ].filter(([, v]) => v);
-    if (info.length) {
-      panel.appendChild(mk("h4", { text: "Сведения" }));
-      const box = mk("div", { className: "dev-info" });
-      for (const [k, v] of info)
-        box.appendChild(mk("div", { className: "di-row", html: `<span class="di-k">${k}</span><span class="di-v">${v}</span>` }));
-      panel.appendChild(box);
-    }
   }
 
-  // Паспорт силового щита (Power Panel) — клик по названию щитка на схеме.
-  // Не устройство, поэтому this.current сбрасываем (иначе onChange("schema")
-  // попытается перерисовать его как device через show()).
+  // Power Panel passport — click the panel name on the schema. Not a device,
+  // so we clear this.current (else onChange("schema") would try to re-render
+  // it as a device via show()).
   showPanel(panel) {
     this.current = null;
+    this.currentStack = null;
+    if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(null);
     this.currentPanel = panel;
     const el = $("#detail");
     const feeds = (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === panel.id);
@@ -224,7 +284,7 @@ export class DeviceManager {
     const edit = this._editable();
     el.innerHTML = this._detailHead(panel.name, `силовой щит · ${loc} · ${feeds.length} фид.`);
     Mode.syncButtons("detail");
-    // Карандаш у названия щита (в правке) — переименовать сам щит.
+    // Pencil by the panel name (in edit) — rename the panel itself.
     if (edit) {
       const pen = mk("button", { className: "head-edit", title: "Изменить щит",
         html: `<i class="mdi mdi-pencil"></i>`,
@@ -244,8 +304,8 @@ export class DeviceManager {
         html: `<div class="side">${chip(f.name, "c-dev")}${va ? `<span style="color:var(--muted);font-size:11px">${va}</span>` : ""}</div>
           <div class="mid">→</div>
           <div class="side">${chip(rack, "")}<span style="color:var(--muted);font-size:11px">${st}</span></div>` });
-      // В режиме правки — «изменить» (в т.ч. стойку «куда идёт») и «удалить»
-      // фидер прямо из паспорта щита (удобнее, чем искать его в дереве).
+      // In edit mode — «edit» (incl. destination rack) and «delete» the feeder
+      // right from the panel passport (easier than finding it in the tree).
       if (edit) {
         const info = { kind: "feed", id: f.id, name: f.name };
         const acts = mk("div", { className: "feed-acts" });
@@ -258,8 +318,8 @@ export class DeviceManager {
       el.appendChild(row);
     }
   }
-  // Переименовать силовой щит (карандаш в паспорте). После reload берём свежий
-  // объект щита и перепоказываем паспорт.
+  // Rename power panel (pencil in passport). After reload, take the fresh
+  // panel object and re-show the passport.
   _editPanel(panel) {
     this.app.openModal("Изменить щит", "Текущее: " + panel.name,
       [{ id: "name", label: "Название щита", value: panel.name }],
@@ -272,12 +332,11 @@ export class DeviceManager {
       }, "Сохранить");
   }
 
-  // Добавить «готовое решение» из палитры/меню «Добавить» (kind="device").
-  // Тип устройства НЕ спрашиваем (это и есть решение); спрашиваем имя + число
-  // сетевых портов и портов питания. Проверяем справочник DeviceType по модели
-  // решения; если модели нет — она будет создана в справочнике (под общим
-  // производителем), о чём предупреждаем в подзаголовке модалки. Роль решения
-  // создаётся при нужде. ctx: {siteId, locId, locName} — из места дропа.
+  // Add a «ready solution» from the palette/«Add» menu (kind="device"). Device
+  // type NOT asked (it IS the solution); ask name + network/power port counts.
+  // Check the DeviceType catalog by the solution's model; if missing, it's
+  // created (under the shared manufacturer), warned in the modal subtitle. Role
+  // created on demand. ctx: {siteId, locId, locName} — from the drop spot.
   async addSolution(item, ctx = {}) {
     const sites = state.group
       ? [...new Map(state.group.filter(r => r.site).map(r => [r.site.id, r.site])).values()] : [];
@@ -287,56 +346,149 @@ export class DeviceManager {
       .some(t => (t.model || "").toLowerCase() === String(item.model || "").toLowerCase());
     const where = (ctx.locName ? "локация: " + ctx.locName : "вне стойки")
       + (typeExists ? "" : ` · тип «${item.model}» будет добавлен в справочник`);
-    this.openModal("Добавить: " + item.label, where,
-      [
-        { id: "name", label: "Имя", value: item.label, placeholder: item.label },
-        { id: "net", label: "Сетевых портов", value: String(item.net ?? 1) },
-        { id: "power", label: "Портов питания", value: String(item.power ?? 0) },
-      ],
+    // Modal fields: name + either port GROUPS with types (item.ports — a counter
+    // field per group), or one «Сетевых портов» (net fallback) + «Портов питания».
+    const groups = Array.isArray(item.ports) ? item.ports : null;
+    const fields = [{ id: "name", label: "Имя", value: item.label, placeholder: item.label }];
+    if (groups) groups.forEach((g, i) => fields.push({ id: "g" + i, label: g.label || "Портов", value: String(g.count ?? 1) }));
+    else fields.push({ id: "net", label: "Сетевых портов", value: String(item.net ?? 1) });
+    fields.push({ id: "power", label: "Портов питания", value: String(item.power ?? 0) });
+    this.openModal("Добавить: " + item.label, where, fields,
       async v => {
         if (!v.name) throw new Error("укажи имя");
-        const net = Math.max(0, parseInt(v.net, 10) || 0);
         const power = Math.max(0, parseInt(v.power, 10) || 0);
         const dt = await this._ensureDeviceType(item.model);
         const role = await this._ensureRole(item.role || item.label, item.roleColor || "607d8b");
         const body = { name: v.name, role: role.id, device_type: dt.id, site: +siteId, status: "active" };
-        if (ctx.locId) body.location = +ctx.locId;   // положить в локацию из дропа
+        if (ctx.locId) body.location = +ctx.locId;   // place into the drop's location
         const dev = await api("/dcim/devices/", "POST", body);
-        // Порты — по числу, прямо на устройстве (у нашего типа шаблонов нет).
-        // Уже существующие по имени не дублируем.
-        const haveIf = new Set((await apiAll("/dcim/interfaces/?device_id=" + dev.id)).map(i => i.name));
-        for (let i = 1; i <= net; i++) {
-          if (haveIf.has("eth" + i)) continue;
-          await api("/dcim/interfaces/", "POST", { device: dev.id, name: "eth" + i, type: "1000base-t" });
+        // Data ports: typed groups (copper/optic/…) or one eth set by net.
+        let net = 0;
+        if (groups) {
+          for (let i = 0; i < groups.length; i++) {
+            const g = groups[i], cnt = Math.max(0, parseInt(v["g" + i], 10) || 0);
+            net += cnt;
+            await this._createPorts(dev.id, g.kind || "interface", g.type, g.prefix || "eth", cnt);
+          }
+        } else {
+          net = Math.max(0, parseInt(v.net, 10) || 0);
+          await this._createPorts(dev.id, "interface", "1000base-t", "eth", net);
         }
-        const havePwr = new Set((await apiAll("/dcim/power-ports/?device_id=" + dev.id)).map(p => p.name));
-        for (let i = 1; i <= power; i++) {
-          if (havePwr.has("PSU" + i)) continue;
-          await api("/dcim/power-ports/", "POST", { device: dev.id, name: "PSU" + i });
-        }
-        setStatus(`создано: ${v.name} (сеть ${net}, питание ${power})`, "ok");
+        await this._createPorts(dev.id, "power", null, "PSU", power);
+        setStatus(`создано: ${v.name} (портов ${net}, питание ${power})`, "ok");
         await this.app.tree.reload();
       }, "Создать");
   }
-  // Стойка из палитры/меню — переиспользуем модалку дерева, площадка/серверная
-  // из места дропа.
+  // Generic: create count ports of given kind (interface/power/poweroutlet/
+  // console), names prefix+N, type type (interface only). Idempotent — don't
+  // duplicate existing names.
+  async _createPorts(devId, kind, type, prefix, count) {
+    count = Math.max(0, parseInt(count, 10) || 0);
+    if (!count) return;
+    if (kind === "frontrear") { await this._createPatchPorts(devId, type, prefix, count); return; }
+    const EP = { interface: "interfaces", power: "power-ports", poweroutlet: "power-outlets",
+      console: "console-ports", "console-server": "console-server-ports" };
+    const ep = EP[kind] || "interfaces";
+    const have = new Set((await apiAll(`/dcim/${ep}/?device_id=${devId}`)).map(p => p.name));
+    for (let i = 1; i <= count; i++) {
+      const name = (prefix || "") + i;
+      if (have.has(name)) continue;
+      const b = { device: devId, name };
+      if (kind === "interface") b.type = type || "1000base-t";
+      await api(`/dcim/${ep}/`, "POST", b);
+    }
+  }
+  // Real patch panel: count rear+front pairs, 1:1 mapping. Mapping is set via
+  // FrontPort serializer's writable rear_ports field (in NetBox 4.6 FrontPort
+  // has NO rear_port field — the link lives in a separate PortMapping model with
+  // no REST endpoint, so the only path from the front is POST front-ports with
+  // rear_ports). Only a «through» panel (front↔rear) lets NetBox trace sw→sw.
+  // type — CONNECTOR type (8p8c copper / lc optic), not interface.
+  async _createPatchPorts(devId, type, prefix, count) {
+    const ct = type || "8p8c";
+    const px = prefix || "Порт ";
+    const haveF = new Set((await apiAll(`/dcim/front-ports/?device_id=${devId}`)).map(p => p.name));
+    const haveR = new Map((await apiAll(`/dcim/rear-ports/?device_id=${devId}`)).map(p => [p.name, p.id]));
+    for (let i = 1; i <= count; i++) {
+      const fName = px + i, rName = px + i + " (тыл)";
+      if (haveF.has(fName)) continue;                    // idempotent — don't duplicate the pair
+      let rid = haveR.get(rName);
+      if (rid == null) {
+        const rp = await api("/dcim/rear-ports/", "POST", { device: devId, name: rName, type: ct, positions: 1 });
+        rid = rp.id; haveR.set(rName, rid);
+      }
+      await api("/dcim/front-ports/", "POST", {
+        device: devId, name: fName, type: ct, positions: 1,
+        rear_ports: [{ position: 1, rear_port: rid, rear_port_position: 1 }],
+      });
+    }
+  }
+  // «Add port» modal: name + port type (+ iface type). Creates one port.
+  _addPort(dev) {
+    this.openModal("Добавить порт: " + dev.name, "",
+      [
+        { id: "name", label: "Имя", placeholder: "eth1" },
+        { id: "kind", label: "Тип порта", type: "select", options: [
+          { value: "interface", label: "Сетевой (интерфейс)" },
+          { value: "frontrear", label: "Патч-пара (front+rear)" },
+          { value: "power", label: "Ввод питания" },
+          { value: "poweroutlet", label: "Розетка питания" },
+          { value: "console", label: "Консоль" },
+        ] },
+        { id: "iftype", label: "Тип интерфейса (для сетевого)", type: "select", options: [
+          { value: "1000base-t", label: "1G медь (RJ45)" },
+          { value: "1000base-x-sfp", label: "1G оптика (SFP)" },
+          { value: "10gbase-t", label: "10G медь" },
+          { value: "10gbase-x-sfpp", label: "10G оптика (SFP+)" },
+          { value: "other", label: "Другой" },
+        ] },
+        { id: "conntype", label: "Коннектор (для патч-пары)", type: "select", options: [
+          { value: "8p8c", label: "RJ45 (медь, 8P8C)" },
+          { value: "lc", label: "LC (оптика)" },
+          { value: "sc", label: "SC (оптика)" },
+          { value: "mpo", label: "MPO (оптика)" },
+        ] },
+      ],
+      async v => {
+        if (!v.name) throw new Error("укажи имя");
+        // Patch pair: rear + front with 1:1 mapping → device becomes «through».
+        if (v.kind === "frontrear") {
+          const ct = v.conntype || "8p8c";
+          const rp = await api("/dcim/rear-ports/", "POST", { device: dev.id, name: v.name + " (тыл)", type: ct, positions: 1 });
+          await api("/dcim/front-ports/", "POST", { device: dev.id, name: v.name, type: ct, positions: 1,
+            rear_ports: [{ position: 1, rear_port: rp.id, rear_port_position: 1 }] });
+          setStatus("патч-пара добавлена: " + v.name, "ok");
+          await this.app.tree.reload();
+          return;
+        }
+        const EP = { interface: "interfaces", power: "power-ports", poweroutlet: "power-outlets", console: "console-ports" };
+        const ep = EP[v.kind] || "interfaces";
+        const b = { device: dev.id, name: v.name };
+        if (v.kind === "interface") b.type = v.iftype || "1000base-t";
+        await api("/dcim/" + ep + "/", "POST", b);
+        setStatus("порт добавлен: " + v.name, "ok");
+        await this.app.tree.reload();
+      }, "Добавить");
+  }
+  // Rack from palette/menu — reuse the tree modal, site/location from the
+  // drop spot.
   addRack(ctx = {}) {
     const site = (state.sites || []).find(s => s.id === +ctx.siteId) || { id: +ctx.siteId, name: "" };
     this.app.tree._createRack({ id: site.id, name: site.name }, { id: +ctx.locId, name: ctx.locName || "" });
   }
-  // Распределительный щиток (Power Panel) из палитры/меню.
+  // Power Panel from the palette/menu.
   addPanel(ctx = {}) {
     const site = (state.sites || []).find(s => s.id === +ctx.siteId) || { id: +ctx.siteId, name: "" };
     this.app.tree._createPanel({ id: site.id, name: site.name }, { id: +ctx.locId, name: ctx.locName || "" });
   }
-  // Справочник: найти производителя по имени или создать.
+  // Catalog: find manufacturer by name or create.
   async _ensureManufacturer(name) {
     const list = await apiAll("/dcim/manufacturers/?name=" + encodeURIComponent(name));
     if (list.length) return list[0];
     return await api("/dcim/manufacturers/", "POST", { name, slug: slugify(name) });
   }
-  // Справочник: найти DeviceType по модели (без учёта регистра) или создать его
-  // под общим производителем (готовое решение). Кэшируем в state.dtypes.
+  // Catalog: find DeviceType by model (case-insensitive) or create it under the
+  // shared manufacturer (ready solution). Cached in state.dtypes.
   async _ensureDeviceType(model) {
     let dt = Object.values(state.dtypes)
       .find(t => (t.model || "").toLowerCase() === String(model).toLowerCase());
@@ -347,7 +499,7 @@ export class DeviceManager {
     state.dtypes[dt.id] = dt;
     return dt;
   }
-  // Справочник: найти роль по имени или создать (цвет решения).
+  // Catalog: find role by name or create (solution color).
   async _ensureRole(name, color) {
     let r = Object.values(state.roles)
       .find(x => (x.name || "").toLowerCase() === String(name).toLowerCase());
@@ -357,11 +509,11 @@ export class DeviceManager {
     return r;
   }
 
-  // Полная модалка редактирования устройства (карандаш на правой грани ноды в
-  // режиме правки) — основные поля дефолтной формы NetBox: имя, статус, роль,
-  // тип, платформа, площадка/серверная/стойка/юнит/сторона, серийник, инв.номер,
-  // описание. Платформы подгружаем разово. Юнит/сторона имеют смысл только со
-  // стойкой → без стойки шлём null (иначе NetBox отклонит).
+  // Full device edit modal (pencil on the node's right edge in edit mode) —
+  // core fields of NetBox's default form: name, status, role, type, platform,
+  // site/location/rack/unit/face, serial, asset tag, description. Platforms
+  // loaded once. Unit/face only make sense with a rack → without one send null
+  // (else NetBox rejects).
   async editDevice(dev) {
     const roles = Object.values(state.roles), types = Object.values(state.dtypes);
     const sites = state.sites || [], locs = state.locations || [], racks = state.racks || [];
@@ -407,7 +559,7 @@ export class DeviceManager {
           site: +v.site,
           location: v.location ? +v.location : null,
           rack,
-          // Юнит/сторона имеют смысл только в стойке.
+          // Unit/face only make sense in a rack.
           position: rack && v.position !== "" ? +v.position : null,
           face: rack && v.face ? v.face : null,
           serial: v.serial || "",
@@ -420,17 +572,22 @@ export class DeviceManager {
       }, "Сохранить");
   }
 
-  // Паспорт ЛОКАЦИИ (клик по серверной в дереве): список её устройств —
-  // по стойкам + «Вне стоек» (потребители). Каждое кликабельно → его паспорт.
-  // Данные берём из уже загруженного state.devices (scope=локация → это её девайсы).
+  // LOCATION passport (click a location in the tree): its devices — by rack +
+  // «Вне стоек» (consumers). Each clickable → its passport. Data from the
+  // already loaded state.devices (scope=location → its devices).
   showLocation(loc) {
-    this.current = null; this.currentPanel = null;
+    this.current = null; this.currentPanel = null; this.currentStack = null;
     const el = $("#detail");
     const rackDevs = state.devices.filter(d => d.rack);
     const offDevs = state.devices.filter(d => d._off && d.location && d.location.id === loc.id);
     const total = rackDevs.length + offDevs.length;
-    el.innerHTML = this._detailHead(loc.name, "серверная · " + total + " устройств");
+    // Site name ABOVE the location name (what the location belongs to).
+    const site = ((state.locations || []).find(l => l.id === loc.id) || loc).site;
+    const over = site ? `<a class="crumb-site">${site.name}</a>` : "";
+    el.innerHTML = this._detailHead(loc.name, "серверная · " + total + " устройств", over);
     Mode.syncButtons("detail");
+    const sc = el.querySelector(".crumb-site");
+    if (sc && site) sc.addEventListener("click", () => this.app.tree.selectScope("site", site.id, site.name));
     const row = d => {
       const color = (state.roles[d.role && d.role.id] || {}).color || "607d8b";
       const r = mk("div", { className: "loc-dev",
@@ -440,7 +597,7 @@ export class DeviceManager {
       r.addEventListener("click", () => this.show(d));
       return r;
     };
-    // По стойкам (сверху вниз по позиции).
+    // By rack (top-down by position).
     const byRack = {};
     for (const d of rackDevs) { const k = (d.rack.name || d.rack.display || "?"); (byRack[k] = byRack[k] || []).push(d); }
     for (const rk of Object.keys(byRack).sort()) {
@@ -454,14 +611,19 @@ export class DeviceManager {
     if (!total) el.appendChild(mk("div", { className: "placeholder", text: "устройств нет" }));
   }
 
-  // Паспорт ПЛОЩАДКИ (клик по площадке в дереве): список её серверных. Клик по
-  // серверной → загрузить её область (selectScope) и показать её паспорт.
+  // SITE passport (click a site in the tree): its locations. Click a location →
+  // load its scope (selectScope) and show its passport.
   showSite(site) {
-    this.current = null; this.currentPanel = null;
+    this.current = null; this.currentPanel = null; this.currentStack = null;
     const el = $("#detail");
     const locs = (state.locations || []).filter(l => l.site && l.site.id === site.id);
-    el.innerHTML = this._detailHead(site.name, "площадка · " + locs.length + " серверных");
+    // Site group ABOVE the site name (what the site belongs to).
+    const group = ((state.sites || []).find(s => s.id === site.id) || site).group;
+    const over = group ? `<a class="crumb-site">${group.name}</a>` : "";
+    el.innerHTML = this._detailHead(site.name, "площадка · " + locs.length + " серверных", over);
     Mode.syncButtons("detail");
+    const gc = el.querySelector(".crumb-site");
+    if (gc && group) gc.addEventListener("click", () => this.app.tree.selectScope("sitegroup", group.id, group.name));
     if (!locs.length) { el.appendChild(mk("div", { className: "placeholder", text: "серверных нет" })); return; }
     el.appendChild(mk("h4", { text: "Серверные" }));
     for (const loc of locs) {
@@ -473,9 +635,9 @@ export class DeviceManager {
       el.appendChild(r);
     }
   }
-  // Паспорт ГРУППЫ МЕСТ: подгруппы + площадки. Клик → перейти в них (selectScope).
+  // SITE-GROUP passport: subgroups + sites. Click → go into them (selectScope).
   showGroup(group) {
-    this.current = null; this.currentPanel = null;
+    this.current = null; this.currentPanel = null; this.currentStack = null;
     const el = $("#detail");
     const subs = (state.siteGroups || []).filter(g => g.parent && g.parent.id === group.id);
     const sites = (state.sites || []).filter(s => s.group && s.group.id === group.id);
@@ -504,12 +666,12 @@ export class DeviceManager {
     if (!subs.length && !sites.length) el.appendChild(mk("div", { className: "placeholder", text: "пусто" }));
   }
 
-  // Привести компоненты устройства к его device type. NetBox инстанцирует порты
-  // из шаблонов только при СОЗДАНИИ и не пересоздаёт при смене типа — это
-  // действие ДОБАВЛЯЕТ недостающие и УДАЛЯЕТ лишние (которых нет в типе), чтобы
-  // порты соответствовали типу (напр. у PDU — розетки, а не интерфейсы свича).
-  // Удаление лишнего сносит и висящие на них кабели → спрашиваем подтверждение.
-  // Все виды компонентов; front-порты/розетки ссылаются на rear/power по имени.
+  // Reconcile device components to its device type. NetBox instantiates ports
+  // from templates only on CREATE and won't recreate on a type change — this
+  // ADDS missing and DELETES extra ones (not in the type) so ports match the
+  // type (e.g. a PDU has outlets, not switch interfaces). Deleting extras also
+  // drops their cables → we ask for confirmation. All component kinds; front-
+  // ports/outlets reference rear/power by name.
   KIND_ENDPOINTS = [
     ["interface-templates", "interfaces"],
     ["console-port-templates", "console-ports"],
@@ -535,8 +697,8 @@ export class DeviceManager {
           toDelete: existing.filter(c => !tmplNames.has(c.name)) });
       }
       const nDelete = plans.reduce((s, p) => s + p.toDelete.length, 0);
-      // Число добавляемых считаем как разницу шаблонов и уже имеющихся имён —
-      // но проще собрать при создании; для диалога хватит «привести к типу».
+      // Count of additions = templates minus existing names — but easier to
+      // gather at creation; for the dialog «reconcile to type» is enough.
       this.openModal("Привести порты к типу?",
         `Тип: ${dev.device_type.model}. Добавлю недостающие компоненты и удалю ${nDelete} лишних (которых нет в типе). Удаление снимет кабели на этих портах — действие необратимо.`,
         [], async () => this._applySync(dev, dtId, plans), "Применить");
@@ -547,13 +709,13 @@ export class DeviceManager {
   async _applySync(dev, dtId, plans) {
     setStatus("привожу порты к типу…");
     try {
-      // 1) Удаляем лишние. Сперва зависимые (front-порты, розетки), потом
-      //    остальные (rear/power-порты и т.д.) — чтобы не ловить конфликты FK.
+      // 1) Delete extras. Dependents first (front-ports, outlets), then the
+      //    rest (rear/power-ports etc.) — to avoid FK conflicts.
       const delOrder = ["front-ports", "power-outlets", "interfaces",
         "console-ports", "console-server-ports", "rear-ports", "power-ports"];
       const byComp = {}; plans.forEach(p => byComp[p.comp] = p);
-      // IP, назначенные на интерфейсы устройства → снимаем перед удалением порта
-      // (назначенный IP держит интерфейс: PROTECT → 409). Один запрос на устройство.
+      // IPs assigned to device interfaces → unassign before deleting a port (an
+      // assigned IP holds the interface: PROTECT → 409). One request per device.
       const ipsByIface = {};
       try {
         for (const ip of await apiAll(`/ipam/ip-addresses/?device_id=${dev.id}`))
@@ -566,8 +728,8 @@ export class DeviceManager {
         if (!p) continue;
         for (const c of p.toDelete) {
           try {
-            // Порт с зависимостями NetBox удалить не даёт (409, PROTECT). Сперва
-            // снимаем кабель, а с интерфейса — назначенные IP, потом сам порт.
+            // NetBox won't delete a port with dependencies (409, PROTECT). First
+            // remove the cable, and IPs from the interface, then the port itself.
             const cableId = c.cable && (c.cable.id || c.cable);
             if (cableId) { try { await api(`/dcim/cables/${cableId}/`, "DELETE"); } catch (_) {} }
             if (comp === "interfaces") for (const ip of ipsByIface[c.id] || []) {
@@ -579,8 +741,8 @@ export class DeviceManager {
           } catch (e) { failed.push(c.name); }
         }
       }
-      // 2) Создаём недостающие. Порядок: независимые + rear/power-порты раньше
-      //    front-портов и розеток (те ссылаются на них по имени; re-fetch внутри).
+      // 2) Create missing. Order: independents + rear/power-ports before front-
+      //    ports and outlets (which reference them by name; re-fetch inside).
       let created = 0;
       created += await this._syncKind(dev, dtId, "interface-templates", "interfaces");
       created += await this._syncKind(dev, dtId, "console-port-templates", "console-ports");
@@ -598,7 +760,7 @@ export class DeviceManager {
       setStatus("сбой синхронизации: " + e.message, "err");
     }
   }
-  // Простые компоненты (без ссылок на другие порты): создаём недостающие по имени.
+  // Simple components (no refs to other ports): create missing by name.
   async _syncKind(dev, dtId, tmplEp, compEp) {
     const [tmpls, existing] = await Promise.all([
       apiAll(`/dcim/${tmplEp}/?devicetype_id=${dtId}`),
@@ -620,7 +782,7 @@ export class DeviceManager {
     }
     return n;
   }
-  // Front-порты ссылаются на rear-порт (по имени в шаблоне) — резолвим в id.
+  // Front-ports reference a rear-port (by name in the template) — resolve to id.
   async _syncFrontPorts(dev, dtId) {
     const [tmpls, existing, rears] = await Promise.all([
       apiAll(`/dcim/front-port-templates/?devicetype_id=${dtId}`),
@@ -633,7 +795,7 @@ export class DeviceManager {
     for (const t of tmpls) {
       if (have.has(t.name)) continue;
       const rearId = t.rear_port && rearByName[t.rear_port.name];
-      if (!rearId) continue;   // без соответствующего rear-порта фронт не создать
+      if (!rearId) continue;   // no matching rear-port → can't create the front
       await api("/dcim/front-ports/", "POST", {
         device: dev.id, name: t.name, ...(t.type ? { type: t.type.value } : {}),
         rear_port: rearId, rear_port_position: t.rear_port_position || 1,
@@ -642,7 +804,7 @@ export class DeviceManager {
     }
     return n;
   }
-  // Розетки питания могут ссылаться на power-порт (по имени) — резолвим опц.
+  // Power outlets may reference a power-port (by name) — resolve optionally.
   async _syncPowerOutlets(dev, dtId) {
     const [tmpls, existing, pports] = await Promise.all([
       apiAll(`/dcim/power-outlet-templates/?devicetype_id=${dtId}`),
@@ -663,5 +825,275 @@ export class DeviceManager {
       n++;
     }
     return n;
+  }
+
+  // ── Stack (VirtualChassis) ────────────────────────────────────────────────
+  // A switch stack is modelled as a NetBox VirtualChassis: separate physical
+  // switches grouped, each at a vc_position, one the master. It pulls no cables,
+  // so the whole UI lives in the passport (this block) + a stack passport
+  // (showStack), not on the canvas. Members are picked from lists — no wires.
+
+  // Next free vc_position among the given members (1-based).
+  _nextPos(members) {
+    return (members || []).reduce((mx, m) => Math.max(mx, m.vc_position || 0), 0) + 1;
+  }
+  // Base name without the "-N"/"/N" member suffix — the default stack name.
+  _stackBase(name) {
+    return String(name).replace(/[-/]\s*\d+\s*$/, "").trim() || String(name);
+  }
+  // Switches in the loaded scope that may be added to a stack: drop members
+  // already in THIS stack and obvious non-switches (panels/sockets/PDU/power).
+  // state.devices carries virtual_chassis from the graph endpoint.
+  _scopeSwitches(excludeVcId) {
+    const skip = /пач|panel|розет|socket|pdu|щит|power|ибп|ups|провайдер|provider/i;
+    return (state.devices || [])
+      .filter(d => !(d.virtual_chassis && d.virtual_chassis.id === excludeVcId))
+      .filter(d => !skip.test((d.role && d.role.name) || ""))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }
+
+  // "Стек" block in the device passport (before "Соединения").
+  _renderStackBlock(panel, dev, edit) {
+    const vc = dev.virtual_chassis;   // REST brief {id,name,master} or null
+    panel.appendChild(mk("h4", { text: "Стек" }));
+    if (!vc) {
+      panel.appendChild(mk("div", { className: "placeholder",
+        text: edit ? "не в стеке — создай новый или добавь в существующий" : "не входит в стек" }));
+      if (edit) {
+        const row = mk("div", { className: "stack-acts" });
+        row.appendChild(mk("button", { className: "stack-btn",
+          html: `<i class="mdi mdi-layers-plus"></i> Создать стек`,
+          on: { click: () => this._stackCreate(dev) } }));
+        row.appendChild(mk("button", { className: "stack-btn",
+          html: `<i class="mdi mdi-layers-triple"></i> В существующий`,
+          on: { click: () => this._stackJoinExisting(dev) } }));
+        panel.appendChild(row);
+      }
+      return;
+    }
+    const masterId = vc.master && (vc.master.id || vc.master);
+    const line = mk("div", { className: "stack-cur",
+      html: `<span class="ld-dot" style="background:var(--stack)"></span>` +
+        `<span class="ld-name">${vc.name}</span>` +
+        `<span class="ld-mut">поз. ${dev.vc_position ?? "—"}${masterId === dev.id ? " · ★ мастер" : ""}</span>` });
+    line.addEventListener("click", () => { this.app.schema._highlightStack(vc.id); this.showStack(vc, dev); });
+    panel.appendChild(line);
+    // The line above already opens the stack; in edit mode just offer detach.
+    if (edit) {
+      const row = mk("div", { className: "stack-acts" });
+      row.appendChild(mk("button", { className: "stack-btn danger",
+        html: `<i class="mdi mdi-close"></i> Убрать из стека`,
+        on: { click: () => this._stackDetachOne(dev) } }));
+      panel.appendChild(row);
+    }
+  }
+
+  // Stack passport: members by position (master ★), each clickable → its device.
+  // Opened from the node badge or the passport block. Highlights members on the
+  // canvas. Fetches the VC + its members fresh (accurate after edits/reload).
+  async showStack(vc, fromDev) {
+    this.current = null; this.currentPanel = null; this.currentStack = vc;
+    const el = $("#detail");
+    el.innerHTML = this._detailHead(`Стек «${vc.name || ""}»`, "загружаю…");
+    const [vcFull, members] = await Promise.all([
+      api("/dcim/virtual-chassis/" + vc.id + "/").catch(() => null),
+      apiAll("/dcim/devices/?virtual_chassis_id=" + vc.id).catch(() => []),
+    ]);
+    const name = (vcFull && vcFull.name) || vc.name || "";
+    const masterId = vcFull && vcFull.master && (vcFull.master.id || vcFull.master);
+    vc = { id: vc.id, name, master: masterId };
+    this.currentStack = vc;
+    if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(vc.id);
+    const edit = this._editable();
+    el.innerHTML = this._detailHead(`Стек «${name}»`, `${members.length} свич(ей)`);
+    Mode.syncButtons("detail");
+    if (edit) {
+      const pen = mk("button", { className: "head-edit", title: "Переименовать стек",
+        html: `<i class="mdi mdi-pencil"></i>`, on: { click: () => this._stackRename(vc) } });
+      el.querySelector(".detail-head h2").appendChild(pen);
+    }
+    el.appendChild(mk("h4", { text: "Участники (" + members.length + ")" }));
+    if (!members.length)
+      el.appendChild(mk("div", { className: "placeholder", text: "в стеке нет свичей" }));
+    const sorted = members.slice().sort((a, b) => (a.vc_position ?? 1e9) - (b.vc_position ?? 1e9));
+    for (const m of sorted) {
+      const color = (state.roles[m.role && m.role.id] || {}).color || "607d8b";
+      const isMaster = m.id === masterId;
+      const r = mk("div", { className: "loc-dev",
+        html: `<span class="stack-pos">${m.vc_position ?? "—"}</span>` +
+          `<span class="ld-dot" style="background:#${color}"></span>` +
+          `<span class="ld-name">${m.name}</span>` +
+          `<span class="ld-mut">${isMaster ? "★ мастер" : ""}</span>` });
+      r.addEventListener("click", () => this.show(m));
+      if (edit) {
+        const acts = mk("div", { className: "stack-mem-acts" });
+        if (!isMaster) acts.appendChild(mk("button", { title: "Сделать мастером",
+          html: `<i class="mdi mdi-star"></i>`, on: { click: async e => {
+            e.stopPropagation();
+            try {
+              await api("/dcim/virtual-chassis/" + vc.id + "/", "PATCH", { master: m.id });
+              setStatus("мастер стека: " + m.name, "ok");
+              await this.app.tree.reload(); this.showStack(vc);
+            } catch (err) { setStatus("не удалось назначить мастера: " + err.message, "err"); } } } }));
+        acts.appendChild(mk("button", { className: "danger", title: "Убрать из стека",
+          html: `<i class="mdi mdi-close"></i>`, on: { click: e => {
+            e.stopPropagation(); this._stackRemoveMember(vc, m); } } }));
+        r.appendChild(acts);
+      }
+      el.appendChild(r);
+    }
+    if (edit) {
+      const row = mk("div", { className: "stack-acts" });
+      row.appendChild(mk("button", { className: "stack-btn",
+        html: `<i class="mdi mdi-link"></i> Добавить существующий`,
+        on: { click: () => this._stackAddMember(vc) } }));
+      row.appendChild(mk("button", { className: "stack-btn danger",
+        html: `<i class="mdi mdi-delete"></i> Расформировать`,
+        on: { click: () => this._stackDisband(vc, members) } }));
+      el.appendChild(row);
+    }
+  }
+
+  // Create a new stack with this switch as the master at position 1.
+  _stackCreate(dev) {
+    this.openModal("Создать стек", "Мастер: " + dev.name,
+      [{ id: "name", label: "Название стека", value: this._stackBase(dev.name) },
+       { id: "pos", label: "Позиция этого свича", value: "1" }],
+      async v => {
+        if (!v.name) throw new Error("укажи название стека");
+        const vc = await api("/dcim/virtual-chassis/", "POST", { name: v.name });
+        await api("/dcim/devices/" + dev.id + "/", "PATCH",
+          { virtual_chassis: vc.id, vc_position: v.pos ? +v.pos : 1 });
+        await api("/dcim/virtual-chassis/" + vc.id + "/", "PATCH", { master: dev.id });
+        setStatus("создан стек «" + v.name + "»", "ok");
+        await this.app.tree.reload();
+        this.showStack({ id: vc.id, name: v.name, master: dev.id });
+      }, "Создать");
+  }
+
+  // Add this switch to an already-existing stack (picked from a list).
+  async _stackJoinExisting(dev) {
+    let vcs = [];
+    try { vcs = await apiAll("/dcim/virtual-chassis/"); } catch (_) {}
+    if (!vcs.length) { setStatus("готовых стеков нет — создай новый", "err"); return; }
+    this.openModal("Добавить в стек", dev.name,
+      [{ id: "vc", label: "Стек", type: "select",
+         options: vcs.map(v => ({ value: v.id, label: v.name + " · " + (v.member_count ?? "?") + " свич." })) },
+       { id: "pos", label: "Позиция (пусто — авто)", placeholder: "авто" }],
+      async v => {
+        const vcId = +v.vc;
+        let pos = v.pos ? +v.pos : null;
+        if (pos == null) pos = this._nextPos(await apiAll("/dcim/devices/?virtual_chassis_id=" + vcId));
+        await api("/dcim/devices/" + dev.id + "/", "PATCH", { virtual_chassis: vcId, vc_position: pos });
+        setStatus("свич добавлен в стек", "ok");
+        await this.app.tree.reload();
+        const vc = vcs.find(x => x.id === vcId) || { id: vcId, name: "" };
+        this.showStack({ id: vcId, name: vc.name });
+      }, "Добавить");
+  }
+
+  // Add another scope switch into an open stack, at a chosen/next position.
+  async _stackAddMember(vc) {
+    const cands = this._scopeSwitches(vc.id);
+    if (!cands.length) { setStatus("нет подходящих свичей в текущей области", "err"); return; }
+    const members = await apiAll("/dcim/devices/?virtual_chassis_id=" + vc.id).catch(() => []);
+    const nextPos = this._nextPos(members);
+    this.openModal("Добавить свич в стек «" + vc.name + "»", "",
+      [{ id: "dev", label: "Свич", type: "select",
+         options: cands.map(d => ({ value: d.id,
+           label: d.name + (d.role && d.role.name ? " · " + d.role.name : "")
+             + (d.virtual_chassis ? " · (в др. стеке)" : "") })) },
+       { id: "pos", label: "Позиция", value: String(nextPos) }],
+      async v => {
+        await api("/dcim/devices/" + (+v.dev) + "/", "PATCH",
+          { virtual_chassis: vc.id, vc_position: v.pos ? +v.pos : nextPos });
+        setStatus("свич добавлен в стек", "ok");
+        await this.app.tree.reload();
+        this.showStack(vc);
+      }, "Добавить");
+  }
+
+  // Detach this switch from its stack (passport button) → re-show it stackless.
+  async _stackDetachOne(dev) {
+    const vc = dev.virtual_chassis;
+    if (!vc) return;
+    try {
+      await this._detach(vc.id, dev.id);
+      setStatus("свич убран из стека", "ok");
+      await this.app.tree.reload();
+      this.show({ id: dev.id });
+    } catch (e) { setStatus("не удалось убрать из стека: " + e.message, "err"); }
+  }
+
+  // Detach a member from the open stack panel → re-show the stack (or clear it
+  // if that was the last switch).
+  async _stackRemoveMember(vc, member) {
+    try {
+      await this._detach(vc.id, member.id);
+      setStatus("свич убран из стека: " + member.name, "ok");
+      await this.app.tree.reload();
+      const left = await apiAll("/dcim/devices/?virtual_chassis_id=" + vc.id).catch(() => []);
+      if (left.length) this.showStack(vc); else this._stackGone();
+    } catch (e) { setStatus("не удалось убрать: " + e.message, "err"); }
+  }
+
+  // Core detach: hand off master to the lowest-position peer (VC.master is
+  // PROTECT), clear the device's membership, delete the VC if it becomes empty.
+  async _detach(vcId, devId) {
+    const [vc, members] = await Promise.all([
+      api("/dcim/virtual-chassis/" + vcId + "/").catch(() => null),
+      apiAll("/dcim/devices/?virtual_chassis_id=" + vcId).catch(() => []),
+    ]);
+    const others = members.filter(m => m.id !== devId);
+    const masterId = vc && vc.master && (vc.master.id || vc.master);
+    if (masterId === devId) {
+      if (others.length) {
+        const next = others.slice().sort((a, b) => (a.vc_position ?? 1e9) - (b.vc_position ?? 1e9))[0];
+        await api("/dcim/virtual-chassis/" + vcId + "/", "PATCH", { master: next.id });
+      } else {
+        await api("/dcim/virtual-chassis/" + vcId + "/", "PATCH", { master: null });
+      }
+    }
+    await api("/dcim/devices/" + devId + "/", "PATCH", { virtual_chassis: null, vc_position: null });
+    if (!others.length) { try { await api("/dcim/virtual-chassis/" + vcId + "/", "DELETE"); } catch (_) {} }
+  }
+
+  // Disband: detach every member (clearing master first) and delete the VC.
+  _stackDisband(vc, members) {
+    this.openModal("Расформировать стек?",
+      `Стек «${vc.name}» будет удалён, ${members.length} свич(ей) станут отдельными устройствами. Кабели не затрагиваются.`,
+      [], async () => {
+        try { await api("/dcim/virtual-chassis/" + vc.id + "/", "PATCH", { master: null }); } catch (_) {}
+        for (const m of members) {
+          try {
+            await api("/dcim/devices/" + m.id + "/", "PATCH", { virtual_chassis: null, vc_position: null });
+          } catch (_) {}
+        }
+        try { await api("/dcim/virtual-chassis/" + vc.id + "/", "DELETE"); } catch (_) {}
+        setStatus("стек расформирован", "ok");
+        await this.app.tree.reload();
+        this._stackGone();
+      }, "Расформировать");
+  }
+
+  // Rename the stack (pencil in the stack passport head).
+  _stackRename(vc) {
+    this.openModal("Переименовать стек", vc.name,
+      [{ id: "name", label: "Название", value: vc.name }],
+      async v => {
+        if (!v.name) throw new Error("пустое название");
+        await api("/dcim/virtual-chassis/" + vc.id + "/", "PATCH", { name: v.name });
+        setStatus("стек переименован: " + v.name, "ok");
+        await this.app.tree.reload();
+        this.showStack({ ...vc, name: v.name });
+      }, "Сохранить");
+  }
+
+  // The open stack no longer exists (disbanded / last member removed): clear the
+  // passport + canvas highlight.
+  _stackGone() {
+    this.currentStack = null;
+    if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(null);
+    $("#detail").innerHTML = `<div class="placeholder">стек расформирован</div>`;
   }
 }

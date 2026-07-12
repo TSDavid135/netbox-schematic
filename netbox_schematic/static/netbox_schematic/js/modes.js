@@ -1,17 +1,15 @@
 "use strict";
-// ModeManager: три независимых режима правки.
-// Раньше был один флаг body.edit. Теперь три: tree / rack / schema — по
-// одному на блок. Кнопка .modebtn несёт data-mode и переключает СВОЙ режим.
-// Класс на <body>: `<mode>-edit`. Слушатели подписываются на смену режима.
+// ModeManager: three independent edit modes.
+// Previously one body.edit flag; now three (tree / rack / schema), one per
+// block. A .modebtn carries data-mode and toggles ITS mode. Body class:
+// `<mode>-edit`. Listeners subscribe to mode changes.
 
 import { $ } from "./core.js";
-
-export const MODES = ["tree", "rack", "schema", "detail"];
 
 class ModeManager {
   constructor() {
     this.listeners = { tree: [], rack: [], schema: [], detail: [] };
-    // делегирование: любой клик по .modebtn переключает её режим
+    // delegation: any .modebtn click toggles its mode
     document.addEventListener("click", ev => {
       const btn = ev.target.closest(".modebtn");
       if (!btn) return;
@@ -23,14 +21,14 @@ class ModeManager {
   on(mode) { return document.body.classList.contains(this.cls(mode)); }
   toggle(mode) {
     const active = document.body.classList.toggle(this.cls(mode));
-    // синхронизируем aria у всех кнопок этого режима
+    // sync aria on all buttons of this mode
     document.querySelectorAll(`.modebtn[data-mode="${mode}"]`).forEach(b =>
       b.setAttribute("aria-pressed", active ? "true" : "false"));
     (this.listeners[mode] || []).forEach(fn => fn(active));
   }
-  // подписка на смену конкретного режима (для перерисовки блока)
+  // subscribe to a mode change (to redraw the block)
   onChange(mode, fn) { (this.listeners[mode] || (this.listeners[mode] = [])).push(fn); }
-  // при (пере)рендере блока привести aria его кнопок в актуальное состояние
+  // on (re)render, refresh the block's button aria
   syncButtons(mode) {
     const active = this.on(mode);
     document.querySelectorAll(`.modebtn[data-mode="${mode}"]`).forEach(b =>

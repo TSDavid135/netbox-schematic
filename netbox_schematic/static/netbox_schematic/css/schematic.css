@@ -1,4 +1,4 @@
-  /* Токены темы вынесены в theme.css (подключается перед этим файлом). */
+  /* Theme tokens moved to theme.css (loaded before this file). */
   * { box-sizing: border-box; }
   html { scrollbar-color: var(--scroll-thumb) transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -6,25 +6,38 @@
   ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 5px; border: 2px solid var(--bg); }
   ::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
   ::-webkit-scrollbar-corner { background: transparent; }
-  html, body { height: 100%; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: "Segoe UI", system-ui, sans-serif; font-size: 14px;
     display: flex; flex-direction: column;
   }
 
-  /* верхняя панель */
+  /* topbar */
   #topbar {
     display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
     padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
     position: relative;
   }
   #topbar .brand { font-weight: 650; font-size: 17px; margin-right: 8px; }
-  /* «СХЕМАТИКА» — фирменный бирюзовый (капсом через side-head) */
+  /* Brand wordmark — teal (caps via side-head) */
   #topbar .brand small.side-head { font-weight: 700; font-size: 13px; padding: 0; }
   #topbar .brand .brand-schem { color: #00f2d4 !important; }
-  /* Название холста — не капсом, с большой буквы, нейтральный акцент */
+  /* Canvas name — not caps, capitalized, neutral accent */
   #topbar .brand .brand-canvas { color: var(--accent); font-size: 15px; font-weight: 600; }
+  /* Schema switcher — native <select> (iOS gives its native picker). Styled
+     as a heading; keep the native arrow/look as a "tap me" affordance. */
+  #topbar .brand .brand-sep { color: var(--muted); }
+  #topbar .brand .brand-canvas-select {
+    font: inherit; font-size: 15px; font-weight: 600; color: var(--accent);
+    background: transparent; border: none; cursor: pointer; padding: 2px 2px 2px 4px;
+    max-width: 52vw; vertical-align: baseline;
+  }
+  #topbar .brand .brand-canvas-select:focus { outline: none; }
+  #topbar .brand .brand-canvas-select:hover { color: var(--text); }
+  /* Options inherit the transparent select bg → invisible in the dropdown popup.
+     Give them explicit panel bg + text color. */
+  #topbar .brand .brand-canvas-select option { background: var(--panel); color: var(--text); font-weight: 500; }
   .topbar-spacer { flex: 1; }
   #backlink {
     display: inline-flex; align-items: center; gap: 5px;
@@ -34,16 +47,38 @@
   #backlink .mdi { font-size: 17px; }
   #themetoggle { font-size: 16px; line-height: 1; padding: 6px 10px; color: var(--muted); }
   #themetoggle:hover { color: var(--accent); }
-  /* Кнопка ручного обновления данных из NetBox */
+  /* Manual data-refresh button from NetBox */
   #syncbtn { color: var(--muted); }
   #syncbtn:hover { color: var(--accent); }
-  /* «NetBox» в бренде — кликабельная ссылка на главную NetBox. */
+  /* "NetBox" in the brand — clickable link to the NetBox home. */
   #topbar .brand .brand-link { color: inherit; text-decoration: none; }
   #topbar .brand .brand-link:hover { color: var(--accent); }
-  /* Экспорт/Импорт (заглушки) — слева от поиска, стиль как у «Обновить». */
+  /* Styled hover/focus tooltip for topbar controls (data-tip) — a dark bubble
+     with a pointer, like NetBox's own, instead of the OS `title` popup. */
+  [data-tip] { position: relative; }
+  [data-tip]::after {
+    content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%;
+    transform: translateX(-50%) translateY(4px); background: #0f151b; color: #eef2f6;
+    font-size: 12px; font-weight: 500; line-height: 1.2; white-space: nowrap;
+    padding: 5px 9px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.4);
+    opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; z-index: 200;
+  }
+  [data-tip]::before {
+    content: ""; position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%);
+    border: 5px solid transparent; border-bottom-color: #0f151b;
+    opacity: 0; pointer-events: none; transition: opacity .12s ease; z-index: 200;
+  }
+  [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+  [data-tip]:hover::before, [data-tip]:focus-visible::before { opacity: 1; }
+  /* Export/Import (stubs) — left of search, styled like "Refresh". */
   .tb-act { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
   .tb-act:hover { color: var(--accent); }
-  /* Блок пользователя в шапке (как в NetBox): имя + выпадающее меню. */
+  /* Audit is an Infrastructure tool — hide it on the «Сети» (network) canvas. */
+  body[data-canvas="network"] #auditbtn { display: none !important; }
+  /* `display` on a class beats the `hidden` attribute — restore it globally so
+     `hidden` actually hides (used to park the import/export buttons). */
+  [hidden] { display: none !important; }
+  /* Topbar user block (like NetBox): name + dropdown menu. */
   #userbox { position: relative; }
   #userbtn {
     display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
@@ -65,12 +100,11 @@
   }
   #usermenu a:hover { background: var(--panel-2); color: var(--accent); }
   #usermenu a .mdi { font-size: 15px; color: var(--muted); }
-  /* Поиск устройства (#devsearch) и фильтр по ролям (#rolefilter) вынесены
-     в panels.css. */
-  /* Переключатель режима — надпись по центру сверху блока. «Просмотр» синим,
-     «Редактирование» оранжевым. Подсветка = мягкий овал с растворёнными
-     границами (radial-gradient) + текст-тень. В просмотре овал только на
-     ховере (когда «переходишь» на правку), в правке — всегда. */
+  /* Device search (#devsearch) and role filter (#rolefilter) moved to panels.css. */
+  /* Mode toggle — label centered at the top of the block. "View" blue,
+     "Edit" orange. Highlight = soft oval with dissolved edges
+     (radial-gradient) + text-shadow. In view the oval shows only on
+     hover (approaching edit); in edit — always. */
   .modeswitch {
     position: absolute; z-index: 12; display: inline-flex; align-items: center;
     padding: 4px 12px; border: none; border-radius: 999px; background: transparent;
@@ -80,25 +114,29 @@
     transition: color 0.2s, background 0.28s ease, box-shadow 0.28s ease, text-shadow 0.28s ease;
   }
   .modeswitch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* Позиция: угол (дерево), в строке заголовка справа (стойки/IPAM), центр (схема).
-     Переключатель стоит на одном горизонтальном уровне с названием блока. */
+  /* Position: corner (tree), right of the title row (racks/IPAM), center (schema).
+     The toggle sits on the same horizontal level as the block title. */
   .modeswitch.ms-corner { top: 9px; right: 12px; }
   .modeswitch.ms-intitle { top: 50%; right: 14px; transform: translateY(-50%); }
   .modeswitch.schem-mid { top: 16px; left: 50%; transform: translateX(-50%); }
-  /* какая надпись видна — по aria-pressed (true = правка). В узких блоках
-     (.compact: дерево, стойки) правка сокращается до «Редакт.». */
+  /* Schema toggle — INLINE next to the view switch (Физический / Беспроводной)
+     in the top-right overlay bar (not absolute). Flex gap handles spacing. */
+  .modeswitch.schem-topbtn { position: static; transform: none; }
+  .modeswitch .mdi { font-size: 13px; }
+  /* which label shows — by aria-pressed (true = edit). In narrow blocks
+     (.compact: tree, racks) edit shrinks to the short form (.ms-edit-short). */
   .modeswitch .ms-edit-full, .modeswitch .ms-edit-short { display: none; }
   .modeswitch[aria-pressed="true"] .ms-view { display: none; }
   .modeswitch[aria-pressed="true"] .ms-edit-full { display: inline; }
   .modeswitch.compact[aria-pressed="true"] .ms-edit-full { display: none; }
   .modeswitch.compact[aria-pressed="true"] .ms-edit-short { display: inline; }
-  /* Просмотр: мягкая синяя тень/овал только на ховере */
+  /* View: soft blue shadow/oval only on hover */
   .modeswitch:hover {
     text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
     background: radial-gradient(ellipse at center,
       color-mix(in srgb, var(--accent) 26%, transparent), transparent 72%);
   }
-  /* Редактирование: мягкий оранжевый овал ВСЕГДА */
+  /* Edit: soft orange oval ALWAYS */
   .modeswitch[aria-pressed="true"] {
     color: var(--power);
     text-shadow: 0 0 14px color-mix(in srgb, var(--power) 75%, transparent);
@@ -130,28 +168,31 @@
   #cancelconn { display: none; border-color: var(--power); color: var(--power); }
   #cancelconn.show { display: inline-block; }
 
-  /* раскладка */
+  /* layout */
   #layout { flex: 1; display: flex; min-height: 0; }
   #sidebar {
     width: 220px; flex-shrink: 0;
     background: var(--panel); border-right: 1px solid var(--line);
     display: flex; flex-direction: column;
   }
-  .side-block { position: relative; overflow-y: auto; padding: 12px 0; }
-  #side-infra { flex: 1 1 auto; }
-  /* Навигация по холстам — прибита к низу сайдбара */
+  /* Header stays PUT above the scroll (its own row); only the list below scrolls,
+     so the scrollbar starts under the title — no gap, no rows sliding past it. */
+  .side-block { position: relative; display: flex; flex-direction: column; overflow: hidden; }
+  #side-infra { flex: 1 1 auto; min-height: 0; }
+  #tree, #ipam-tree-side { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+  /* Canvas nav — pinned to the sidebar bottom */
   #canvasnav {
     flex-shrink: 0; border-top: 1px solid var(--line);
     padding: 10px 0 12px; background: var(--panel);
   }
-  /* Заголовок «СХЕМАТИКА» — фирменный бирюзовый, всегда одинаковый */
+  /* Brand heading — teal, always the same */
   #canvasnav .side-head { color: #00f2d4 !important; }
   #canvasnav .cnav {
     display: block; padding: 7px 14px; font-size: 13px;
     color: var(--muted); text-decoration: none; border-left: 3px solid transparent;
   }
   #canvasnav .cnav:hover { color: var(--text); background: var(--panel-2); }
-  /* Текущий холст (data-canvas на body) подсвечен */
+  /* Current canvas (data-canvas on body) highlighted */
   body[data-canvas="infra"]          .cnav[data-c="infra"],
   body[data-canvas="network"]        .cnav[data-c="network"],
   body[data-canvas="virtualization"] .cnav[data-c="virtualization"],
@@ -160,35 +201,42 @@
     background: var(--panel-2);
   }
   .side-head {
+    flex-shrink: 0; background: var(--panel);
     font-size: 10px; text-transform: uppercase; letter-spacing: 0.13em;
-    color: var(--muted); font-weight: 700; padding: 0 14px 6px;
+    color: var(--muted); font-weight: 700; padding: 12px 14px 8px;
   }
-  /* Заголовок статичен, скролл — внутри #racks. Стартовая ширина — в одну
-     стойку (280px рамка + паддинги #racks 42+20): по умолчанию колонка одна,
-     список идёт вниз. Ресайзер (drag #resizer) расширяет до 900px — тогда
-     #racks (flex-wrap) добавляет вторую+ стойку справа. */
+  /* Title static, scroll inside #racks. Start width = one rack (280px frame
+     + #racks padding 42+20): one column by default, list goes down. Resizer
+     (drag #resizer) widens to 900px — then #racks (flex-wrap) adds a second+
+     rack on the right. */
   #rackpane {
     width: 360px;
     flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
     border-right: 1px solid var(--line);
   }
-  #rackpane .pane-title { flex-shrink: 0; padding: 16px 20px 10px 42px; margin: 0; }
+  #rackpane .pane-title { flex-shrink: 0; padding: 16px 20px 10px 42px; margin: 0;
+    display: flex; align-items: center; gap: 8px; }
+  #rackpane .pane-title .pt-label { flex: 0 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  #rackpane .pane-title .pt-actions { margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: 6px; }
+  #rackpane .pane-title .modeswitch.pt-inline { position: static; transform: none; }
   #resizer {
     width: 6px; flex-shrink: 0; cursor: col-resize; background: transparent;
     border-right: 1px solid var(--line); transition: background 0.12s;
   }
   #resizer:hover, #resizer.drag { background: var(--accent); }
-  /* #schempwrap: неподвижная "рама" — #schempane скроллится/зумируется внутри неё,
-     #schemoverlay лежит поверх рамы и НЕ скроллится вместе с содержимым схемы. */
+  /* #schempwrap: fixed "frame" — #schempane scrolls/zooms inside it;
+     #schemoverlay sits over the frame and does NOT scroll with schema content. */
   #schempwrap { flex: 1; position: relative; overflow: hidden; }
-  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; }
+  #schempane { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-x pan-y; }
   #schempane.panning { cursor: grabbing; }
   #schempane .pane-title { position: sticky; top: 0; left: 16px; padding: 16px 0 0 16px; z-index: 5; }
-  #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+  #schemoverlay { position: absolute; inset: 0; z-index: 8; pointer-events: none; touch-action: manipulation; }
   #schemoverlay > * { pointer-events: auto; }
-  /* Палитра устройств «+» — панель в стеке справа сверху, ПОД «UI». Изначально
-     свёрнута (paletteCollapsed=true). Тело фиксированной высоты (см. .pl-grid),
-     чтобы шапка панели не «ездила» при смене категории / малом числе устройств. */
+  /* Device palette "+" — panel in the top-right stack, BELOW "UI". Collapsed
+     initially (paletteCollapsed=true). Body fixed-height (see .pl-grid) so the
+     panel header doesn't shift on category change / few devices. */
   #palette {
     font-size: 12px; color: var(--muted);
     background: var(--overlay-bg); border: 1px solid var(--line);
@@ -214,7 +262,7 @@
   #palette .pl-tab.active { border-color: var(--accent); color: var(--accent); background: var(--panel-2); }
   #palette .pl-grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
-    min-height: 172px; align-content: start;   /* статичная высота (3 ряда) */
+    min-height: 172px; align-content: start;   /* static height (3 rows) */
   }
   #palette .pl-item {
     display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -225,7 +273,7 @@
   #palette .pl-item span { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.1; }
   #palette .pl-item:hover { border-color: var(--accent); background: var(--panel-2); }
   #palette .pl-hint { font-size: 10px; color: var(--muted); margin-top: 8px; line-height: 1.3; }
-  /* Призрак устройства у курсора во время переноса. */
+  /* Device ghost at cursor during drag. */
   .pl-ghost {
     position: fixed; z-index: 9999; pointer-events: none; transform: translate(-50%, -50%);
     display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -235,7 +283,7 @@
   .pl-ghost .mdi { font-size: 22px; color: var(--accent); }
   .pl-ghost span { font-size: 11px; color: var(--text); }
   body.placing { cursor: crosshair; }
-  /* Локация-контур как цель дропа: тёмно-синяя заливка + большой «+» по центру. */
+  /* Location outline as drop target: dark-blue fill + big "+" centered. */
   .groupbox.gb-loc.pl-drop {
     background: rgba(24,58,110,0.55); border-color: var(--accent); border-width: 3px;
   }
@@ -252,14 +300,14 @@
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
     color: var(--muted); margin: 0 0 10px; font-weight: 600;
   }
-  /* Текст заголовка — в прямоугольнике-пилюле цвета фона (одинаковый в обеих
-     панелях, на одном горизонтальном уровне со схемой). */
+  /* Title text — in a bg-colored pill (same in both panels, on the same
+     horizontal level as the schema). */
   .pt-label {
     display: inline-block; background: var(--bg);
     padding: 5px 12px; border-radius: 8px;
   }
-  /* Кнопки сворачивания/разворота блока «Стойки» (◄ в его заголовке / ► слева
-     от «Схема соединений»). Свёрнутый блок и его ресайзер скрыты — схема шире. */
+  /* Collapse/expand buttons for the "Racks" block (◄ in its header / ► left of
+     "Connections diagram"). Collapsed block and its resizer hidden — schema wider. */
   .pane-toggle {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; line-height: 1; font-size: 16px;
@@ -267,15 +315,14 @@
     background: var(--panel-2); color: var(--muted); cursor: pointer;
   }
   .pane-toggle:hover { color: var(--accent); border-color: var(--accent); }
-  #rack-collapse { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); }
-  #rackpane .pane-title .ms-intitle { right: 46px; }   /* уступить место кнопке сворачивания */
+  #rack-collapse { position: static; }   /* now laid out in the .pt-actions flex row */
   #rack-expand { display: none; margin-right: 8px; vertical-align: middle; }
   body.rack-collapsed #rackpane, body.rack-collapsed #resizer { display: none; }
   body.rack-collapsed #rack-expand { display: inline-flex; }
-  /* Кнопка «Синхронизировать порты с типом» в паспорте устройства (правка). */
+  /* "Sync ports with type" button in the device passport (edit). */
   .sync-comp-btn { display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 10px; font-size: 12px; }
 
-  /* дерево */
+  /* tree */
   .tree-add {
     display: none; text-align: left; font-size: 12px; color: var(--power);
     border-style: dashed; padding: 3px 10px; margin: 3px 12px;
@@ -285,23 +332,23 @@
   .tree-add.lvl3 { margin-left: 66px; width: calc(100% - 78px); }
   .tree-add.lvl4 { margin-left: 84px; width: calc(100% - 96px); }
   body.tree-edit .tree-add { display: block; }
-  /* Индикатор правки схемы теперь — надпись-переключатель «Просмотр /
-     Редактирование» по центру сверху (.modeswitch), обводки блока больше нет. */
+  /* Schema-edit indicator is now the "View / Edit" toggle label centered on
+     top (.modeswitch); block outline is gone. */
   .tree-region {
     padding: 9px 14px 2px; font-weight: 700; font-size: 12px;
     text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
   }
-  /* Регион кликабелен (грузит все стойки своих площадок) */
+  /* Region clickable (loads all racks of its sites) */
   .tree-region.clickable { cursor: pointer; }
   .tree-region.clickable:hover { color: var(--text); }
   .tree-site { padding: 6px 14px 2px 30px; font-weight: 600; cursor: pointer; border-radius: 4px; }
   .tree-site:hover { background: var(--panel-2); }
-  /* Иконки уровней дерева: 📁 группа, 🗺 площадка, 📍 серверная (глиф не влияет
-     на textContent → _nodeInfo читает имя корректно). */
+  /* Tree level icons: 📁 group, 🗺 site, 📍 location (glyph doesn't affect
+     textContent → _nodeInfo reads the name correctly). */
   .tree-ic { margin-right: 6px; font-size: 13px; vertical-align: -1px; color: var(--muted); }
   .tree-sitegroup .tree-ic { color: var(--power); }
   .tree-site .tree-ic { color: var(--accent); }
-  /* Стрелка сворачивания группы — отдельная кнопка (клик по ней не грузит схему). */
+  /* Group collapse arrow — separate button (clicking it doesn't load the schema). */
   .tree-chevron {
     background: none; border: none; color: var(--muted); cursor: pointer;
     padding: 0; margin-right: 2px; font-size: 14px; line-height: 1; vertical-align: -2px;
@@ -312,39 +359,39 @@
     letter-spacing: 0.03em; color: var(--muted); cursor: pointer;
   }
   .tree-sitegroup:hover { color: var(--text); }
-  .tree-site.sg-member { padding-left: 30px; }   /* площадка под группой — как под регионом */
+  .tree-site.sg-member { padding-left: 30px; }   /* site under a group — like under a region */
   .tree-empty { padding: 3px 14px 3px 30px; color: var(--muted); font-size: 11px; font-style: italic; }
-  /* Выбранный КОРЕНЬ схемы (от какого родителя строится) — единственная жирная
-     accent-полоска слева. Уровень любой: регион / группа / площадка / серверная / стойка. */
+  /* Selected schema ROOT (which parent it builds from) — the only bold accent
+     stripe on the left. Any level: region / group / site / location / rack. */
   .tree-region.scope-active, .tree-sitegroup.scope-active, .tree-site.scope-active,
   .tree-loc.scope-active, .tree-rack.scope-active {
     color: var(--accent); font-weight: 600;
     box-shadow: inset 3px 0 0 var(--accent); background: var(--panel-2);
   }
-  /* Потомки выбранной области, попавшие на схему, — САМИ кнопки залиты серым
-     (не полоска слева); это «есть на схеме», но корень не они. Ховер — темнее.
-     Двойной класс — чтобы перебить одиночные :hover у .tree-loc/.tree-rack. */
-  .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
+  /* Children of the selected scope that landed on the schema — the buttons
+     themselves filled grey (not a left stripe); "on schema" but not the root.
+     Hover darker. Double class beats single :hover on .tree-loc/.tree-rack. */
+  .tree-sitegroup.on-schema, .tree-site.on-schema, .tree-loc.on-schema, .tree-rack.on-schema,
   .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
     background: color-mix(in srgb, var(--muted) 16%, transparent); border-radius: 0;
   }
-  .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
+  .tree-sitegroup.on-schema:hover, .tree-site.on-schema:hover, .tree-loc.on-schema:hover, .tree-rack.on-schema:hover,
   .tree-panel.on-schema:hover, .tree-feed.on-schema:hover, .tree-dev.on-schema:hover {
     background: color-mix(in srgb, var(--muted) 32%, transparent);
   }
-  /* Потомки-стойки/щитки/фидеры/устройства выбранной области — синий (accent)
-     текст: видно, что «это на схеме». Корень остаётся .scope-active (accent +
-     полоска слева), поэтому не путается с потомками. */
+  /* Child racks/panels/feeders/devices of the scope — blue (accent) text:
+     shows "on schema". Root stays .scope-active (accent + left stripe), so it
+     isn't confused with children. */
   .tree-rack.on-schema, .tree-panel.on-schema, .tree-feed.on-schema, .tree-dev.on-schema {
     color: var(--accent); font-weight: 600;
   }
-  /* Shift-мультивыбор узлов дерева — акцентная заливка + полоска слева. */
+  /* Shift multi-select of tree nodes — accent fill + left stripe. */
   .tree-region.multi-sel, .tree-sitegroup.multi-sel, .tree-site.multi-sel,
   .tree-loc.multi-sel, .tree-rack.multi-sel, .tree-panel.multi-sel, .tree-feed.multi-sel {
     background: color-mix(in srgb, var(--accent) 24%, transparent);
     box-shadow: inset 3px 0 0 var(--accent);
   }
-  /* Кандидаты того же уровня, что ещё можно добавить к выбору — зелёная обводка. */
+  /* Same-level candidates still addable to the selection — green outline. */
   .tree-region.multi-cand, .tree-sitegroup.multi-cand, .tree-site.multi-cand,
   .tree-loc.multi-cand, .tree-rack.multi-cand, .tree-panel.multi-cand, .tree-feed.multi-cand {
     background: color-mix(in srgb, var(--ok) 10%, transparent);
@@ -363,27 +410,31 @@
     font-family: var(--mono); font-size: 12px; cursor: pointer;
   }
   .tree-rack:hover { background: var(--panel-2); }
-  /* Все стойки выбранной локации активны — меняется цвет текста (accent).
-     Полоска слева остаётся только у родительской .tree-loc.active — она
-     единственный «жирный» индикатор, чтобы не спорить с активными стойками. */
+  /* All racks of the selected location active — text color changes (accent).
+     Left stripe stays only on the parent .tree-loc.active — the only "bold"
+     indicator, so it doesn't clash with active racks. */
   .tree-rack.active { color: var(--accent); font-weight: 600; }
-  /* Конкретно выбранная стойка — чуть плотнее фон, БЕЗ отдельной полоски */
+  /* The specifically selected rack — slightly denser bg, NO separate stripe */
   .tree-rack.current { background: var(--panel-2); }
-  /* Силовой щит (Power Panel) и фидер (Power Feed) — ветвь питания дерева.
-     Кликабельны (клик → паспорт щита), перетаскиваемы и выделяемы Shift'ом;
-     цвет питания; фидер на уровень глубже щита. */
+  /* Power Panel and Power Feed — the tree's power branch. Clickable (click →
+     panel passport), draggable and Shift-selectable; power color; feed one
+     level deeper than the panel. */
+  /* Panel/feed — <div> (not <button>): without flex the text sticks to the top
+     of the 40px touch-target min-height, leaving a gap. Center it like tree
+     node buttons. */
   .tree-panel, .tree-feed {
-    display: block; width: 100%; text-align: left; background: none; border: none;
+    display: flex; align-items: center; width: 100%; text-align: left;
+    background: none; border: none;
     font-family: var(--mono); font-size: 12px; color: var(--power);
     padding: 3px 14px; cursor: pointer;
   }
   .tree-panel:hover, .tree-feed:hover { background: var(--panel-2); }
-  .tree-panel .tree-ic { color: inherit; }   /* иконка щита — в цвет питания */
+  .tree-panel .tree-ic { color: inherit; }   /* panel icon — power color */
   .tree-panel { padding-left: 66px; }
   .tree-feed { padding-left: 84px; color: var(--muted); }
-  /* Устройства в дереве (потребители «вне стоек») — по умолчанию приглушены
-     (var(--muted), как стойки/фидеры); при загрузке локации-родителя получают
-     .on-schema (accent, см. выше). Клик открывает паспорт. */
+  /* Tree devices (off-rack consumers) — muted by default (var(--muted), like
+     racks/feeds); on loading the parent location they get .on-schema (accent,
+     see above). Click opens the passport. */
   .tree-dev {
     display: block; width: 100%; text-align: left; background: none; border: none;
     border-radius: 0; padding: 3px 14px; color: var(--muted); font-family: var(--mono);
@@ -391,25 +442,35 @@
   }
   .tree-dev:hover { background: var(--panel-2); }
   .tree-dev .tree-ic { font-size: 13px; }
-  /* drag-and-drop: тянущийся узел приглушён; НЕвалидные цели тускнеют, ВАЛИДНЫЕ
-     остаются яркими и слегка подсвечены (видно, куда можно бросить); наведённая
-     валидная цель показывает «Вставить сюда». Текст в дереве не выделяется. */
+  /* «Всё дерево» — root drop/move target. Hidden until a move is under way and it
+     is actually a valid destination (a site/group being moved); then it appears
+     at the tree bottom. */
+  .tree-root-target { display: none; }
+  .tree-root-target.move-target {
+    display: flex; align-items: center; gap: 8px; margin: 12px 12px 10px; padding: 10px 12px;
+    border: 1.5px dashed var(--line); border-radius: 8px; color: var(--muted); font-size: 12.5px;
+  }
+  .tree-root-target .tree-ic { font-size: 15px; color: var(--muted); }
+  .tree-root-target .trt-hint { margin-left: auto; font-size: 11px; opacity: .55; }
+  /* drag-and-drop: dragged node muted; INVALID targets dim, VALID stay bright
+     and slightly highlighted (shows where to drop); hovered valid target shows
+     "Insert here". Tree text not selectable. */
   #tree { user-select: none; -webkit-user-select: none; }
   body.tree-dragging { user-select: none; -webkit-user-select: none; }
   .tree-site, .tree-loc, .tree-rack, .tree-region, .tree-sitegroup, .tree-panel, .tree-feed {
     transition: background 0.1s, opacity 0.1s;
   }
   .dragging { opacity: 0.45; font-weight: 600; }
-  .drag-fade { opacity: 0.28; pointer-events: none; }   /* невалидная цель — тускло и не мешает */
+  .drag-fade { opacity: 0.28; pointer-events: none; }   /* invalid target — dim and out of the way */
   .drag-ok { opacity: 1; background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
   .tree-region.drop-ok, .tree-sitegroup.drop-ok, .tree-site.drop-ok, .tree-loc.drop-ok,
   .tree-panel.drop-ok {
     background: rgba(79,195,232,0.18); box-shadow: inset 3px 0 0 var(--accent);
     border-radius: 4px; color: var(--accent); font-weight: 600; opacity: 1;
   }
-  /* Курсор в дереве — обычный (перетаскивание запускается зажатием, см. JS).
-     Ховер задан на .tree-site/.tree-loc/.tree-rack выше. */
-  /* Круговой прогресс зажатия у курсора */
+  /* Tree cursor — normal (drag starts on hold, see JS). Hover set on
+     .tree-site/.tree-loc/.tree-rack above. */
+  /* Circular hold-progress at cursor */
   #holdring {
     position: fixed; width: 30px; height: 30px; margin: -15px 0 0 -15px;
     pointer-events: none; z-index: 9999; display: none;
@@ -420,7 +481,7 @@
     transform: rotate(-90deg); transform-origin: 50% 50%; }
   body.tree-dragging { cursor: grabbing; }
 
-  /* блок сетей */
+  /* networks block */
   .net-row {
     display: flex; align-items: center; gap: 6px; padding: 4px 12px;
     font-family: var(--mono); font-size: 12px; cursor: default;
@@ -432,13 +493,13 @@
   body.edit .net-row .del { display: inline; }
   .net-row .del:hover { border-color: var(--err); }
 
-  /* стойки (вертикально, одна колонка) */
-  /* Стойки в несколько колонок, если позволяет ширина панели (ресайз для
-     этого и нужен): flex-wrap раскладывает по две+ стойки в ряд. */
+  /* racks (vertical, one column) */
+  /* Racks in multiple columns if panel width allows (that's what resize is
+     for): flex-wrap lays two+ racks per row. */
   #racks { flex: 1; overflow: auto; display: flex; flex-flow: row wrap; align-content: flex-start; gap: 26px 40px; padding: 6px 20px 40px 42px; }
   #racks .rack { flex: 0 0 auto; }
-  /* Разделитель локаций в колонке стоек — на всю ширину (ломает ряд flex-wrap),
-     горизонтальная линия + имя серверной. */
+  /* Location separator in the rack column — full width (breaks the flex-wrap
+     row), horizontal line + location name. */
   #racks .rack-loc-sep {
     flex: 0 0 100%; width: 100%; display: flex; align-items: center; gap: 6px;
     border-top: 1px solid var(--line); padding-top: 12px; margin: 6px 0 -10px;
@@ -458,10 +519,10 @@
     position: absolute; left: -28px; top: 0; width: 24px; height: 100%;
     font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: right; user-select: none;
   }
-  /* Подписи позиционируются абсолютно по карте раскладки (top ставит JS) —
-     из-за сворачивания пустых юнитов ряды больше не равномерные. */
+  /* Labels positioned absolutely by the layout map (JS sets top) — collapsing
+     empty units means rows are no longer even. */
   .unit-labels div { position: absolute; right: 0; width: 24px; height: 22px; line-height: 22px; }
-  /* Полоса свёрнутых пустых юнитов «↕ N» (режим просмотра) */
+  /* Collapsed empty-units bar "↕ N" (view mode) */
   .unit-gap {
     position: absolute; left: 3px; right: 3px; z-index: 2;
     display: flex; align-items: center; justify-content: center; gap: 5px;
@@ -471,8 +532,8 @@
     border-radius: 3px;
   }
   .unit-gap .mdi { font-size: 13px; opacity: 0.8; }
-  /* при наведении на свободный юнит его цифра слева превращается в кружок,
-     сидящий по центру левой границы стойки */
+  /* on hovering a free unit its left number becomes a circle centered on the
+     rack's left edge */
   .unit-labels div.circled {
     color: #fff; font-weight: 800; font-size: 15px; text-align: center;
     z-index: 6;
@@ -488,37 +549,61 @@
     border: 2px solid; font-size: 13px;
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding: 0 8px; cursor: pointer; overflow: hidden; white-space: nowrap;
-    /* весь блок залит блёклым цветом роли (--dev-fill ставит JS),
-       рамка — насыщенный цвет роли (--dev-edge) */
+    /* whole block filled with faded role color (JS sets --dev-fill), border —
+       saturated role color (--dev-edge) */
     background: var(--dev-fill, var(--panel));
   }
-  /* имя устройства — цветом его роли (--dev-edge ставит JS) */
+  /* device name — in its role color (JS sets --dev-edge) */
   .dev .nmw { color: var(--dev-edge, var(--text)); font-weight: 700; font-size: 13px; }
   .dev .m { font-family: var(--mono); font-size: 11px; color: var(--muted); }
   .dev:hover { filter: brightness(1.25); }
-  /* Наведение на аппаратуру — переливающаяся зелёная обводка (task 4).
-     Яркость подстраивается темой через --hl-glow. */
+  /* Hover on hardware — pulsing green outline (task 4). Brightness adapts to
+     theme via --hl-glow. */
   .dev.hl { outline: 2px solid var(--ok); outline-offset: 1px; animation: hlpulse 1.1s ease-in-out infinite; }
   @keyframes hlpulse {
     0%, 100% { box-shadow: 0 0 0 0 var(--hl-glow); }
     50%      { box-shadow: 0 0 10px 3px var(--hl-glow); }
   }
-  /* ховер-подсветка свободного юнита при создании устройства */
+  /* hover highlight of a free unit when creating a device */
   .unit-hover {
     position: absolute; left: 3px; right: 3px; pointer-events: none;
     border: 2px dashed var(--ok); border-radius: 4px;
     background: rgba(111,191,138,0.12); z-index: 4;
   }
   .unit-hover.busy { border-color: var(--err); background: rgba(224,122,106,0.14); }
+  /* Touch: "armed" unit (first tap) — solid green, brighter than hover. */
+  .unit-hover.armed { border-style: solid; background: color-mix(in srgb, var(--ok) 26%, transparent); box-shadow: 0 0 0 1px var(--ok); }
+  .unit-hover.occ-sel { z-index: 5; }
+  /* "Занять место?" confirm — floats beside the rack (fixed on <body>), a CSS
+     triangle points at the selected cells. */
+  .occ-dialog {
+    position: fixed; z-index: 60; transform: translateY(-50%); width: 140px;
+    padding: 9px 11px; background: var(--panel-2); border: 1px solid var(--ok);
+    border-radius: 8px; box-shadow: var(--overlay-shadow);
+  }
+  .occ-dialog::before { content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+    border: 8px solid transparent; }
+  .occ-dialog::after { content: ""; position: absolute; top: 50%; transform: translateY(-50%);
+    border: 7px solid transparent; }
+  .occ-dialog.pt-left::before { right: 100%; border-right-color: var(--ok); }
+  .occ-dialog.pt-left::after { right: 100%; margin-right: -1px; border-right-color: var(--panel-2); }
+  .occ-dialog.pt-right::before { left: 100%; border-left-color: var(--ok); }
+  .occ-dialog.pt-right::after { left: 100%; margin-left: -1px; border-left-color: var(--panel-2); }
+  .occ-dialog .occ-q { font-size: 12px; color: var(--text); text-align: center; margin-bottom: 8px; }
+  .occ-dialog .occ-u { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .occ-dialog .occ-btns { display: flex; gap: 6px; justify-content: center; }
+  .occ-dialog .occ-btns button { padding: 3px 13px; font-size: 12px; border-radius: 6px; }
+  .occ-dialog .occ-btns .occ-yes { border-color: var(--ok); color: var(--ok); }
+  .occ-dialog .occ-btns .occ-yes:hover { background: var(--ok); color: var(--port-ink); }
 
-  /* 2D-схема */
+  /* 2D schema */
   #schema { position: relative; width: max-content; min-width: 100%; min-height: 300px; transform-origin: 0 0; }
   #wires { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 1; }
   #wires.above-ports { z-index: 25; }
   #wires path.wire { pointer-events: stroke; cursor: pointer; fill: none; stroke-width: 1.8; opacity: 0.7; }
-  /* Цвет провода по семейству типа кабеля (см. cableFamily в core.js). */
-  #wires .wire.data { stroke: var(--accent); }        /* тип не указан → нейтральный «данные» */
-  #wires .wire.power { stroke: var(--power); }         /* фолбэк для питания без типа */
+  /* Wire color by cable family (see cableFamily in core.js). */
+  #wires .wire.data { stroke: var(--accent); }        /* type unset → neutral "data" */
+  #wires .wire.power { stroke: var(--power); }         /* fallback for power with no type */
   #wires .wire.cbl-default { stroke: var(--cbl-default); }
   #wires .wire.cbl-copper { stroke: var(--cbl-copper); }
   #wires .wire.cbl-dac { stroke: var(--cbl-dac); }
@@ -530,11 +615,11 @@
   #wires .wire.cbl-usb { stroke: var(--cbl-usb); }
   #wires .wire.hl { opacity: 1; stroke-width: 3.5; filter: drop-shadow(0 0 4px currentColor); }
   #wires .wire.dim { opacity: 0.05; }
-  /* Радио-линк (слой Wireless): волнистая линия, не кабель. Своим цветом,
-     поверх затухания слоя, со свечением — чтобы читалась как «эфир». */
-  /* Радио-линк: как обычный провод (opacity 0.7, без постоянного свечения —
-     иначе выглядит «всегда выделенным» и мешает ховеру соседних кабелей).
-     Свечение — только при наведении (.hl), как у .wire. */
+  /* Radio link (Wireless layer): wavy line, not a cable. Own color, over layer
+     dimming, with glow — reads as "airwave". */
+  /* Radio link: like a normal wire (opacity 0.7, no constant glow — else it
+     looks "always highlighted" and blocks hover of nearby cables). Glow only
+     on hover (.hl), like .wire. */
   #wires path.radiowire {
     fill: none; stroke: var(--wireless, #b98cff); stroke-width: 2;
     stroke-linecap: round; opacity: 0.7; pointer-events: stroke; cursor: pointer;
@@ -550,25 +635,36 @@
     background: color-mix(in srgb, var(--muted) 6%, transparent);
     transition: opacity 0.15s;
   }
-  .rackbox .rb-label { position: absolute; top: 8px; left: 14px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .rackbox .rb-head { position: absolute; top: 6px; left: 14px; display: flex; align-items: center; gap: 6px; }
+  .rackbox .rb-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  /* "Open this rack" pencil — next to the name, visible only in edit mode. */
+  .rackbox .rb-edit {
+    display: none; pointer-events: auto;
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 13px; padding: 1px 4px; border-radius: 4px; line-height: 1;
+  }
+  .rackbox .rb-edit:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  body.schema-edit .rackbox .rb-edit { display: inline-flex; align-items: center; }
   .rackbox.dim, .node.dim2 { opacity: 0.22; }
-  /* Контуры-обёртки уровней иерархии (серверная / площадка) при выборе
-     площадки или региона в дереве. Серверная — синим (accent), площадка —
-     оранжевым (power). Прозрачная заливка, только пунктирная рамка + подпись
-     в левом верхнем углу; лежат позади стоек. */
-  .groupbox { position: absolute; z-index: 0; border-radius: 16px; pointer-events: none; }
-  /* Серверные (location) и площадки (site) — НЕЙТРАЛЬНО-СЕРЫЕ рамки
-     (площадка чуть тусклее, чтобы уровни различались). */
+  /* Hierarchy-level wrapper outlines (location / site) when selecting a site
+     or region in the tree. Location — blue (accent), site — orange (power).
+     Transparent fill, only dashed border + label top-left; behind racks. */
+  /* z-index:auto (not 0) so groupbox doesn't trap its child label in its own
+     stacking context: outline/fill stay BEHIND wires (#wires z:1), while the
+     .gb-label label rises ABOVE wires (z:2, see below) and stays readable. */
+  .groupbox { position: absolute; z-index: auto; border-radius: 16px; pointer-events: none; }
+  /* Locations and sites — NEUTRAL-GREY borders (site a bit dimmer so levels
+     differ). */
   .groupbox.gb-loc { border: 2px dashed color-mix(in srgb, var(--muted) 70%, transparent); }
   .groupbox.gb-site { border: 2px dashed color-mix(in srgb, var(--muted) 45%, transparent); }
-  /* Логический контур по ТИПУ устройств вне стоек («Персональные компьютеры …»):
-     мягкая пунктирная рамка нейтрального цвета + лёгкая заливка, чтобы блоки
-     разных типов визуально отделялись, но не спорили с контурами серверных. */
+  /* Logical outline by device TYPE for off-rack devices ("Personal computers …"):
+     soft neutral dashed border + light fill so blocks of different types
+     separate visually without clashing with location outlines. */
   .groupbox.gb-type {
     border: 1.5px dashed color-mix(in srgb, var(--muted) 60%, transparent);
     border-radius: 12px; background: color-mix(in srgb, var(--muted) 6%, transparent);
   }
-  /* Контур блока силовых щитов — цвет питания + лёгкая заливка. */
+  /* Power-panel block outline — power color + light fill. */
   .groupbox.gb-power {
     border: 1.5px dashed color-mix(in srgb, var(--power) 70%, transparent);
     border-radius: 12px; background: color-mix(in srgb, var(--power) 6%, transparent);
@@ -577,13 +673,17 @@
   .groupbox .gb-label {
     position: absolute; top: 2px; left: 12px; font-family: var(--mono);
     font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    /* ABOVE wires (#wires z:1) — else a wire covered the label. Light bg halo
+       for readability if a wire runs right under the text. */
+    z-index: 2; background: color-mix(in srgb, var(--bg) 72%, transparent);
+    padding: 0 5px 1px; border-radius: 5px;
   }
   .groupbox.gb-loc .gb-label { color: color-mix(in srgb, var(--muted) 45%, var(--text)); }
   .groupbox.gb-site .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
   .groupbox.gb-type .gb-label { color: color-mix(in srgb, var(--muted) 60%, var(--text)); }
-  /* Силовой щит (Power Panel) — карточка того же вида, что ноды в стойке
-     (.node), с фидерами списком. Контент выровнен сверху-влево (не по центру,
-     как обычная нода), у каждого фидера — порт на левой границе. */
+  /* Power Panel — a card like rack nodes (.node), with feeds listed. Content
+     top-left aligned (not centered like a normal node); each feed has a port
+     on the left edge. */
   .node.powerbox {
     height: auto; align-items: stretch; justify-content: flex-start;
     padding: 7px 12px 8px; text-align: left;
@@ -600,7 +700,7 @@
   .pb-feed.empty .pf-name { color: var(--muted); font-weight: 400; font-style: italic; }
   .port.p-feed { border-color: var(--power); }
   .port.used.p-feed { background: var(--power); }
-  /* Зелёный «+»-порт: создать wireless-интерфейс / фидер прямо со схемы. */
+  /* Green "+" port: create a wireless interface / feed right from the schema. */
   .port.addport {
     border-color: var(--ok); background: var(--ok); color: #fff;
     font-size: 13px; font-weight: 700; line-height: 1;
@@ -609,10 +709,10 @@
   .pb-feed.addfeed { cursor: pointer; }
   .pb-feed.addfeed .pf-name { color: var(--ok); font-weight: 600; }
   .pb-feed.addfeed:hover .pf-name { filter: brightness(1.15); }
-  /* Линия питания щитка (фидер → PDU) — сплошная, как обычный power-кабель. */
+  /* Panel power line (feed → PDU) — solid, like a normal power cable. */
   #wires path.feedwire { stroke-dasharray: none; }
-  /* Сетевой режим: щитки питания и их линии — это физическое электричество,
-     делаем менее заметными (не скрываем полностью). */
+  /* Network mode: power panels and their lines are physical electricity —
+     make them less prominent (not fully hidden). */
   body.view-net .node.powerbox { opacity: 0.32; }
   body.view-net #wires path.feedwire { opacity: 0.15; }
 
@@ -624,15 +724,19 @@
     transition: opacity 0.15s;
   }
   .node.hl { border-color: var(--ok); animation: hlpulse 1.1s ease-in-out infinite; }
-  /* Узел-конец наведённой/подсвеченной связи — статичная яркая обводка (без
-     пульса), чтобы вместе с проводом и портами «горели» и сами ноды по краям. */
+  /* Node at the end of a hovered/highlighted link — static bright outline (no
+     pulse), so the end nodes "light up" together with the wire and ports. */
   .node.conn-hl { outline: 2px solid var(--ok); outline-offset: 1px; z-index: 5; }
+  /* Click node body — highlight green and ALLOW selecting its text (pan doesn't
+     select text by default — #schempane user-select:none). Click away clears. */
+  .node.text-sel { outline: 2px solid var(--ok); outline-offset: 1px; z-index: 5;
+    user-select: text; -webkit-user-select: text; }
   .node.aim-dim { opacity: 0.28; }
   .node .nm { font-family: var(--mono); font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .node .nm:hover { color: var(--accent); }
   .node .mdl { font-size: 9px; color: var(--muted); margin-top: 1px; }
-  /* Узел ВНЕ стойки (off-rack) — компактнее и с иконкой решения слева.
-     Ниже обычного (питание/интерфейсы всё равно торчат по краям), в строку. */
+  /* Off-rack node — more compact, with a solution icon on the left. Shorter
+     than usual (power/interfaces still stick out on the edges), in a row. */
   .node.offrack {
     height: 62px; flex-direction: row; align-items: center; justify-content: flex-start;
     gap: 9px; padding: 0 12px;
@@ -642,14 +746,37 @@
   .node.offrack .node-nmrow { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
   .node.offrack .nm { font-size: 12px; }
   .node.offrack .mdl { margin-top: 0; white-space: nowrap; }
-  /* IP первого интерфейса рядом с именем (или кнопка «+ адрес», если IP нет). */
+  /* First interface's IP next to the name (or "+ address" button if no IP). */
   .node.offrack .node-ip { font-family: var(--mono); font-size: 10px; color: var(--ok); }
   .node.offrack .node-addip {
     font-size: 9px; padding: 0 5px; border-radius: 4px; line-height: 1.5; white-space: nowrap; flex-shrink: 0;
     background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer;
   }
   .node.offrack .node-addip:hover { color: var(--accent); border-color: var(--accent); }
-  /* Карандаш редактирования — по центру правой грани ноды (только в правке). */
+  /* "×" to drop a node from the trace (and everything opened through it). Sits in
+     the top-right corner; shown only once the chain grows past the root
+     (#schema.trace-multi) and never on the root itself. */
+  .trace-x {
+    position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%;
+    display: none; align-items: center; justify-content: center; padding: 0; cursor: pointer; z-index: 7;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); box-shadow: 0 2px 6px rgba(0,0,0,.4);
+  }
+  .trace-x .mdi { font-size: 14px; line-height: 1; }
+  .trace-x:hover { background: var(--err); color: #fff; border-color: var(--err); }
+  #schema.trace-multi .node:not(.trace-root) .trace-x { display: inline-flex; }
+  /* Whisker "expand" button (see _showExpandBtn): floats over a tapped whisker
+     port; its arrow points where the neighbour will load (flipped for bottom
+     ports). One reused element on #schema, so it pans/zooms with the canvas. */
+  #trace-expand {
+    position: absolute; z-index: 9; display: none; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; transform: translate(-50%, -50%);
+    border-radius: 7px; border: 1px solid var(--accent); background: var(--overlay-bg);
+    color: var(--accent); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  #trace-expand .mdi { font-size: 18px; line-height: 1; }
+  #trace-expand.down .mdi { transform: rotate(180deg); }
+  #trace-expand:hover { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  /* Edit pencil — centered on the node's right edge (edit only). */
   .node-edit {
     position: absolute; right: -11px; top: 50%; transform: translateY(-50%);
     width: 22px; height: 22px; border-radius: 50%; z-index: 6;
@@ -658,6 +785,25 @@
   }
   .node-edit:hover { color: var(--accent); border-color: var(--accent); }
   .node-edit .mdi { font-size: 13px; line-height: 1; }
+  /* Stack (VirtualChassis) badge — node's LEFT-center (mirror of the pencil).
+     Shows the member's vc_position; click ≠ port: highlights the stack + opens
+     its passport. Distinct --stack color so it never reads as a power port. */
+  .stack-badge {
+    position: absolute; left: -13px; top: 50%; transform: translateY(-50%);
+    min-width: 24px; height: 20px; padding: 0 5px; border-radius: 999px; z-index: 6;
+    display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+    background: var(--node-bg); border: 1px solid var(--stack); color: var(--stack);
+    cursor: pointer; font-family: var(--mono); font-size: 10px; font-weight: 700;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+  .stack-badge .mdi { font-size: 12px; line-height: 1; }
+  .stack-badge:hover { background: var(--stack); color: var(--port-ink); }
+  /* Highlighted stack members (badge/passport click) + dim the rest of the canvas. */
+  .node.stack-hl { outline: 2px solid var(--stack); outline-offset: 1px; z-index: 5; }
+  #schema.stack-focus .node:not(.stack-hl) { opacity: 0.18; }
+  #schema.stack-focus #wires { opacity: 0.12; }
+  /* Member suffix ("-4") separated inside the node name. */
+  .nm-vc { color: var(--stack); font-weight: 700; margin-left: 1px; }
   .edge-label {
     position: absolute; font-size: 8px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.07em; pointer-events: none;
@@ -677,32 +823,32 @@
   .port.p-iface  { border-color: var(--accent); }
   .port.p-front  { border-color: var(--front); border-radius: 3px; }
   .port.p-rear   { border-color: var(--rear); border-radius: 3px; }
-  .port.p-pin    { border-color: var(--power); }   /* вход питания — ПОРТ, круглый (в него коннектится фидер) */
+  .port.p-pin    { border-color: var(--power); }   /* power input — a PORT, round (a feed connects to it) */
   .port.p-pout   { border-color: var(--power); border-radius: 3px; }
   .port.p-con    { border-color: var(--console); }
   .port.p-consrv { border-color: var(--console); border-radius: 3px; }
-  /* Цифра на закрашенном (занятом) порту — контрастная, но не чисто-белая:
-     --port-ink подбирается под тему (светлая цифра в тёмной, тёмная в светлой) */
+  /* Digit on a filled (used) port — contrasting but not pure white:
+     --port-ink adapts to theme (light digit on dark, dark on light) */
   .port.used { color: var(--port-ink); font-weight: 700; }
   .port.used.p-iface { background: var(--accent); }
   .port.used.p-front { background: var(--front); }
   .port.used.p-rear  { background: var(--rear); }
   .port.used.p-pin, .port.used.p-pout { background: var(--power); }
   .port.used.p-con, .port.used.p-consrv { background: var(--console); }
-  /* Назначаемый свободный порт (сетевой+edit): зелёный — клик назначает
-     circuit (проводной, верх) или начинает радио-линк (wireless, низ). */
+  /* Assignable free port (network+edit): green — click assigns a circuit
+     (wired, top) or starts a radio link (wireless, bottom). */
   .port.assignable { border-color: var(--ok); color: var(--ok); }
   .port.assignable:hover { background: var(--ok); color: var(--bg); transform: scale(1.4); }
-  /* Блёклые порты в сетевом виде: не сетевые и не назначаемые (заняты физически
-     или view-режим) — видны, но приглушены, чтобы не спорить с сетью. */
+  /* Faded ports in network view: non-network and non-assignable (physically
+     used or view mode) — visible but muted, so they don't clash with the network. */
   .port.net-dim { opacity: 0.28; }
   .port.net-dim:hover { opacity: 1; }
-  /* Wireless-порт: цвет wireless (обводка + заливка занятого). */
+  /* Wireless port: wireless color (border + fill when used). */
   .port.p-wl { border-color: var(--wireless); }
   .port.used.p-wl { background: var(--wireless); }
-  /* Circuit-порт: цвет circuit + значок «в облако» над кружком (выход в WAN).
-     Circuit важнее wireless по цвету (порт может быть и тем, и тем — но
-     circuit-выход нагляднее), поэтому правило идёт ПОСЛЕ .p-wl. */
+  /* Circuit port: circuit color + "to cloud" icon above the dot (WAN uplink).
+     Circuit outranks wireless in color (a port can be both — but the circuit
+     uplink is clearer), so this rule comes AFTER .p-wl. */
   .port.has-circuit { border-color: var(--circuit); }
   .port.used.has-circuit { background: var(--circuit); }
   .port .port-cloud {
@@ -710,20 +856,20 @@
     bottom: calc(100% + 2px); font-size: 14px; color: var(--circuit);
     pointer-events: none; line-height: 1;
   }
-  /* у нижнего ряда облако рисуем СНИЗУ, чтобы не заезжать в узел */
+  /* for the bottom row draw the cloud BELOW, to avoid overlapping the node */
   .port[style*="bottom"] .port-cloud { bottom: auto; top: calc(100% + 2px); }
   .port:hover { transform: scale(1.5); z-index: 30; box-shadow: 0 0 0 3px var(--bg); }
   .port.pending { box-shadow: 0 0 0 3px var(--err); transform: scale(1.3); }
-  /* Порт на конце подсвеченного/наведённого провода: разрыв цветом фона +
-     яркое кольцо + свечение, чтобы кружок было видно даже на залитом (used)
-     порту — иначе «светится только провод». z-index поверх соседних портов. */
+  /* Port at the end of a highlighted/hovered wire: bg-color gap + bright ring
+     + glow so the dot shows even on a filled (used) port — else "only the wire
+     glows". z-index above neighboring ports. */
   .port.hl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ok), 0 0 9px 2px var(--hl-glow); transform: scale(1.4); z-index: 26; }
   .port.aim-dim { opacity: 0.12; pointer-events: none; }
   .port.aim-ok { box-shadow: 0 0 0 2px var(--ok); }
 
-  /* Правый верхний угол схемы: кнопка режима + UI-панель в одном flex-ряду,
-     прижатом вправо. Панель сворачивается — ряд ужимается, кнопка едет с ней
-     автоматически (без JS-позиционирования). */
+  /* Schema top-right corner: mode button + UI panel in one flex row pinned
+     right. Panel collapses — the row shrinks and the button moves with it
+     automatically (no JS positioning). */
   #schemtools {
     font-size: 12px; color: var(--muted);
     background: var(--overlay-bg); border: 1px solid var(--line);
@@ -754,7 +900,7 @@
   }
   #schemtools button.st-btn.active { border-color: var(--accent); color: var(--accent); }
   #schemtools button.st-btn:hover { filter: brightness(1.2); }
-  /* Сегментированный переключатель стиля проводов (Круглые / Углы). */
+  /* Segmented wire-style toggle (Round / Angled). */
   #schemtools .st-seg { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   #schemtools .st-seg-btn {
     flex: 1; background: var(--panel-2); color: var(--muted); border: 0;
@@ -765,7 +911,7 @@
   #schemtools .st-seg-btn:hover { filter: brightness(1.2); }
   #schemtools .st-seg-btn.active { background: color-mix(in srgb, var(--accent) 22%, var(--panel-2)); color: var(--accent); }
 
-  /* панель «Слои» (VLAN и т.п.) */
+  /* "Layers" panel (VLAN etc.) */
   #layers {
     font-size: 12px; color: var(--muted);
     background: var(--overlay-bg); border: 1px solid var(--line);
@@ -799,9 +945,9 @@
   }
   #layers .ly-clear:hover { border-color: var(--err); color: var(--err); }
 
-  /* подсветка активного слоя */
-  /* Подсветка слоя — под цвет типа (питание оранжевое → обводка оранжевая).
-     --layer-color задаёт LayerManager по активному слою (fallback — accent). */
+  /* active layer highlight */
+  /* Layer highlight — matches type color (power orange → orange outline).
+     LayerManager sets --layer-color from the active layer (fallback accent). */
   .layer-hl.port { box-shadow: 0 0 0 2px var(--layer-color, var(--accent)), 0 0 10px 2px var(--hl-glow); z-index: 20; }
   .node.layer-hl { outline: 2px solid var(--layer-color, var(--accent)); outline-offset: 1px; }
   .layer-dim { opacity: 0.22; transition: opacity 0.15s; }
@@ -828,13 +974,13 @@
   #legend .dotd { display: inline-block; width: 12px; height: 12px; border: 2px solid; border-radius: 50%; margin-right: 7px; flex-shrink: 0; }
   #legend .sq { border-radius: 3px; }
   #legend .lg-radio { display: inline-block; width: 16px; height: 3px; border-radius: 2px; margin-right: 7px; flex-shrink: 0; vertical-align: middle; }
-  /* Кабель в легенде — отрезок цвета типа (не кружок). */
+  /* Cable in the legend — a type-colored segment (not a dot). */
   #legend .lg-cable { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 7px; flex-shrink: 0; vertical-align: middle; }
   #legend .lg-sub { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
   #legend .lg-sub:first-child { margin-top: 0; }
   #zoomhint { display: none; }
 
-  /* мини-меню связи */
+  /* link mini-menu */
   #linkmenu {
     position: fixed; z-index: 55; display: none; gap: 4px;
     background: var(--panel-2); border: 1px solid var(--line);
@@ -844,7 +990,7 @@
   #linkmenu .x:hover { border-color: var(--err); color: var(--err); }
   #linkmenu .up:hover { border-color: var(--accent); color: var(--accent); }
 
-  /* контекстное меню дерева (ПКМ) */
+  /* tree context menu (RMB) */
   .treectx {
     position: fixed; z-index: 60; min-width: 168px;
     background: var(--panel-2); border: 1px solid var(--line);
@@ -859,7 +1005,7 @@
   .treectx .tc-item:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   .treectx .tc-item.danger:hover { background: color-mix(in srgb, var(--err) 22%, transparent); color: var(--err); }
   .treectx .tc-arrow { color: var(--muted); font-size: 11px; }
-  /* Подменю «Добавить ▸» — вправо от пункта, по ховеру. */
+  /* "Add ▸" submenu — to the right of the item, on hover. */
   .treectx .tc-sub {
     position: absolute; left: 100%; top: -5px; display: none;
     min-width: 150px; background: var(--panel-2); border: 1px solid var(--line);
@@ -867,7 +1013,7 @@
   }
   .treectx .tc-item.has-sub:hover > .tc-sub { display: block; }
 
-  /* поповер выбора типа кабеля (рядом с портом) */
+  /* cable-type picker popover (next to the port) */
   #cablepop {
     position: fixed; z-index: 58; display: none; min-width: 220px;
     background: var(--overlay-bg); border: 1px solid var(--line);
@@ -880,15 +1026,15 @@
   #cablepop .cp-btns button { padding: 4px 11px; font-size: 13px; border-radius: 6px; }
   #cablepop .cp-cancel:hover { border-color: var(--err); color: var(--err); }
 
-  /* умная форма IP (поповер рядом с +IP) */
+  /* smart IP form (popover next to +IP) */
   #ipform {
     position: fixed; z-index: 58; display: none;
     background: var(--overlay-bg); border: 1px solid var(--line);
     border-radius: 9px; box-shadow: var(--overlay-shadow);
   }
   #ipform.open { display: flex; align-items: stretch; }
-  /* Фикс-ширина основной части: открытие списка НЕ растягивает её, а добавляет
-     колонку справа (реф. позиционирование в ipform.js учитывает суммарную ширину). */
+  /* Fixed-width main part: opening the list doesn't stretch it but adds a
+     column on the right (ipform.js positioning accounts for total width). */
   #ipform .if-main { padding: 10px; width: 272px; flex-shrink: 0; }
   #ipform .if-head { font-weight: 600; font-size: 13px; color: var(--accent); margin-bottom: 2px; }
   #ipform .if-where { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-bottom: 8px; }
@@ -913,7 +1059,7 @@
   #ipform .if-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 12px; }
   #ipform .if-btns button { padding: 4px 11px; font-size: 13px; border-radius: 6px; }
   #ipform .if-cancel:hover { border-color: var(--err); color: var(--err); }
-  /* Список адресов сети — разворачивается вправо */
+  /* Network address list — expands to the right */
   #ipform .if-list { display: none; }
   #ipform.with-list .if-list {
     display: block; width: 190px; border-left: 1px solid var(--line);
@@ -933,33 +1079,38 @@
   #ipform .if-addr.busy .if-adot { background: var(--err); }
   #ipform .if-addr.busy { color: var(--muted); }
 
-  /* кастомный тултип */
+  /* custom tooltip */
   #tip {
     position: fixed; z-index: 60; display: none; pointer-events: none;
     background: var(--overlay-bg); border: 1px solid var(--line);
-    border-radius: 8px; padding: 8px 11px; max-width: 300px;
-    font-size: 12px; box-shadow: var(--overlay-shadow); color: var(--text);
+    border-radius: 9px; padding: 11px 14px; max-width: 360px;
+    font-size: 13.5px; line-height: 1.5; box-shadow: var(--overlay-shadow); color: var(--text);
   }
-  #tip .t-title { font-family: var(--mono); font-weight: 600; margin-bottom: 3px; color: var(--accent); }
+  #tip .t-title { font-family: var(--mono); font-weight: 600; font-size: 14.5px; margin-bottom: 4px; color: var(--accent); }
   #tip .t-cabletitle { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-bottom: 5px; }
   #tip .t-type { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); font-family: var(--sans, inherit); white-space: nowrap; }
   #tip .t-type .t-sw { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; box-shadow: 0 0 0 1px var(--line); }
   #tip .t-line { color: var(--text); }
-  #tip .t-mut { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  #tip .t-mut { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
-  /* детали: чипы */
-  /* Заголовок паспорта: относительный контейнер под переключатель режима
-     (data-mode=detail, .ms-corner в правом верхнем углу) + место справа. */
-  /* padding-right под кнопку режима (ms-corner, «ПРОСМОТР» ~100px) — чтобы длинный
-     заголовок не залезал под неё; сам заголовок переносится по словам. */
+  /* details: chips */
+  /* Passport header: relative container for the mode toggle (data-mode=detail,
+     .ms-corner top-right) + room on the right. */
+  /* padding-right for the mode button (ms-corner, "VIEW" ~100px) so a long
+     title doesn't slip under it; the title wraps by words. */
   #detail .detail-head { position: relative; padding-right: 104px; margin-bottom: 12px; }
   #detail h2 { margin: 0 0 2px; font-size: 15px; font-family: var(--mono); overflow-wrap: anywhere; }
   #detail .detail-head .sub { margin-bottom: 0; }
-  /* Хлебная крошка «Серверная 1» в заголовке паспорта устройства — кликабельна,
-     БЕЗ подчёркивания (только цвет), ховер — чуть ярче. */
+  /* Breadcrumb "Server room 1" in the device passport header — clickable, NO
+     underline (color only), hover a bit brighter. */
   #detail h2 .crumb-loc { color: var(--accent); cursor: pointer; font-weight: 400; text-decoration: none; }
   #detail h2 .crumb-loc:hover { filter: brightness(1.2); }
-  /* Карандаш у названия щита — переименовать. */
+  /* Parent name ABOVE the title: device→location, location→site, site→group. */
+  #detail .crumb-over { font-size: 12px; margin-bottom: 3px; line-height: 1.2; }
+  #detail .crumb-over .crumb-loc, #detail .crumb-over .crumb-site {
+    color: var(--accent); cursor: pointer; text-decoration: none; }
+  #detail .crumb-over .crumb-loc:hover, #detail .crumb-over .crumb-site:hover { filter: brightness(1.2); }
+  /* Pencil by the panel name — rename. */
   #detail .head-edit {
     margin-left: 6px; padding: 0 5px; border: none; background: none;
     color: var(--muted); cursor: pointer; font-size: 13px; vertical-align: middle;
@@ -970,7 +1121,7 @@
     margin: 16px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 4px;
   }
-  /* Сведения об устройстве (ключ→значение) под «Соединениями». */
+  /* Device info (key→value) below "Connections". */
   #detail .dev-info { display: flex; flex-direction: column; gap: 4px; }
   #detail .di-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
   #detail .di-k { color: var(--muted); flex-shrink: 0; }
@@ -984,8 +1135,8 @@
   .chip.c-dev  { border-color: rgba(79,195,232,0.45); }
   .chip.c-ip   { border-color: rgba(111,191,138,0.5); color: var(--ok); }
   .chip.c-port { border-color: rgba(184,196,208,0.35); }
-  /* Имя порта: единый закруглённый бейдж {тип + порт-кружок номера}. Кружок
-     ВПИСАН внутрь (не режется). */
+  /* Port name: single rounded badge {type + number port-dot}. The dot is
+     INSCRIBED inside (not clipped). */
   .port-badge {
     display: inline-flex; align-items: center; gap: 5px; vertical-align: middle;
     padding: 2px 5px 2px 10px; border-radius: 999px; margin: 2px 4px 2px 0;
@@ -995,8 +1146,8 @@
     font-family: var(--mono); font-size: 11px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis;
   }
-  /* Хвостовой номер как порт-кружок (цвет и фигура — под тип порта, как на схеме).
-     База — круг accent; типы переопределяют цвет/скругление ниже. */
+  /* Trailing number as a port-dot (color/shape by port type, like on the
+     schema). Base — accent circle; types override color/rounding below. */
   .c-portdot {
     display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
     width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent);
@@ -1012,7 +1163,7 @@
   .c-portdot.p-pout   { border-color: var(--power); border-radius: 5px; }
   .c-portdot.p-feed   { border-color: var(--power); }
   .c-portdot.p-circuit{ border-color: var(--circuit); }
-  /* Занятый (связанный) порт — кружок ЗАКРАШЕН цветом типа, как на схеме. */
+  /* Used (linked) port — dot FILLED with the type color, like on the schema. */
   .c-portdot.used { color: var(--port-ink); font-weight: 700; }
   .c-portdot.used.p-iface  { background: var(--accent); }
   .c-portdot.used.p-front  { background: var(--front); }
@@ -1027,18 +1178,22 @@
   .iface-row.linked { cursor: pointer; }
   .iface-row.linked:hover { background: rgba(147,161,175,0.08); }
   .iface-row button { padding: 1px 9px; font-size: 11px; border-radius: 999px; margin-left: auto; }
+  /* Delete a free port (× in the row) + "Add port" button below the list. */
+  .iface-row .iface-del { margin-left: 4px; padding: 1px 6px; color: var(--muted); }
+  .iface-row .iface-del:hover { color: #e5644d; }
+  .addport-btn { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 10px; font-size: 12px; }
   .conn {
     padding: 8px 10px; margin-bottom: 8px;
     background: rgba(255,255,255,0.02); border: 1px solid var(--line); border-radius: 10px;
   }
   .conn .side { line-height: 1.7; }
   .conn .mid { text-align: center; color: var(--accent); font-size: 14px; padding: 1px 0; }
-  /* Кнопки правки/удаления фидера в паспорте щита (режим правки). */
+  /* Feed edit/delete buttons in the panel passport (edit mode). */
   .conn .feed-acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
   .conn .feed-acts button { padding: 2px 8px; font-size: 12px; border-radius: 6px; }
   .conn .feed-acts button.danger:hover { border-color: var(--err); color: var(--err); }
   .placeholder { color: var(--muted); padding: 30px 10px; text-align: center; font-size: 13px; }
-  /* Паспорт локации: строки устройств (клик → паспорт устройства). */
+  /* Location passport: device rows (click → device passport). */
   .loc-dev {
     display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px;
     cursor: pointer; border: 1px solid transparent;
@@ -1048,35 +1203,156 @@
   .loc-dev .ld-name { color: var(--text); font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .loc-dev .ld-mut { color: var(--muted); font-size: 11px; flex-shrink: 0; }
 
-  /* модалка */
-  /* Затемнение модалки — ВЫШЕ топбара/поиска (z:30), меню (55-60), чтобы поиск
-     не торчал сквозь него. Лоадер #reqspin (z:130) выше модалки. */
+  /* Stack (VirtualChassis) block in the passport + the stack passport itself. */
+  .stack-cur {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px;
+    cursor: pointer; border: 1px solid var(--line); background: var(--panel-2);
+  }
+  .stack-cur:hover { border-color: var(--stack); }
+  .stack-cur .ld-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .stack-cur .ld-name { color: var(--text); font-family: var(--mono); font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stack-cur .ld-mut { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .stack-acts { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .stack-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 4px 10px; border-radius: 8px; }
+  .stack-btn.danger:hover { border-color: var(--err); color: var(--err); }
+  /* Position chip in the members list (matches the node badge color). */
+  .stack-pos {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    min-width: 20px; height: 20px; padding: 0 4px; border-radius: 6px;
+    border: 1px solid var(--stack); color: var(--stack);
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+  }
+  .stack-mem-acts { display: flex; gap: 4px; margin-left: auto; flex-shrink: 0; }
+  .stack-mem-acts button { padding: 1px 7px; font-size: 12px; border-radius: 6px; }
+  .stack-mem-acts button.danger:hover { border-color: var(--err); color: var(--err); }
+
+  /* modal */
+  /* Modal dim — ABOVE topbar/search (z:30) and menus (55-60) so search doesn't
+     poke through. Loader #reqspin (z:130) above the modal. */
   #modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 100; }
-  /* Индикатор загрузки — плашка сверху по центру, ПОВЕРХ модалки. */
+  /* Loading indicator — top-center pill, OVER the modal. Click it to expand the
+     list of requests the current burst is waiting on. */
   #reqspin {
     position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 130;
-    display: none; align-items: center; gap: 8px; pointer-events: none;
-    background: var(--overlay-bg); border: 1px solid var(--line); border-radius: 999px;
-    padding: 6px 14px; box-shadow: var(--overlay-shadow); font-size: 12px; color: var(--text);
+    display: none; flex-direction: column; align-items: center; gap: 6px;
+    pointer-events: none; --p: 0%;
   }
-  #reqspin.on { display: inline-flex; }
+  #reqspin.on { display: flex; }
+  #reqpill {
+    position: relative; overflow: hidden; pointer-events: auto; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--overlay-bg); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 10px 6px 14px; box-shadow: var(--overlay-shadow);
+    font: inherit; font-size: 12px; color: var(--text);
+  }
+  #reqpill:hover { border-color: var(--accent); }
+  /* Progress fills the PILL ITSELF left→right; --p is the share of finished
+     requests (see api.js) and never runs backwards, so the stage is readable. */
+  #reqpill::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p);
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--accent) 22%, transparent),
+      color-mix(in srgb, var(--accent) 55%, transparent));
+    border-right: 2px solid var(--accent);
+    transition: width 0.22s ease-out;
+  }
+  #reqspin.done #reqpill::before { border-right-color: transparent; }
+  #reqpill > * { position: relative; z-index: 1; }
   #reqspin .rs-spinner {
     width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0;
     border: 2px solid var(--line); border-top-color: var(--accent);
     animation: rs-rot 0.7s linear infinite;
   }
+  #reqspin.done .rs-spinner { animation: none; border-color: var(--ok); }
   @keyframes rs-rot { to { transform: rotate(360deg); } }
-  #modal { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; width: 360px; max-height: 88vh; overflow-y: auto; }
+  #reqspin .rs-pct { font-family: var(--mono); font-size: 11px; min-width: 30px; text-align: right; }
+  #reqspin .rs-caret { font-size: 15px; line-height: 1; color: var(--muted); transition: transform 0.15s ease; }
+  #reqspin.open .rs-caret { transform: rotate(180deg); }
+  /* Expanded detail: one row per endpoint, repeated calls collapsed into ×N. */
+  #reqlist {
+    pointer-events: auto; width: min(340px, calc(100vw - 24px)); max-height: 46vh; overflow-y: auto;
+    background: var(--overlay-bg); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--overlay-shadow); padding: 8px; font-size: 12px;
+  }
+  #reqlist .rq-head { color: var(--muted); padding: 2px 6px 7px; border-bottom: 1px solid var(--line); margin-bottom: 5px; }
+  #reqlist .rq-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; }
+  #reqlist .rq-ico { width: 14px; flex-shrink: 0; display: inline-flex; justify-content: center; }
+  #reqlist .rq-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #reqlist .rq-cnt, #reqlist .rq-ms { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+  #reqlist .rq-row.done .rq-ico { color: var(--ok); }
+  #reqlist .rq-row.err .rq-ico, #reqlist .rq-row.err .rq-name { color: var(--err); }
+  #reqlist .rq-row.wait { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+  #reqlist .rq-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    animation: rq-pulse 1s ease-in-out infinite;
+  }
+  @keyframes rq-pulse { 0%, 100% { opacity: 0.35; transform: scale(0.75); } 50% { opacity: 1; transform: scale(1); } }
+  /* Two-column modal: #modal-main (fields) + optional #modal-side (e.g. the
+     stack list on device creation). Side hidden → modal is just the main column. */
+  #modal { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    display: flex; align-items: stretch; max-width: 92vw; max-height: 88vh; overflow: hidden; }
+  #modal-main { padding: 20px 22px; width: 360px; max-width: 92vw; box-sizing: border-box;
+    overflow-y: auto; max-height: 88vh; }
+  #modal-side { width: 250px; box-sizing: border-box; border-left: 1px solid var(--line);
+    padding: 16px 16px; overflow-y: auto; max-height: 88vh; background: rgba(0,0,0,0.10); }
+  /* Stack list in the side column. */
+  #modal-side .ms-head { display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+  #modal-side .ms-newvc { font-size: 11px; padding: 3px 9px; border-radius: 999px; }
+  #modal-side .ms-newrow { display: flex; gap: 6px; margin-bottom: 8px; }
+  #modal-side .ms-newrow input { flex: 1; min-width: 0; }
+  #modal-side .ms-newrow .ms-newok { padding: 0 10px; border-radius: 6px; }
+  #modal-side .ms-list { display: flex; flex-direction: column; gap: 5px; }
+  #modal-side .ms-item { display: flex; align-items: center; gap: 7px; padding: 6px 8px;
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+  #modal-side .ms-item:hover { border-color: var(--stack); }
+  #modal-side .ms-item.sel { border-color: var(--stack); background: rgba(155,140,255,0.12); }
+  #modal-side .ms-item .mdi { color: var(--stack); font-size: 15px; }
+  #modal-side .ms-item .ms-nm { flex: 1; font-family: var(--mono); font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Members button (count + caret) — opens the names popover; independent of
+     selecting the stack. */
+  #modal-side .ms-item .ms-names { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0;
+    font-size: 11px; padding: 1px 6px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+  #modal-side .ms-item .ms-names:hover { border-color: var(--stack); color: var(--stack); }
+  #modal-side .ms-item .ms-names .mdi { font-size: 12px; }
+  /* Stack members popover — floats on <body>, outside the (clipped) modal box. */
+  .ms-pop { position: fixed; z-index: 140; width: 210px; max-height: 240px; overflow-y: auto;
+    background: var(--panel-2); border: 1px solid var(--stack); border-radius: 8px;
+    box-shadow: var(--overlay-shadow); padding: 8px 10px; }
+  .ms-pop-h { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--stack);
+    margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--line);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ms-pop-row { display: flex; align-items: center; gap: 8px; padding: 3px 2px; }
+  .ms-pop-pos { flex-shrink: 0; min-width: 18px; text-align: center; font-family: var(--mono);
+    font-size: 10px; color: var(--stack); border: 1px solid var(--stack); border-radius: 5px; padding: 0 3px; }
+  .ms-pop-nm { font-family: var(--mono); font-size: 12px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
   #modal h3 { margin: 0 0 14px; font-size: 15px; }
   #modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
-  #modal input, #modal select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 13px; }
+  /* Text fields / selects across all modals share one look. Checkbox, radio,
+     range and file inputs are excluded — width:100% would stretch them. */
+  #modal input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]),
+  #modal select, #modal textarea {
+    width: 100%; box-sizing: border-box; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 14px;
+    font-family: inherit; line-height: 1.35; transition: border-color .12s, box-shadow .12s;
+  }
+  #modal input::placeholder, #modal textarea::placeholder { color: var(--muted); }
+  #modal input:focus, #modal select:focus, #modal textarea:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  #modal input:disabled, #modal select:disabled { opacity: .55; cursor: not-allowed; }
+  #modal input[type=checkbox], #modal input[type=radio] { accent-color: var(--accent); width: auto; }
   #modal .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
   #modal .primary { border-color: var(--accent); }
   .primary { border-color: var(--accent); }
 
-  /* Заглушка «холст в разработке» */
-  /* Заглушка занимает всё правее сайдбара; сайдбар с навигацией по холстам
-     остаётся кликабельным, чтобы переключаться между схемами. */
+  /* "Canvas under development" placeholder */
+  /* Placeholder fills everything right of the sidebar; the canvas-nav sidebar
+     stays clickable to switch between schemas. */
   #wip { display: none; position: fixed; top: 48px; right: 0; bottom: 0; left: 220px; z-index: 40;
     align-items: center; justify-content: center; background: var(--bg); }
   .wip-mode #side-infra { display: none; }
@@ -1087,3 +1363,258 @@
   .wip-card p { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 18px; }
   .wip-card a { color: var(--accent); text-decoration: none; font-size: 13px; }
   .wip-card a:hover { text-decoration: underline; }
+
+/* Plugin version — small, subtle block bottom-right over everything.
+   pointer-events:none — passive label, never intercepts clicks. */
+#pluginver {
+  /* Above the schema, but BELOW every overlay (sheets 46, tree-actions 50, scrim
+     40, modals 100/500) so anything sliding in covers it instead of the reverse. */
+  position: fixed; right: 8px; bottom: 6px; z-index: 30;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1;
+  color: var(--muted); opacity: 0.6; pointer-events: none; user-select: none;
+  background: var(--overlay-bg); border: 1px solid var(--line);
+  padding: 4px 9px; border-radius: 7px;
+}
+
+/* Excel import modal */
+#import-bg { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.55);
+  display: none; align-items: center; justify-content: center; padding: 20px; }
+#import-bg.open { display: flex; }
+#import-modal { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  width: 740px; max-width: 96vw; max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: var(--overlay-shadow, 0 12px 40px rgba(0,0,0,.4)); }
+.imp-head { display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.imp-head h3 { margin: 0; font-size: 16px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+.imp-x { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; line-height: 1; }
+.imp-body { padding: 16px 18px; overflow-y: auto; }
+.imp-row { margin-bottom: 14px; }
+.imp-row2 { display: flex; gap: 16px; }
+.imp-row2 > div { flex: 1; min-width: 0; }
+.imp-lab { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+/* Same field look as the generic modal (see #modal input above). */
+#import-modal input:not([type=file]), #import-modal select,
+#export-modal input:not([type=checkbox]), #export-modal select, #audit-modal select {
+  width: 100%; box-sizing: border-box; padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--text); font-size: 14px; font-family: inherit; line-height: 1.35;
+  transition: border-color .12s, box-shadow .12s;
+}
+#import-modal input::placeholder { color: var(--muted); }
+#import-modal input:focus, #import-modal select:focus,
+#export-modal select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* Import inconsistencies (parse warnings) — shown above the preview, don't block. */
+.imp-warns { border: 1px solid var(--err); border-radius: 8px; padding: 8px 10px; margin: 6px 0 12px;
+  background: color-mix(in srgb, var(--err) 12%, transparent); }
+.imp-warn-h { color: var(--err); font-weight: 600; font-size: 13px; margin-bottom: 5px;
+  display: flex; align-items: center; gap: 6px; }
+.imp-warn { font-size: 12px; color: var(--text); padding: 2px 0; }
+/* Devices already in the target site (matched by name). Collapsed bar in the top
+   panel; on «Посмотреть» a full-width «сейчас / из файла» table opens below the
+   columns with a per-device «Без замены / Заменить». Red = heads-up, no fill. */
+.imp-conf-bar { display: flex; align-items: center; gap: 10px; margin: 8px 0 12px;
+  border: 1px solid var(--err); border-radius: 8px; padding: 7px 10px; }
+.imp-conf-badge { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text); }
+.imp-conf-badge .mdi { color: var(--err); font-size: 16px; }
+.imp-conf-toggle { margin-left: auto; font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 7px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); cursor: pointer; }
+.imp-conf-toggle:hover { border-color: var(--err); }
+#imp-conf-full[hidden] { display: none; }
+.imp-conf-panel { border: 1px solid var(--err); border-radius: 10px; padding: 10px 12px; margin: 4px 0 12px; }
+.imp-conf-h { color: var(--text); font-weight: 600; font-size: 13px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: 6px; }
+.imp-conf-h .mdi { color: var(--err); }
+.imp-conf-scroll { overflow-x: auto; }
+.imp-conf-tbl { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+.imp-conf-tbl th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+.imp-conf-tbl td { padding: 4px 8px; font-family: var(--mono); color: var(--muted); }
+.imp-conf-dev td { color: var(--text); font-weight: 600; font-family: inherit; padding-top: 9px; }
+.imp-conf-dev .mdi { font-size: 14px; margin-right: 3px; }
+.imp-conf-lbl { color: var(--muted); font-style: italic; }
+.imp-conf-cur td { background: color-mix(in srgb, var(--muted) 6%, transparent); }
+.imp-conf-new td { color: var(--text); }
+.imp-conf-act { vertical-align: middle; text-align: right; }
+.imp-conf-sep td { border-bottom: 1px solid var(--line); padding: 0; height: 0; }
+.imp-conf-btn { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 7px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.imp-conf-btn:hover { color: var(--text); }
+.imp-conf-btn.on { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--text); }
+/* Outline the cells that differ between «сейчас» and «из файла». */
+.imp-conf-cd { color: var(--text) !important; font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 3px; }
+/* Footnote: added / untouched links that AREN'T conflicts, just for context. */
+.imp-conf-note td { color: var(--muted); font-size: 11px; font-style: italic; padding: 2px 8px 6px; }
+.imp-sum { font-size: 14px; margin: 8px 0 10px; }
+.imp-mut { color: var(--muted); font-size: 12px; }
+.imp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.imp-chips span { background: var(--panel-2); border: 1px solid var(--line); border-radius: 20px;
+  padding: 4px 12px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.imp-chips b { color: var(--accent); }
+#imp-status { margin-top: 12px; font-size: 13px; color: var(--muted); min-height: 18px; }
+#import-modal .btns { display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 18px; border-top: 1px solid var(--line); }
+#imp-drop { display: flex; align-items: center; gap: 10px; cursor: pointer; position: relative;
+  padding: 16px; border: 2px dashed var(--line); border-radius: 10px;
+  color: var(--muted); font-size: 13px; background: var(--panel-2); }
+#imp-drop:hover, #imp-drop.drag { border-color: var(--accent); color: var(--text); background: var(--panel); }
+#imp-drop .mdi { font-size: 22px; color: var(--accent); }
+#imp-drop input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.imp-newin { margin-top: 6px; }
+
+/* Import placement editor — appears after a file is parsed: tree preview (how it
+   lands) on the left, an interactive rack arranger on the right. */
+#import-modal.wide { width: 1080px; }
+/* Desktop: once a file is parsed, the modal body splits into a LEFT block
+   (upload + «Будет создано») and a RIGHT block (tree + rack editor). */
+@media (min-width: 1025px) {
+  #import-modal.wide #imp-work { display: flex; gap: 20px; align-items: flex-start; }
+  #import-modal.wide #imp-top { flex: 0 0 38%; min-width: 0; }
+  #import-modal.wide #imp-place { flex: 1 1 62%; min-width: 0; margin: 0; padding: 0; border-top: none; }
+  /* Fill the height so the hierarchy and racks reach the bottom, not cut mid-way. */
+  #import-modal.wide #imp-tree { max-height: 58vh; }
+  #import-modal.wide #imp-rack-grid { max-height: 50vh; }
+}
+#imp-place { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+.imp-place-cols { display: flex; gap: 18px; align-items: flex-start; }
+.imp-place-col { flex: 1 1 50%; min-width: 0; }
+.imp-col-h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.imp-col-h .imp-mut { text-transform: none; letter-spacing: 0; }
+#imp-tree { max-height: 320px; overflow-y: auto; font-size: 12.5px; padding-right: 4px; }
+.imp-tsite { font-weight: 600; color: var(--accent); padding: 3px 0; }
+.imp-tloc { padding: 3px 0 3px 14px; }
+.imp-track { padding: 3px 0 3px 28px; font-family: var(--mono); font-size: 12px; }
+.imp-tn { color: var(--muted); padding: 2px 0 2px 42px; font-family: var(--mono); font-size: 11.5px; }
+.imp-tsite .mdi, .imp-tloc .mdi, .imp-track .mdi, .imp-tn .mdi { font-size: 13px; margin-right: 2px; }
+.imp-tn.k-switch { color: var(--ok); } .imp-tn.k-panel { color: var(--rear); }
+/* per-device config affordances in the tree preview */
+.imp-tn[data-dev] { display: flex; align-items: center; gap: 4px; cursor: pointer; border-radius: 5px; padding-right: 6px; }
+.imp-tn[data-dev]:hover { background: var(--panel-2); }
+.imp-tn.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.imp-cfg-mark { color: var(--accent); font-size: 12px; }
+.imp-cfg-btn { margin-left: auto; font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 6px;
+  background: var(--accent); color: var(--panel); border: none; cursor: pointer; white-space: nowrap; }
+#imp-cfg { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+#imp-cfg[hidden] { display: none; }
+.imp-cfg-h { font-size: 13px; margin-bottom: 6px; }
+.imp-cfg-h b { font-family: var(--mono); color: var(--accent); }
+#imp-cfg .imp-lab { margin-top: 8px; }
+.imp-cfg-btns { display: flex; gap: 8px; margin-top: 12px; }
+.imp-cfg-btns button { font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+.imp-cfg-btns .primary { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+#imp-rack-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.imp-rtab { font: inherit; font-size: 12px; font-family: var(--mono); padding: 4px 10px; border-radius: 7px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); cursor: pointer; }
+.imp-rtab.on { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.imp-rtab.bad { border-color: var(--err); color: var(--err); }
+.imp-size-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+.imp-size-row input { width: 72px !important; }
+#imp-rack-grid { max-height: 300px; overflow-y: auto; }
+.imp-warn { color: var(--err); font-size: 12px; margin-bottom: 8px; }
+.imp-rack { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.imp-urow { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); min-height: 26px; }
+.imp-urow:last-child { border-bottom: none; }
+.imp-unum { flex: 0 0 30px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--panel-2); border-right: 1px solid var(--line); }
+.imp-udev { flex: 1; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; font-family: var(--mono);
+  padding: 4px 8px; background: none; border: none; text-align: left; cursor: pointer; color: var(--text); }
+.imp-udev .mdi { font-size: 13px; }
+.imp-udev.k-switch { color: var(--ok); } .imp-udev.k-panel { color: var(--rear); }
+.imp-udev.sel { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+.imp-ufree { flex: 1; padding: 4px 8px; font-size: 11px; color: transparent; }
+.imp-ufree.pick { color: var(--ok); cursor: pointer; background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.imp-ufree.pick:hover { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+/* Existing gear already in the rack — locked/greyed (hatched) so new devices fill
+   the FREE units instead of overlapping (the duplicate-rack-position crash). */
+.imp-uexist { flex: 1; display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+  font-size: 12px; font-family: var(--mono); color: var(--muted); cursor: not-allowed;
+  background: repeating-linear-gradient(45deg, transparent, transparent 6px,
+    color-mix(in srgb, var(--muted) 9%, transparent) 6px, color-mix(in srgb, var(--muted) 9%, transparent) 12px); }
+.imp-uexist .mdi { font-size: 13px; opacity: .7; }
+.imp-ucont { min-height: 18px; }
+.imp-tn-exist { color: var(--muted); opacity: .8; padding: 2px 0 2px 42px; font-family: var(--mono); font-size: 11.5px; }
+.imp-tn-exist .mdi { font-size: 13px; margin-right: 2px; }
+@media (max-width: 640px) { .imp-place-cols { flex-direction: column; } #import-modal.wide { width: 100%; } }
+/* Import spinner — floats just OUTSIDE the modal's right edge (absolute, so the
+   «Импортировать» button never shifts), over everything. */
+.imp-spin { position: absolute; right: -42px; bottom: 20px; z-index: 5;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--accent); animation: rs-rot .7s linear infinite; }
+.imp-spin[hidden] { display: none; }
+@media (max-width: 1024px) { .imp-spin { right: 12px; bottom: 62px; } }   /* stay on-screen on the sheet */
+/* Blocked buttons read as blocked — greyed and non-interactive. */
+#imp-commit:disabled, #exp-run:disabled, #m-create:disabled, .imp-cfg-btns button:disabled { opacity: .5; cursor: not-allowed; }
+/* Accordion headers — desktop shows both sections, so they're hidden there. */
+.imp-acc { display: none; }
+@media (max-width: 1024px) {
+  .imp-acc { display: flex; align-items: center; justify-content: space-between; width: 100%;
+    font: inherit; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; margin-bottom: 10px; }
+  .imp-acc .mdi { color: var(--muted); font-size: 18px; }
+  .imp-acc[hidden] { display: none; }
+  #import-modal.acc-place #imp-top { display: none; }
+  #import-modal:not(.acc-place) #imp-place { display: none; }
+}
+
+/* Export modal (reuses .imp-head/.imp-body/.btns) + tree select. */
+#export-bg, #audit-bg { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,.55);
+  display: none; align-items: center; justify-content: center; padding: 20px; }
+#export-bg.open, #audit-bg.open { display: flex; }
+#audit-modal { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  width: 560px; max-width: 96vw; max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: var(--overlay-shadow, 0 12px 40px rgba(0,0,0,.4)); }
+#audit-modal .btns { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); }
+/* Audit report — summary chips + findings tree (site → location → finding). */
+.aud-sum { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0 12px; }
+.aud-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.aud-chip.warn { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, var(--line)); }
+.aud-chip.info { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+#aud-results { overflow-y: auto; max-height: 52vh; }
+.aud-site { font-family: var(--mono); font-weight: 700; font-size: 13px; margin: 12px 0 4px; display: flex; align-items: center; gap: 6px; }
+.aud-site .mdi { color: var(--accent); }
+.aud-loc { font-size: 12px; color: var(--muted); margin: 6px 0 2px 14px; display: flex; align-items: center; gap: 6px; }
+.aud-find { display: flex; align-items: center; gap: 7px; font-size: 13px; padding: 4px 0 4px 28px; }
+.aud-find .mdi { flex-shrink: 0; } .aud-find.warn .mdi { color: var(--err); } .aud-find.info .mdi { color: var(--muted); }
+.aud-find b { font-family: var(--mono); font-weight: 700; }
+.aud-empty { color: var(--ok); font-size: 14px; display: flex; align-items: center; gap: 8px; padding: 22px 0; }
+.aud-empty .mdi { font-size: 20px; }
+#export-modal { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  width: 480px; max-width: 96vw; max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: var(--overlay-shadow, 0 12px 40px rgba(0,0,0,.4)); }
+#export-modal .btns { display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 18px; border-top: 1px solid var(--line); }
+.exp-toolbar { display: flex; gap: 8px; margin: 2px 0 6px; }
+.exp-toolbar button { font-size: 12px; padding: 4px 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 7px; color: var(--text); cursor: pointer; }
+.exp-toolbar button:hover { border-color: var(--accent); }
+#exp-tree { max-height: 46vh; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px; background: var(--panel-2); }
+.exp-node { display: flex; align-items: center; gap: 8px; padding: 5px 6px; cursor: pointer;
+  border-radius: 6px; font-size: 13px; color: var(--text); }
+.exp-node:hover { background: var(--panel); }
+.exp-node input { flex-shrink: 0; }
+.exp-node .mdi { color: var(--muted); font-size: 15px; }
+/* Level indent set inline (padding-left by depth) — tree of arbitrary
+   nesting: groups → sites → locations (nested) → racks → devices. */
+.exp-b { font-weight: 600; margin-top: 2px; }
+.exp-loading, .exp-err { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+.exp-err { color: var(--err); }
+#exp-status { margin-top: 12px; font-size: 13px; min-height: 18px; }
+#exp-status.exp-ok { color: var(--ok); }
+#exp-status.exp-err { color: var(--err); }
+
+/* Schema loading indicator (shown during the graph request on folder change —
+   hides the old "dead" schema and gives an indeterminate bar instead of a freeze). */
+.pane-loading { display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; height: 70%; color: var(--muted); }
+.pane-loading .pl-bar { width: 240px; max-width: 60%; height: 4px; border-radius: 3px;
+  background: var(--panel-2); overflow: hidden; position: relative; }
+.pane-loading .pl-bar::before { content: ""; position: absolute; top: 0; left: -40%;
+  width: 40%; height: 100%; border-radius: 3px; background: var(--accent);
+  animation: pl-slide 1.1s cubic-bezier(.4,0,.6,1) infinite; }
+@keyframes pl-slide { 0% { left: -40%; } 100% { left: 100%; } }
+.pane-loading .pl-txt { font-size: 13px; }
+.pane-loading .pl-err { color: var(--err, #d32f2f); max-width: 80%; text-align: center; }
