@@ -1,104 +1,139 @@
 "use strict";
-// Мобильная адаптация — поведение выезжающих блоков. Вся РАСКЛАДКА в
-// css/responsive.css (media-queries); здесь только тумблеры классов на <body>:
-//   body.nav-open   — открыт сайдбар-drawer;
-//   body.sheet-open — открыта шторка деталей снизу.
-// На десктопе эти классы ни на что не влияют (правила — внутри media-queries),
-// а #navtoggle display:none → кликнуть нельзя. Поэтому модуль безопасен везде и
-// подключается отдельным <script> (не через main.js), работает на всех холстах.
+// Mobile adaptation — behavior of the sliding blocks. All LAYOUT lives in
+// css/responsive.css (media queries); here only body-class toggles:
+//   body.nav-open   — sidebar drawer open;
+//   body.sheet-open — bottom detail sheet open.
+// On desktop these classes do nothing (rules are inside media queries) and
+// #navtoggle is display:none → not clickable. So the module is safe anywhere,
+// loaded as its own <script> (not via main.js), works on all canvases.
 
 const body = document.body;
 const close = () => body.classList.remove("nav-open", "sheet-open");
 
-// ☰ → открыть/закрыть drawer (и погасить шторку, чтобы не было двух сразу).
+// iOS Safari IGNORES viewport `user-scalable=no` (re-enabled for a11y), so its
+// pinch-zoom would still zoom the whole page (topbar hides) and zoom the tree.
+// Kill the Safari gesture events globally — the canvases keep their OWN pinch
+// (attachPinchZoom, touch events), which is unaffected. Harmless elsewhere.
+["gesturestart", "gesturechange", "gestureend"].forEach(g =>
+  document.addEventListener(g, e => e.preventDefault(), { passive: false }));
+
+// ☰ → open/close the drawer (and drop the sheet so two aren't open at once).
 const nav = document.getElementById("navtoggle");
 if (nav) nav.addEventListener("click", e => {
   e.stopPropagation();
-  // В режиме «Выбрать» дерево закрывать нельзя (сначала «Отмена»).
+  // In «Выбрать» mode the tree can't be closed (needs «Отмена» first).
   if (body.classList.contains("nav-open") && body.classList.contains("tree-selecting")) return;
   body.classList.remove("sheet-open");
   body.classList.toggle("nav-open");
 });
 
-// Переключатель схемы в шапке (нативный <select> → на iOS штатный пикер с liquid
-// glass). Смена значения → переход на выбранную схему. Список схем в сайдбаре убран.
+// Header schema switcher (native <select> → on iOS the system liquid-glass
+// picker). Changing the value navigates to the schema. Sidebar list removed.
 const cswitch = document.getElementById("canvas-switch");
 if (cswitch) cswitch.addEventListener("change", e => { if (e.target.value) location.href = e.target.value; });
+// A native <select> sizes to its WIDEST option, so its arrow drifts far from a
+// short current value ("Сети"). Shrink the width to fit the SELECTED text.
+function fitCanvasSwitch() {
+  if (!cswitch) return;
+  const opt = cswitch.options[cswitch.selectedIndex];
+  if (!opt) return;
+  const cs = getComputedStyle(cswitch);
+  const meas = document.createElement("span");
+  meas.style.cssText = "position:absolute;visibility:hidden;white-space:pre;";
+  meas.style.fontFamily = cs.fontFamily; meas.style.fontSize = cs.fontSize;
+  meas.style.fontWeight = cs.fontWeight; meas.style.letterSpacing = cs.letterSpacing;
+  meas.textContent = opt.textContent;
+  document.body.appendChild(meas);
+  const w = meas.getBoundingClientRect().width;
+  meas.remove();
+  cswitch.style.width = Math.ceil(w + 26) + "px";   // + room for the native arrow
+}
+if (cswitch) { fitCanvasSwitch(); window.addEventListener("resize", fitCanvasSwitch); }
 
-// Стрелка «ещё» в шапке (мобилка) → раскрыть/свернуть вторую строку доп-контролов.
+// Header "more" arrow (mobile) → expand/collapse the second row of extra controls.
 const more = document.getElementById("topbar-more");
 if (more) more.addEventListener("click", e => { e.stopPropagation(); body.classList.toggle("topbar-expanded"); });
 
-// Скрим — закрывает drawer, шторку деталей и шторку блока стоек (свернуть + выйти
-// из правки стойки).
+// Scrim — closes the drawer, the detail sheet and the racks sheet (collapse +
+// exit rack editing).
 const scrim = document.getElementById("mobile-scrim");
 if (scrim) scrim.addEventListener("click", () => {
-  if (body.classList.contains("tree-selecting")) return;   // в режиме «Выбрать» дерево не закрываем
+  if (body.classList.contains("tree-selecting")) return;   // in «Выбрать» mode don't close the tree
   close();
   body.classList.add("rack-collapsed");
   body.classList.remove("rack-edit");
 });
 
-// Тап по узлу дерева / переключателю холста в drawer → строим схему и закрываем
-// drawer (сразу виден результат). Обработчик самого узла отрабатывает как обычно.
+// Tap a tree node / canvas switcher in the drawer → build the schema and close
+// the drawer (result shown at once). The node's own handler runs as usual.
 const sidebar = document.getElementById("sidebar");
 if (sidebar) sidebar.addEventListener("click", e => {
-  if (body.classList.contains("tree-selecting")) return;   // в режиме выбора drawer не закрываем
+  if (body.classList.contains("tree-selecting")) return;   // in select mode don't close the drawer
   if (e.target.closest(".tree-loc, .tree-rack, .tree-site, .tree-sitegroup, .tree-dev, .it-node, .cnav"))
     body.classList.remove("nav-open");
 });
 
-// Тап по «открывающему карточку» элементу → показать шторку деталей. Саму деталь
-// заполняют свои обработчики (device.show / _showNet); мы лишь поднимаем шторку
-// после их микротаска. Класс на десктопе — no-op (шторка только в media-query).
+// Tap a "card-opening" element → show the detail sheet. Its own handlers fill
+// the detail (device.show / _showNet); we only raise the sheet after their
+// microtask. On desktop the class is a no-op (sheet only in a media query).
 document.addEventListener("click", e => {
   if (e.target.closest(".node .nm, .it-net, .net-block, .nb-cap, .nc-corner, .net-chip"))
     setTimeout(() => body.classList.add("sheet-open"), 0);
 });
 
-// Тач: потянуть шторку ВНИЗ за палец (детали / блок стоек). Пока палец на экране —
-// шторка ведётся за ним и НЕ закрывается (можно водить вверх-вниз сколько угодно);
-// закрывается ТОЛЬКО когда отпустил ниже порога, иначе — плавно возвращается.
-// Тянуть можно лишь от верха прокрутки контента (иначе это обычный скролл).
-// scrollerSel — внутренний прокручиваемый элемент (#rackpane сам не скроллится,
-// скроллится #racks); null → скроллится сама шторка (#detail/#ipam-detail).
-const swipeClose = (id, scrollerSel, onClose) => {
+// Touch: drag the sheet DOWN with the finger (details / racks block). While the
+// finger is down the sheet follows it and does NOT close (drag up/down freely);
+// it closes ONLY on release below the threshold, else it eases back. Dragging
+// works only from the top of the content scroll (otherwise it's a normal scroll).
+// scrollerSel — inner scrollable element (#rackpane itself doesn't scroll,
+// #racks does); null → the sheet itself scrolls (#detail/#ipam-detail).
+// Landscape tablet shows the detail as a RIGHT sheet (see responsive.css) — there
+// it's dragged off to the RIGHT to close, not down. `sideAware` sheets pick the
+// axis per gesture; the rack sheet is always a bottom sheet (drag down).
+const sideSheetMQ = window.matchMedia("(min-width:761px) and (max-width:1024px) and (orientation:landscape)");
+const swipeClose = (id, scrollerSel, onClose, sideAware) => {
   const el = document.getElementById(id);
   if (!el) return;
-  let sy = 0, dy = 0, arm = false, dragging = false;
+  let sx = 0, sy = 0, d = 0, arm = false, dragging = false, horiz = false;
   el.addEventListener("touchstart", e => {
     if (e.touches.length !== 1) { arm = false; return; }
+    horiz = !!(sideAware && sideSheetMQ.matches);
+    // Vertical sheet: drag only from the top of its scroll. Horizontal sheet:
+    // any point (it scrolls vertically, so a rightward drag never conflicts).
     const scroller = scrollerSel ? el.querySelector(scrollerSel) : el;
-    arm = (scroller ? scroller.scrollTop : 0) <= 2;   // тянуть — только от верха
-    sy = e.touches[0].clientY; dy = 0; dragging = false;
+    arm = horiz || (scroller ? scroller.scrollTop : 0) <= 2;
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; d = 0; dragging = false;
   }, { passive: true });
   el.addEventListener("touchmove", e => {
     if (!arm) return;
-    dy = e.touches[0].clientY - sy;
-    if (dy > 0) {                          // тянут вниз — ведём шторку, контент не скроллим
+    const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+    if (horiz && !dragging && Math.abs(dy) > Math.abs(dx)) { arm = false; return; }  // vertical scroll wins
+    d = horiz ? dx : dy;
+    if (d > 0) {                            // dragging outward — move the sheet, don't scroll content
       if (!dragging) { dragging = true; el.style.transition = "none"; }
       e.preventDefault();
-      el.style.transform = "translateY(" + dy + "px)";
-    } else if (dragging) {                 // вернулись к верху — держим у открытого положения
-      el.style.transform = "translateY(0)";
+      el.style.transform = (horiz ? "translateX(" : "translateY(") + d + "px)";
+    } else if (dragging) {                  // back past the origin — hold at the open position
+      el.style.transform = horiz ? "translateX(0)" : "translateY(0)";
     }
   }, { passive: false });
   const end = () => {
     if (!dragging) { arm = false; return; }
     dragging = false;
-    const h = el.getBoundingClientRect().height || 400;
-    const shouldClose = dy > Math.min(150, h * 0.3);   // отпустил ниже порога → закрыть
-    el.style.transition = "";               // вернуть CSS-анимацию (0.24s)
-    if (shouldClose) onClose();             // класс уйдёт → CSS увезёт шторку вниз (плавно)
-    el.style.transform = "";                // снять inline → едем к CSS-цели (открыто/закрыто)
-    dy = 0; arm = false;
+    const box = el.getBoundingClientRect();
+    const extent = horiz ? (box.width || 360) : (box.height || 400);
+    const shouldClose = d > Math.min(150, extent * 0.3);   // released past threshold → close
+    el.style.transition = "";               // restore the CSS animation (0.24s)
+    if (shouldClose) onClose();             // class removed → CSS slides the sheet away (smoothly)
+    el.style.transform = "";                // clear inline → move to the CSS target (open/closed)
+    d = 0; arm = false;
   };
   el.addEventListener("touchend", end, { passive: true });
   el.addEventListener("touchcancel", end, { passive: true });
 };
-swipeClose("detail", null, () => body.classList.remove("sheet-open"));
-swipeClose("ipam-detail", null, () => body.classList.remove("sheet-open"));
-swipeClose("rackpane", "#racks", () => { body.classList.add("rack-collapsed"); body.classList.remove("rack-edit"); });
+swipeClose("detail", null, () => body.classList.remove("sheet-open"), true);
+swipeClose("ipam-detail", null, () => body.classList.remove("sheet-open"), true);
+swipeClose("rackpane", "#racks", () => { body.classList.add("rack-collapsed"); body.classList.remove("rack-edit"); }, false);
 
-// Esc — закрыть оверлеи.
+// Esc — close overlays.
 document.addEventListener("keydown", e => { if (e.key === "Escape") close(); });

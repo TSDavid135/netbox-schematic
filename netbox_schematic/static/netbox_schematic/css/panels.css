@@ -1,11 +1,11 @@
-/* ── Плавающие панели поверх схемы + поиск в шапке ──────────────────
-   Вынесено из schematic.css (тот раздулся): виджеты, живущие в оверлее
-   схемы (#schem-topright) и в топбаре. Токены тем — из theme.css.
-   Подключается ПОСЛЕ schematic.css. */
+/* ── Floating panels over the schema + topbar search ──────────────────
+   Split out of schematic.css: widgets living in the schema overlay
+   (#schem-topright) and topbar. Theme tokens from theme.css.
+   Loaded AFTER schematic.css. */
 
-/* Оверлейные панели (Fl / UI / Слои) складываем в колонку, справа сверху,
-   чтобы «Fl» стоял НАД «UI», а «UI» над «Слоями» (порядок в DOM). Кнопка
-   режима остаётся маленькой в самом верху. */
+/* Overlay panels (Fl / UI / Layers) stacked in a column, top-right, so
+   Fl sits ABOVE UI and UI above Layers (DOM order). Mode button stays
+   small at the very top. */
 #schem-topright {
   position: absolute; right: 14px; top: 14px; z-index: 9;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
@@ -24,7 +24,7 @@
   width: 36px; min-width: 36px; height: 36px;
   cursor: pointer;
 }
-/* Центрируем текст "Fl" и прячем стрелочку, когда это квадрат */
+/* Center "Fl" text and hide arrow when collapsed to a square */
 #rolefilter.collapsed .fl-toggle {
   padding: 0; height: 100%; justify-content: center;
 }
@@ -36,10 +36,10 @@
 .collapsed .short-name { display: block; }
 .collapsed .full-name { display: none; }
 
-/* ── Свитч режима отображения физика/сеть ──
-   Сегментированный переключатель в оверлее схемы. Активная половина залита
-   акцентом. Меняет body.view-net/view-phys → CSS скрывает порты/кабели
-   противоположного режима (см. schematic.css). */
+/* ── Physical/network view switch ──
+   Segmented toggle in the schema overlay. Active half filled with accent.
+   Sets body.view-net/view-phys → CSS hides ports/cables of the opposite
+   mode (see schematic.css). */
 #viewswitch {
   display: inline-flex; flex-shrink: 0; align-self: flex-start;
   background: var(--overlay-bg); border: 1px solid var(--line);
@@ -56,10 +56,10 @@
 #viewswitch .vs-btn:hover { color: var(--text); background: var(--panel-2); }
 #viewswitch .vs-btn.active { color: #fff; background: var(--accent); }
 
-/* ── Поиск устройства ──
-   Прибит к ПРАВОЙ границе блока «Схема»: инлайновый right/width выставляет
-   search.js по фактической геометрии #schempwrap (position()). Поле «висит»
-   ровно над схемой, а не над паспортом (#detail). */
+/* ── Device search ──
+   Pinned to the RIGHT edge of the schema pane: search.js sets inline
+   right/width from actual #schempwrap geometry (position()). Field sits
+   over the schema, not the detail passport (#detail). */
 #devsearch {
   position: relative; display: flex; align-items: center; z-index: 30;
   width: 240px; max-width: 30vw;
@@ -68,8 +68,8 @@
 }
 #devsearch:focus-within { border-color: var(--accent); }
 #devsearch .ds-icon { color: var(--muted); font-size: 15px; flex-shrink: 0; }
-/* #topbar-селектор перебивает по специфичности — усиливаем, чтобы у поля НЕ было
-   своей рамки/фона (иначе двойная обводка внутри #devsearch). */
+/* #topbar selector wins on specificity — force the field to have no
+   border/background (else a double outline inside #devsearch). */
 #devsearch #devsearch-inp {
   flex: 1; min-width: 0; background: transparent; border: none; outline: none;
   border-radius: 0; padding: 0 6px;
@@ -82,7 +82,7 @@
 }
 #devsearch-clear:hover { color: var(--text); }
 #devsearch.has-text #devsearch-clear { display: inline-flex; }
-/* Выпадающий список результатов — под полем, выровнен по его правому краю */
+/* Results dropdown — below the field, aligned to its right edge */
 #devsearch-results {
   display: none; position: absolute; top: calc(100% + 5px); right: -1px;
   min-width: 240px; max-width: 380px; max-height: 320px; overflow-y: auto;
@@ -90,7 +90,7 @@
   box-shadow: var(--overlay-shadow, 0 8px 24px rgba(0,0,0,0.4)); padding: 4px;
 }
 #devsearch.open #devsearch-results { display: block; }
-/* На холстах в разработке схемы нет — поиск незачем показывать */
+/* WIP canvases have no schema — no point showing search */
 .wip-mode #devsearch { display: none !important; }
 .ds-item {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px;
@@ -103,9 +103,9 @@
 .ds-item .ds-meta { margin-left: auto; color: var(--muted); font-size: 11px; flex-shrink: 0; }
 .ds-empty { padding: 10px 8px; color: var(--muted); font-size: 12px; text-align: center; }
 
-/* ── Фильтр по ролям / кабелям («Fl») ──
-   Тот же вид, что #schemtools/#layers. Список динамический (filter.js):
-   узлы по ролям + провода по семействам, галочки скрывают через .flt-hidden. */
+/* ── Role / cable filter ("Fl") ──
+   Same look as #schemtools/#layers. Dynamic list (filter.js): nodes by
+   role + wires by family; checkboxes hide via .flt-hidden. */
 #rolefilter {
   font-size: 12px; color: var(--muted);
   background: var(--overlay-bg); border: 1px solid var(--line);
@@ -136,8 +136,8 @@
 #rolefilter .fl-name { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #rolefilter .fl-cnt { color: var(--muted); font-family: var(--mono); font-size: 11px; flex-shrink: 0; }
 
-/* Скрытие отфильтрованного: узлы убираем из потока (провода уедут за ними
-   при redrawWires), провода прячем через visibility (в SVG display:none тоже
-   ок, но visibility надёжнее для path). */
+/* Hiding filtered items: nodes removed from flow (wires follow on
+   redrawWires); wires hidden via visibility (display:none works in SVG
+   too, but visibility safer for path). */
 #schema .node.flt-hidden { display: none; }
 #wires .wire.flt-hidden { display: none; }

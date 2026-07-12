@@ -1,43 +1,43 @@
 "use strict";
-// Ядро: общее состояние, утилиты, константы
-// Все менеджеры импортируют отсюда. state — единый источник рантайм-данных
-// (менеджеры хранят в нём свои коллекции и DOM-ссылки, как раньше).
+// Core: shared state, utilities, constants
+// All managers import from here. state is the single source of runtime data
+// (managers keep their collections and DOM refs in it, as before).
 
 export const $ = s => document.querySelector(s);
 
 export const state = {
   base: "", token: "",
   regions: [], siteGroups: [], sites: [], locations: [], prefixes: [],
-  powerPanels: [], powerFeeds: [],   // силовые щиты и фидеры (дерево + слой питания)
-  wirelessLinks: [],                 // радио-линки между интерфейсами (слой «Wireless»)
-  circuits: [], circuitTerms: [],    // провайдерские каналы + терминации (слой «Circuits»)
-  circuitProviders: [], circuitTypes: [],   // справочники для назначения circuit
-  ipamPrefixes: [], ipamIps: [], ipamLocations: [],   // холст «Сеть / IPAM»
+  powerPanels: [], powerFeeds: [],   // power panels and feeds (tree + power layer)
+  wirelessLinks: [],                 // radio links between interfaces ("Wireless" layer)
+  circuits: [], circuitTerms: [],    // provider circuits + terminations ("Circuits" layer)
+  circuitProviders: [], circuitTypes: [],   // reference lists for circuit assignment
+  ipamPrefixes: [], ipamIps: [], ipamLocations: [],   // "Network / IPAM" canvas
   roles: {}, dtypes: {},
   racks: [], group: [], groupKey: null,
-  scope: null,                       // выбранная область {type:'region'|'site'|'location', id, name}
+  scope: null,                       // selected scope {type:'region'|'site'|'location', id, name}
   devices: [], devRack: {}, devCol: {}, devNodeIdx: {},
   ports: {},
-  ipsByIface: {},                    // id интерфейса → [IP] (тултип/паспорт)
+  ipsByIface: {},                    // interface id → [IP] (tooltip / device card)
   nodeEls: {}, rackDevEls: {}, rackBoxEls: {}, rackColEls: {},
   rackOcc: {}, rackLay: {},
   cables: [],
-  cableTypes: [],         // [{value,label}] из OPTIONS /api/dcim/cables/ (loadCableTypes)
-  activeLayer: null,      // активный слой-подсветка {kind,id,portKeys} (layers.js)
-  _vlanIndex: null,       // Map vid → {vlan,portKeys} для панели слоёв и тултипов
-  pending: null,          // {otype,id,label,el} — выбранный порт (первый конец кабеля)
-  drag: null,             // {type,id,name} — перетаскиваемый узел дерева
-  linkCtx: null,          // контекст открытого мини-меню связи
+  cableTypes: [],         // [{value,label}] from OPTIONS /api/dcim/cables/ (loadCableTypes)
+  activeLayer: null,      // active highlight layer {kind,id,portKeys} (layers.js)
+  _vlanIndex: null,       // Map vid → {vlan,portKeys} for the layers panel and tooltips
+  pending: null,          // {otype,id,label,el} — selected port (first cable end)
+  drag: null,             // {type,id,name} — tree node being dragged
+  linkCtx: null,          // context of the open link mini-menu
   zoom: 1,
   modalSubmit: null,
-  toolsCollapsed: true,   // блок «UI» на схеме изначально свёрнут
-  filterCollapsed: true,  // блок «Fl» (фильтр по ролям/кабелям) изначально свёрнут
-  paletteCollapsed: true, // палитра «+» (правый нижний угол) изначально свёрнута
-  viewMode: "phys",       // режим отображения схемы: "phys" | "net" (свитч на схеме)
-  wireStyle: "round",     // стиль проводов: "round" (дуги) | "angular" (углы + мостики)
-  wirePath: "short",      // трасса углов: "short" (напрямую) | "extend" (в обход нод)
-  hiddenRoles: {},        // {roleId: true} — скрытые роли узлов (фильтр, CSS-скрытие)
-  hiddenFams: {},         // {family: true}  — скрытые семейства кабелей
+  toolsCollapsed: true,   // "UI" block on the schema starts collapsed
+  filterCollapsed: true,  // "Fl" block (role/cable filter) starts collapsed
+  paletteCollapsed: true, // "+" palette (bottom-right corner) starts collapsed
+  viewMode: "phys",       // schema view mode: "phys" | "net" (switch on the schema)
+  wireStyle: "round",     // wire style: "round" (arcs) | "angular" (corners + hop bridges)
+  wirePath: "short",      // angular routing: "short" (direct) | "extend" (detour around nodes)
+  hiddenRoles: {},        // {roleId: true} — hidden node roles (filter, hidden via CSS)
+  hiddenFams: {},         // {family: true}  — hidden cable families
 };
 
 export const PORT_KINDS = [
@@ -53,7 +53,7 @@ export const KIND_RU = { "dcim.interface": "сетевой интерфейс", 
   "dcim.rearport": "rear-порт панели (магистраль)", "dcim.powerport": "ввод питания",
   "dcim.poweroutlet": "розетка питания", "dcim.consoleport": "консольный порт",
   "dcim.consoleserverport": "порт консоль-сервера", "dcim.powerfeed": "фидер питания (щит)" };
-// Матрица совместимости концов кабеля (как COMPATIBLE_TERMINATION_TYPES в NetBox)
+// Cable end compatibility matrix (mirrors NetBox COMPATIBLE_TERMINATION_TYPES)
 export const COMPAT = {
   "dcim.interface":         ["dcim.interface", "dcim.frontport", "dcim.rearport", "circuits.circuittermination"],
   "dcim.frontport":         ["dcim.interface", "dcim.frontport", "dcim.rearport", "dcim.consoleport", "dcim.consoleserverport", "circuits.circuittermination"],
@@ -65,54 +65,53 @@ export const COMPAT = {
   "dcim.powerfeed":   ["dcim.powerport"],
 };
 
-// Типы кабеля
-// Список ТИПОВ (value+label) НЕ хардкодим — он тянется из NetBox через
-// OPTIONS /api/dcim/cables/ (см. loadCableTypes в api.js) и кладётся в
-// state.cableTypes как плоский [{value,label}]. В NetBox это статический
-// ChoiceSet (CableTypeChoices), отдельной таблицы/эндпоинта-списка нет,
-// но DRF отдаёт его choices в ответе OPTIONS — это и есть источник правды.
+// Cable types
+// The TYPE list (value+label) is NOT hardcoded — it comes from NetBox via
+// OPTIONS /api/dcim/cables/ (see loadCableTypes in api.js) into
+// state.cableTypes as a flat [{value,label}]. In NetBox it is a static
+// ChoiceSet (CableTypeChoices) with no separate table/list endpoint, but
+// DRF returns its choices in the OPTIONS response — the source of truth.
 //
-// В плагине остаётся только то, чего в API НЕТ: сопоставление типа с
-// «семейством» (для цвета провода и группировки в форме). Определяем по
-// ПРЕФИКСУ значения, а не по полному перечню — тогда новый тип (cat9, om6…)
-// автоматически попадёт в своё семейство без правок плагина.
+// The plugin keeps only what the API LACKS: mapping a type to a "family"
+// (wire color and form grouping). Matched by value PREFIX, not a full list —
+// so a new type (cat9, om6…) lands in its family without plugin changes.
 const FAMILY_RULES = [
-  [/^cat\d|^mrj21/, "copper"],   // медь · витая пара
-  [/^dac-/, "dac"],              // медь · DAC (twinax)
-  [/^coax|^rg-|^lmr-/, "coax"],  // медь · коаксиал
-  [/^mmf/, "mmf"],               // оптика · многомод
-  [/^smf/, "smf"],               // оптика · одномод
-  [/^aoc/, "aoc"],               // оптика · активная
-  [/^power/, "power"],           // питание
+  [/^cat\d|^mrj21/, "copper"],   // copper · twisted pair
+  [/^dac-/, "dac"],              // copper · DAC (twinax)
+  [/^coax|^rg-|^lmr-/, "coax"],  // copper · coax
+  [/^mmf/, "mmf"],               // fiber · multimode
+  [/^smf/, "smf"],               // fiber · single-mode
+  [/^aoc/, "aoc"],               // fiber · active (AOC)
+  [/^power/, "power"],           // power
   [/^usb/, "usb"],               // USB
 ];
-// Семейство типа кабеля (ключ цвета/группы). Пусто/неизвестно → "default".
+// Cable type family (color/group key). Empty/unknown → "default".
 export function cableFamily(type) {
   if (!type) return "default";
   for (const [re, fam] of FAMILY_RULES) if (re.test(type)) return fam;
   return "default";
 }
-// Человекочитаемое имя семейства — заголовок <optgroup> в форме выбора типа.
+// Human-readable family name — <optgroup> heading in the type picker form.
 export const FAMILY_LABEL = {
   copper: "Медь · витая пара", dac: "Медь · DAC", coax: "Медь · коаксиал",
   mmf: "Оптика · многомод", smf: "Оптика · одномод", aoc: "Оптика · активная",
   power: "Питание", usb: "USB", default: "Прочее",
 };
-// Порядок семейств в выпадающем списке.
+// Family order in the dropdown.
 export const FAMILY_ORDER = ["copper", "dac", "coax", "mmf", "smf", "aoc", "power", "usb", "default"];
-// Какие семейства уместны для данного вида соединения. "power" — только
-// питание (power-порт ↔ розетка/фид); "data" — всё, кроме питания. Тип
-// соединения выводим из otype портов (см. cableFamiliesFor).
+// Which families fit a given connection kind. "power" — power only
+// (power port ↔ outlet/feed); "data" — everything except power. The
+// connection kind is derived from the port otypes (see cableFamiliesFor).
 const POWER_FAMILY = "power";
 export function cableFamiliesFor(otypeA, otypeB) {
   const isPower = (otypeA + otypeB).includes("power");
   return isPower
-    ? new Set([POWER_FAMILY])                                  // питание — только power
-    : new Set(FAMILY_ORDER.filter(f => f !== POWER_FAMILY));   // данные — всё, кроме power
+    ? new Set([POWER_FAMILY])                                  // power — the power family only
+    : new Set(FAMILY_ORDER.filter(f => f !== POWER_FAMILY));   // data — everything except power
 }
-// Группирует плоский state.cableTypes по семействам → [{group,opts:[[v,l],…]}]
-// для <optgroup>. Порядок групп — FAMILY_ORDER, порядок опций — как из API.
-// allowFams (Set) — если задан, оставляем только эти семейства.
+// Groups flat state.cableTypes by family → [{group,opts:[[v,l],…]}] for
+// <optgroup>. Group order — FAMILY_ORDER, option order — as from the API.
+// allowFams (Set) — if given, keep only these families.
 export function cableTypeGroups(allowFams) {
   const byFam = {};
   for (const { value, label } of (state.cableTypes || [])) {
@@ -125,10 +124,10 @@ export function cableTypeGroups(allowFams) {
     .map(fam => ({ group: FAMILY_LABEL[fam], opts: byFam[fam] }));
 }
 
-// Геометрия
+// Geometry
 export const UNIT_H = 22;
-export const GAP_MIN = 3;        // подряд пустых юнитов, начиная с которого сворачиваем
-export const GAP_H = 26;         // высота свёрнутой полосы «↕ N»
+export const GAP_MIN = 3;        // run of empty units at which we start collapsing
+export const GAP_H = 26;         // height of the collapsed "↕ N" strip
 export const COL_W = 350, COL_GAP = 170, NODE_GAP = 74, BOX_PAD = 16;
 export const DOT = 16, STEP = 21, EXTRA = 400;
 
@@ -140,9 +139,9 @@ export function slugify(name) {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
 }
 
-// mk(tag, props, ...children): фабрика DOM-элементов. props — объект:
-//   className/id/text/html — спец-поля; on:{event:fn} — слушатели;
-//   dataset:{k:v}; style:{k:v}; остальное — как атрибуты.
+// mk(tag, props, ...children): DOM element factory. props is an object:
+//   className/id/text/html — special fields; on:{event:fn} — listeners;
+//   dataset:{k:v}; style:{k:v}; everything else — attributes.
 export function mk(tag, props = {}, ...children) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
@@ -159,23 +158,23 @@ export function mk(tag, props = {}, ...children) {
   return e;
 }
 export const px = v => parseFloat(v) || 0;
-// Переключатель режима — надпись по центру сверху блока: «Просмотр» (мягкая
-// синяя тень на ховере) ↔ «Редактирование» (мягкий оранжевый овал-подсветка,
-// всегда виден). Клик тоглит режим. Сохраняем класс .modebtn + data-mode +
-// aria-pressed — вся обвязка (modes.js, main.js) работает по ним. extra —
-// доп. класс для позиционирования в конкретном блоке (напр. schem-mid).
+// Mode switch — label centered at the top of a block: "Просмотр" (view; soft
+// blue hover shadow) ↔ "Редактирование" (edit; soft orange oval highlight,
+// always visible). Click toggles the mode. Keep class .modebtn + data-mode +
+// aria-pressed — all wiring (modes.js, main.js) relies on them. extra —
+// extra class for positioning within a specific block (e.g. schem-mid).
 export const modeBtn = (mode, extra = "") =>
   `<button class="modebtn modeswitch ${extra}" data-mode="${mode}" aria-pressed="false" title="Переключить режим: просмотр / редактирование"><span class="ms-view"><i class="mdi mdi-eye"></i> Просмотр</span><span class="ms-edit-full"><i class="mdi mdi-pencil"></i> Редактирование</span><span class="ms-edit-short"><i class="mdi mdi-pencil"></i> Редакт.</span></button>`;
-// Блёклый цвет из hex роли ("607d8b" → "rgba(96,125,139,a)").
+// Muted color from a role hex ("607d8b" → "rgba(96,125,139,a)").
 export function softColor(hex, a = 0.16) {
   const h = (hex || "607d8b").replace("#", "");
   const n = parseInt(h.length === 3 ? h.replace(/(.)/g, "$1$1") : h, 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
-// Ключ порта/терминации в state.ports.
+// Port/termination key in state.ports.
 export const portKey = (type, id) => type + ":" + id;
 export const termKey = t => portKey(t.object_type, t.object_id);
-// Сворачиваемая панель: клик по head тогглит .collapsed и пишет флаг в state.
+// Collapsible panel: clicking head toggles .collapsed and stores the flag in state.
 export function collapsible(root, head, stateKey) {
   if (state[stateKey]) root.classList.add("collapsed");
   head.addEventListener("click", () => {
@@ -183,9 +182,9 @@ export function collapsible(root, head, stateKey) {
     state[stateKey] = root.classList.contains("collapsed");
   });
 }
-// Название выбранной области (регион / площадка / серверная) — для заголовков
-// панелей «Стойки : …» и «Схема соединений : …». Показывает, ОТКУДА загружена
-// схема (см. state.scope). Запасной путь — по старому ключу groupKey.
+// Name of the selected scope (region / site / server room) — for the
+// "Стойки : …" and "Схема соединений : …" panel titles. Shows WHERE the
+// schema was loaded from (see state.scope). Fallback — the legacy groupKey.
 export function currentLocationName() {
   if (state.scope && state.scope.name) return state.scope.name;
   const locId = (state.groupKey || "").replace(/^\w+:/, "");
@@ -193,18 +192,20 @@ export function currentLocationName() {
   return loc ? loc.name : "";
 }
 
-// Кастомный тултип
+// Custom tooltip
 const tip = $("#tip");
-// Тач/узкий экран: тултип фиксируем чуть НИЖЕ центра (палец не перекрывает порт) и
-// даём крестик — на тач нет mouseleave, чтобы закрыть.
+// Touch/narrow screen: pin the tooltip slightly BELOW center (finger doesn't
+// cover the port) and add a close button — touch has no mouseleave to dismiss it.
 const tipTouch = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
 export function attachTip(el, htmlFn) {
   const move = ev => {
     tip.style.left = Math.min(ev.clientX + 14, innerWidth - 310) + "px";
     tip.style.top = (ev.clientY + 16) + "px";
   };
-  el.addEventListener("mouseenter", ev => {
-    // В режиме правки схемы тултип не нужен (клик по порту = связь, а не инфо).
+  // Show the tooltip (returned so callers can re-open it on a repeat tap — touch
+  // has no mouseenter on the second tap of the same element).
+  const showTip = ev => {
+    // No tooltip in schema edit mode (port click = link action, not info).
     if (document.body.classList.contains("schema-edit")) return;
     tip.innerHTML = htmlFn();
     if (tipTouch()) {
@@ -215,16 +216,56 @@ export function attachTip(el, htmlFn) {
       if (c) c.addEventListener("click", e => {
         e.stopPropagation();
         tip.style.display = "none";
-        // Закрытие тултипа снимает и подсветку кабеля/трассы (слушает schema.js).
+        // Closing the tooltip also clears the cable/trace highlight (schema.js listens).
         document.dispatchEvent(new Event("schematic:tipclose"));
       });
     } else {
       tip.classList.remove("tip-fixed");
       tip.style.transform = "";
-      move(ev);
+      if (ev) move(ev);
     }
     tip.style.display = "block";
-  });
+  };
+  el.addEventListener("mouseenter", showTip);
   el.addEventListener("mousemove", ev => { if (!tipTouch()) move(ev); });
   el.addEventListener("mouseleave", () => { if (!tipTouch()) tip.style.display = "none"; });
+  return showTip;
+}
+
+// Two-finger pinch-zoom on a scroll pane — SHARED by every canvas (Инфраструктура,
+// Сети, and the WIP ones): zoom about the gesture midpoint keeping that content
+// point fixed, then clamp the scroll. The pane needs CSS `touch-action: pan-x
+// pan-y` so one finger scrolls natively (= pan) and the browser hands us the
+// pinch. opts: { getZoom, setZoom, applyZoom, onEnd?, min=0.3, max=2.5 }.
+export function attachPinchZoom(pane, opts) {
+  if (!pane) return;
+  const { getZoom, setZoom, applyZoom, onEnd, min = 0.3, max = 2.5 } = opts;
+  let dist = 0, z0 = 1, cx = 0, cy = 0;
+  pane.addEventListener("touchstart", ev => {
+    if (ev.touches.length !== 2) return;
+    const [a, b] = ev.touches;
+    dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+    z0 = getZoom() || 1;
+    const r = pane.getBoundingClientRect();
+    const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+    cx = (pane.scrollLeft + (mx - r.left)) / z0;   // fixed content point (unscaled)
+    cy = (pane.scrollTop + (my - r.top)) / z0;
+  }, { passive: true });
+  pane.addEventListener("touchmove", ev => {
+    if (ev.touches.length !== 2 || !dist) return;
+    ev.preventDefault();
+    const [a, b] = ev.touches;
+    const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const z = Math.min(max, Math.max(min, z0 * (d / dist)));
+    setZoom(z); applyZoom();
+    const r = pane.getBoundingClientRect();
+    const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+    const maxL = Math.max(0, pane.scrollWidth - pane.clientWidth);
+    const maxT = Math.max(0, pane.scrollHeight - pane.clientHeight);
+    pane.scrollLeft = Math.max(0, Math.min(maxL, cx * z - (mx - r.left)));
+    pane.scrollTop = Math.max(0, Math.min(maxT, cy * z - (my - r.top)));
+  }, { passive: false });
+  pane.addEventListener("touchend", ev => {
+    if (dist && ev.touches.length < 2) { dist = 0; if (onEnd) onEnd(); }
+  });
 }

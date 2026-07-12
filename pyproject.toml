@@ -4,16 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-schematic"
-version = "0.67.0"
-description = "Визуальный конструктор стоек и кабельных трасс для NetBox"
+version = "0.68.46"
+description = "A visual builder for racks, cable routes, power and IP space in NetBox"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+dependencies = ["openpyxl"]   # Excel parsing for the import (Patchen/Unpatchen)
+license = { text = "MIT" }
 authors = [{ name = "David Kad" }]
 keywords = ["netbox", "netbox-plugin", "dcim", "ipam", "cabling"]
 classifiers = [
     "Framework :: Django",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
 ]
 
@@ -25,6 +26,6 @@ Repository = "https://github.com/TSDavid135/netbox-schematic"
 include = ["netbox_schematic*"]
 
 [tool.setuptools.package-data]
-# В пакет ОБЯЗАТЕЛЬНО кладём и статику (css/js), иначе при установке из
-# wheel/git (не editable) фронтенд плагина не попадёт на сервер.
-netbox_schematic = ["templates/**/*.html", "static/**/*"]
+# Static files (css/js) MUST ship in the package, otherwise a wheel/git
+# (non-editable) install won't deliver the plugin frontend to the server.
+netbox_schematic = ["templates/**/*.html", "static/**/*", "forms/templates/*.xlsx"]

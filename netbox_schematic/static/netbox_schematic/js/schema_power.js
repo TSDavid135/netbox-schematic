@@ -1,6 +1,6 @@
 "use strict";
-// Силовые щитки и фидеры — примесь к прототипу SchemaManager (вынесено из schema.js).
-// Методы копируются в SchemaManager.prototype через _mixin (см. schema.js).
+// Power panels and feeds — mixin for the SchemaManager prototype (split from schema.js).
+// Methods copied into SchemaManager.prototype via _mixin (see schema.js).
 import {
   $, state, mk, px, attachTip, collapsible, portKey, termKey, currentLocationName, modeBtn,
   PORT_KINDS, KIND_RU, COMPAT, cableTypeGroups, cableFamiliesFor, cableFamily, FAMILY_LABEL,
@@ -11,13 +11,13 @@ import { Mode } from "./modes.js";
 import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
 
 class _Mixin {
-  // Рисует силовые щитки (Power Panel) КАЖДОЙ серверной области — своим рядом
-  // ПОД ВСЕМ её содержимым (стойки + карман off-rack устройств), по центру их
-  // общего охвата. Геометрия локаций — из пре-прохода render
-  // (this._locOrder / _colX, см. _computeLocGeometry). Возвращает maxBottom.
+  // Draws each server room's power panels in their own row BELOW all its
+  // content (racks + off-rack pocket), centered on their combined span.
+  // Location geometry comes from the render pre-pass (this._locOrder / _colX,
+  // see _computeLocGeometry). Returns maxBottom.
   _renderPowerPanels(canvas, group, maxBottom) {
     if (!group.length) return maxBottom;
-    // Открыта ОДНА стойка (scope "rack") — щитки локации не показываем.
+    // A single rack is open (scope "rack") — don't show location panels.
     if (state.scope && state.scope.type === "rack") return maxBottom;
     const GAP_Y = 40;
     state.powerBoxEls = {};
@@ -27,9 +27,9 @@ class _Mixin {
     for (const g of this._locOrder || []) {
       const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === g.locId);
       if (!panels.length) continue;
-      // Низ содержимого = max(низ стоек, низ кармана устройств) → щитки под всем.
+      // Content bottom = max(rack bottom, device pocket bottom) → panels below all.
       const contentBottom = Math.max(g.rackBottom, g.areaH ? g.devTop + g.areaH : 0);
-      // Центр = середина охвата «стойки + карман».
+      // Center = middle of the "racks + pocket" span.
       const spanLeft = this._colX(g.minCol);
       const spanRight = g.areaW ? g.devX + g.areaW
         : this._colX(g.maxCol) + this.SLOT + BOX_PAD;
@@ -39,21 +39,21 @@ class _Mixin {
     return bottom;
   }
 
-  // Рисует РЯД щитков одной серверной, центрированный под её стойками (centerX),
-  // начиная с top. Возвращает низ ряда (для расчёта высоты холста).
+  // Draws one room's panel ROW, centered under its racks (centerX), starting at
+  // top. Returns the row bottom (for canvas-height calc).
   _renderPanelRow(canvas, panels, centerX, top, edit) {
     const PANEL_W = 280, HEAD_H = 30, ROW_H = 24, GAP_X = 28;
     const panelFeeds = panels.map(p =>
       (state.powerFeeds || []).filter(f => f.power_panel && f.power_panel.id === p.id));
-    // В правке добавляется строка «+ фидер» → высота щитка на 1 ряд больше.
+    // Edit mode adds a "+ feed" row → panel is 1 row taller.
     const rowsOf = fs => edit ? fs.length + 1 : Math.max(1, fs.length);
     const maxH = Math.max(...panelFeeds.map(fs => HEAD_H + rowsOf(fs) * ROW_H + 8));
-    // Ряд щитков центрируется под своими стойками (весь ряд вокруг centerX),
-    // чтобы не вылезать за охват серверной в соседнюю.
+    // Panel row centered under its racks (whole row around centerX) so it
+    // doesn't spill past the room's span into a neighbor.
     const rowW = panels.length * PANEL_W + (panels.length - 1) * GAP_X;
     const x0 = centerX - rowW / 2;
-    // Контур блока щитков «Силовые щиты» (позади карточек) — с подписью и заливкой,
-    // как у контуров-типов устройств.
+    // "Power panels" block contour (behind cards) — with label and fill, like
+    // device-type contours.
     const CONT_HEAD = 28, CONT_PAD = 14;
     const contour = this._contourEl("gb-power", "Силовые щиты", {
       left: x0 - CONT_PAD, top: top - CONT_HEAD,
@@ -62,8 +62,8 @@ class _Mixin {
     let x = x0;
     panels.forEach((panel, pi) => {
       const feeds = panelFeeds[pi];
-      // Карточка щитка — тот же вид, что у нод в стойке (.node), плюс маркер
-      // .powerbox. Акцент слева — цвет питания.
+      // Panel card — same look as rack nodes (.node) plus .powerbox marker.
+      // Left accent — power color.
       const box = mk("div", {
         className: "node powerbox",
         style: { left: x + "px", top: top + "px", width: PANEL_W + "px", height: maxH + "px",
@@ -71,13 +71,13 @@ class _Mixin {
       });
       box.insertAdjacentHTML("beforeend",
         `<span class="nm">${panel.name}</span><span class="mdl">силовой щит · ${feeds.length} фид.</span>`);
-      // Клик по названию щитка → его «паспорт» справа (как у устройств).
+      // Click the panel name → its detail panel on the right (like devices).
       box.querySelector(".nm").addEventListener("click", e => {
         e.stopPropagation();
         this.app.device.showPanel(panel);
       });
-      // Фидеры списком; у каждого — порт на ЛЕВОЙ границе карточки (кружок,
-      // как у портов устройств). Наведение на порт даёт маршрут/тултип.
+      // Feeds listed; each has a port on the card's LEFT edge (a dot, like
+      // device ports). Hovering a port shows route/tooltip.
       const list = mk("div", { className: "pb-feeds" });
       feeds.forEach((f, fi) => {
         const va = f.amperage ? `${f.voltage || "?"}В/${f.amperage}А` : "";
@@ -85,12 +85,12 @@ class _Mixin {
           html: `<span class="pf-name">${f.name}</span><span class="pf-va">${va}</span>` });
         list.appendChild(row);
         state.feedRowEls[f.id] = row;
-        // Порт фидера на левом краю, по вертикали — центр его строки.
+        // Feed port on the left edge, vertically at the center of its row.
         const portY = HEAD_H + fi * ROW_H + ROW_H / 2;
         this._placeFeedPort(box, panel, f, portY);
       });
-      // В правке — строка «+ фидер» с зелёным кружком-плюсиком слева (как у
-      // фидера), чтобы добавлять фидер прямо со схемы, не лазая по дереву.
+      // Edit mode: a "+ feed" row with a green plus-dot on the left (like a
+      // feed) to add feeds straight from the schematic, no tree digging.
       if (edit) {
         const addRow = mk("div", { className: "pb-feed addfeed",
           html: `<span class="pf-name">+ добавить фидер</span>` });
@@ -108,8 +108,8 @@ class _Mixin {
     return top + maxH + 20;
   }
 
-  // Пересобрать только щитки (при смене режима правки — появляется/исчезает
-  // строка «+ фидер»). Позиция берётся из сохранённого низа ряда стоек.
+  // Rebuild only the panels (on edit-mode toggle the "+ feed" row appears/
+  // disappears). Position taken from the saved rack-row bottom.
   _rerenderPowerPanels() {
     const canvas = $("#schema");
     if (!canvas || this._powerBaseBottom == null) return;
@@ -117,9 +117,9 @@ class _Mixin {
     this._renderPowerPanels(canvas, state.group, this._powerBaseBottom);
   }
 
-  // Порт фидера (Power Feed) на левой границе щитка. Регистрируется в
-  // state.ports как dcim.powerfeed:<id> — так работают hover/маршрут и к нему
-  // привязывается линия к PDU (_drawFeedWires). dev — синтетический (щит).
+  // Power Feed port on the panel's left edge. Registered in state.ports as
+  // dcim.powerfeed:<id> so hover/route work and the PDU line attaches to it
+  // (_drawFeedWires). dev — synthetic (the panel).
   _placeFeedPort(box, panel, feed, portY) {
     const dot = mk("div", {
       className: "port p-feed" + (feed.cable ? " used" : ""),
@@ -132,22 +132,22 @@ class _Mixin {
     const port = { el: dot, item: feed, dev, otype: kind.otype, ep: kind.ep, side: "l" };
     dot.addEventListener("mouseenter", () => this._portHover(port, true));
     dot.addEventListener("mouseleave", () => this._portHover(port, false));
-    // Соединение как у обычных портов: клик — выбрать/привязать (фидер ↔ power-
-    // port PDU), двойной — трасса. COMPAT разрешает powerfeed↔powerport.
+    // Connect like normal ports: click — select/link (feed ↔ PDU power-port),
+    // double — trace. COMPAT allows powerfeed↔powerport.
     dot.addEventListener("click", ev => { ev.stopPropagation(); this._onPortClick(kind, feed, dev, dot, ev); });
     dot.addEventListener("dblclick", ev => { ev.stopPropagation(); ev.preventDefault(); this._onPortDblClick(kind, feed); });
     box.appendChild(dot);
     state.ports[portKey(kind.otype, feed.id)] = port;
   }
 
-  // Зелёный «+»-кружок слева у строки «+ фидер» (как порт фидера, но добавляет).
+  // Green "+" dot on the left of the "+ feed" row (like a feed port, but adds).
   _placeAddFeedDot(box, panel, portY) {
     const dot = mk("div", { className: "port p-feed addport", text: "+",
       title: "Добавить фидер", style: { left: "-8px", top: portY + "px" } });
     dot.addEventListener("click", ev => { ev.stopPropagation(); this._addFeed(panel); });
     box.appendChild(dot);
   }
-  // Модалка создания фидера (та же, что «+ фидер» в дереве) — прямо со схемы.
+  // Feed-creation modal (same as tree's "+ feed") — straight from the schematic.
   _addFeed(panel) {
     const locId = panel.location && panel.location.id;
     const racksInLoc = (state.racks || []).filter(r => r.location && r.location.id === locId);
@@ -188,9 +188,9 @@ class _Mixin {
       <div class="t-mut">${feed.cable ? "наведи — маршрут питания" : "не подключён"}</div>`;
   }
 
-  // Линии от фидеров щитков к Input-портам PDU (замыкают цепь питания).
-  // Рисуются в #wires после портов; вызывается из redrawWires (там уже
-  // посчитана геометрия портов). Кабель feed↔power-port — источник связи.
+  // Lines from panel feeds to PDU Input ports (close the power circuit). Drawn
+  // in #wires after ports; called from redrawWires (port geometry already
+  // computed). The feed↔power-port cable is the link source.
   _drawFeedWires(svg, center) {
     for (const c of state.cables) {
       const terms = [...(c.a_terminations || []), ...(c.b_terminations || [])];
@@ -202,26 +202,26 @@ class _Mixin {
       if (!feedP || !port) continue;
       const [fx, fy] = center(feedP.el), [px2, py] = center(port.el);
       const midY = (fy + py) / 2;
-      // Порт фидера — на ЛЕВОЙ грани щита → провод ВСЕГДА выходит перпендикулярно
-      // (90°, горизонтально влево) на короткий вынос, и лишь ПОТОМ уходит в путь
-      // (small_fix: «от щитков сначала под 90° от порта, а потом путь»).
+      // Feed port is on the panel's LEFT face → the wire ALWAYS exits
+      // perpendicular (90°, horizontally left) for a short stub, THEN enters the
+      // path (small_fix: "from panels first 90° off the port, then path").
       const sx = fx - 26;
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      // Стиль как у обычных проводов:
-      //  · «Круглые» — гориз. вынос, затем вертикальный кубик к PDU;
-      //  · «Углы» + «Короткий» — вынос, скруглённая угольная трасса через середину;
-      //  · «Углы» + «Расширенный» — вынос, затем коридором колонки PDU в обход нод.
+      // Style like normal wires:
+      //  · round — horizontal stub, then vertical cubic to PDU;
+      //  · angular + short — stub, rounded Manhattan route through the middle;
+      //  · angular + extend — stub, then PDU column corridor around nodes.
       let d;
       if (state.wireStyle !== "angular") {
-        // Гладкий кубик, КАК остальные «круглые» провода, но выходит из порта
-        // ГОРИЗОНТАЛЬНО (первый контрол слева) → 90° от щита без ломаного стыка.
+        // Smooth cubic, LIKE other round wires, but exits the port HORIZONTALLY
+        // (first control on the left) → 90° off the panel with no kinked joint.
         d = `M ${fx} ${fy} C ${fx - 44} ${fy}, ${px2} ${midY}, ${px2} ${py}`;
       } else if (state.wirePath === "extend" && state.devCol[port.dev.id] != null) {
         const col = state.devCol[port.dev.id];
         const corr = this._colX(col) + this.SLOT + COL_GAP / 2 - 52;
-        // Горизонтальный переход ведём НАД щитками (верхний край самого верхнего
-        // щитка − отступ), чтобы линия не резала их боксы, затем коридором
-        // колонки PDU вверх к его порту. state.powerBoxEls — боксы щитков.
+        // Run the horizontal transition ABOVE the panels (top edge of the
+        // topmost panel − pad) so the line doesn't cut their boxes, then up the
+        // PDU column corridor to its port. state.powerBoxEls — panel boxes.
         const tops = Object.values(state.powerBoxEls || {}).map(el => el.offsetTop);
         const overPanels = (tops.length ? Math.min(...tops) : fy) - 24;
         const pOut = py + 16;

@@ -3,9 +3,12 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- user-scalable=no: the canvases have their OWN pinch-zoom (attachPinchZoom); the
+     browser's page-zoom would otherwise scroll the whole page (topbar hides) and
+     zoom the tree. Disabling it makes every canvas behave the same. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>NetBox Схематика — {{ canvas_title }}</title>
-<!-- Material Design Icons: тот же шрифт, что использует сам NetBox (локально, без CDN) -->
+<!-- Material Design Icons: the same font NetBox itself uses (local, no CDN) -->
 <link rel="stylesheet" href="{% static 'netbox-external.css' %}">
 <link rel="stylesheet" href="{% static 'netbox_schematic/css/theme.css' %}">
 <link rel="stylesheet" href="{% static 'netbox_schematic/css/schematic.css' %}">
@@ -34,10 +37,14 @@
   <span id="status">не подключено</span>
   <span class="topbar-spacer"></span>
   <button class="modebtn modeswitch topbar-mode" data-mode="schema" aria-pressed="false" title="Режим: просмотр / редактирование"><span class="ms-view"><i class="mdi mdi-eye"></i></span><span class="ms-edit-full"><i class="mdi mdi-pencil"></i></span><span class="ms-edit-short"><i class="mdi mdi-pencil"></i></span></button>
+  <button class="modebtn modeswitch topbar-mode" data-mode="ipam" aria-pressed="false" title="Режим: просмотр / редактирование сетей"><span class="ms-view"><i class="mdi mdi-eye"></i></span><span class="ms-edit-full"><i class="mdi mdi-pencil"></i></span><span class="ms-edit-short"><i class="mdi mdi-pencil"></i></span></button>
   <button id="topbar-more" title="Ещё: поиск, тема, обновить"><i class="mdi mdi-chevron-down"></i></button>
   <div id="topbar-extra">
-  <button id="exportbtn" class="tb-act" title="Экспорт (в разработке)"><i class="mdi mdi-tray-arrow-up"></i> <span class="tb-txt">Экспорт</span></button>
-  <button id="importbtn" class="tb-act" title="Импорт (в разработке)"><i class="mdi mdi-tray-arrow-down"></i> <span class="tb-txt">Импорт</span></button>
+  <div id="imp-exp-row">
+    <button id="importbtn" class="tb-act" aria-label="Импорт" data-tip="Импорт из Excel"><i class="mdi mdi-tray-arrow-down"></i> <span class="tb-txt">Импорт</span></button>
+    <button id="exportbtn" class="tb-act" aria-label="Экспорт" data-tip="Экспорт в Excel"><i class="mdi mdi-tray-arrow-up"></i> <span class="tb-txt">Экспорт</span></button>
+    <button id="auditbtn" class="tb-act" aria-label="Аудит" data-tip="Аудит: чего не хватает"><i class="mdi mdi-clipboard-search-outline"></i> <span class="tb-txt">Аудит</span></button>
+  </div>
   <div id="devsearch" title="Поиск устройства по имени">
     <i class="mdi mdi-magnify ds-icon"></i>
     <input id="devsearch-inp" type="text" autocomplete="off" spellcheck="false" placeholder="Поиск устройства…">
@@ -45,8 +52,8 @@
     <div id="devsearch-results"></div>
   </div>
   <button id="cancelconn"><i class="mdi mdi-close"></i> Отмена привязки</button>
-  <button id="syncbtn" title="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
-  <button id="themetoggle" title="Светлая / тёмная тема"><i class="mdi mdi-lightbulb-outline"></i></button>
+  <button id="syncbtn" aria-label="Обновить" data-tip="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
+  <button id="themetoggle" aria-label="Сменить тему" data-tip="Светлая / тёмная тема"><i class="mdi mdi-lightbulb-outline"></i></button>
   <div id="userbox" title="{{ user_login }}">
     <button id="userbtn"><i class="mdi mdi-account-circle"></i><span class="ub-name">{{ user_name }}</span><i class="mdi mdi-chevron-down ub-caret"></i></button>
     <div id="usermenu">
@@ -66,8 +73,7 @@
       <div id="tree"><div class="placeholder">Подключись —<br>появятся серверные</div></div>
     </div>
     <div id="side-ipam" class="side-block">
-      <button class="modebtn modeswitch compact ms-corner" data-mode="ipamtree" aria-pressed="false" title="Просмотр / Редактирование дерева: перетаскивание сетей, создание по ПКМ"><span class="ms-view">Просмотр</span><span class="ms-edit-full">Редактирование</span><span class="ms-edit-short">Редакт.</span></button>
-      <div class="side-head">Места и сети</div>
+      <div class="side-head">Места и сети<button id="ipam-select-btn" class="ipam-sel-toggle">Выбрать</button></div>
       <div id="ipam-tree-side"><div class="placeholder">Загружаю…</div></div>
     </div>
   </nav>
@@ -85,9 +91,9 @@
   </div>
   <aside id="detail"><div class="placeholder">Кликни по имени устройства<br>на схеме — тут его паспорт</div></aside>
 
-  <!-- Холст «Сеть / IPAM»: облака-сети с локациями внутри. Дерево слева
-       (сети + непривязанные локации), облака в центре, детали справа.
-       Показывается только для canvas=network (body.ipam-mode). -->
+  <!-- Networks / IPAM canvas: prefix clouds with locations inside. Tree on the
+       left (prefixes + unscoped locations), clouds centre, details right.
+       Shown only for canvas=network (body.ipam-mode). -->
   <div id="ipam">
     <div id="ipam-main">
       <p class="pane-title"><span class="pt-label">Схема адресного пространства</span>
@@ -117,7 +123,15 @@
 </svg>
 
 <button id="schem-add" title="Добавить в текущую область"><i class="mdi mdi-plus"></i></button>
-<div id="reqspin"><span class="rs-spinner"></span><span>Загрузка…</span></div>
+<div id="reqspin">
+  <button id="reqpill" type="button" aria-expanded="false" title="Показать, что загружается">
+    <span class="rs-spinner"></span>
+    <span class="rs-text">Загрузка…</span>
+    <span class="rs-pct">0%</span>
+    <i class="mdi mdi-chevron-down rs-caret"></i>
+  </button>
+  <div id="reqlist" hidden></div>
+</div>
 <div id="tip"></div>
 <div id="linkmenu">
   <button class="x" title="Удалить связь"><i class="mdi mdi-close"></i></button>
@@ -162,14 +176,124 @@
 </div>
 
 <div id="modal-bg"><div id="modal">
-  <h3 id="modal-title"></h3>
-  <div id="modal-where" style="font-size:12px;color:var(--muted)"></div>
-  <div id="modal-fields"></div>
+  <div id="modal-main">
+    <h3 id="modal-title"></h3>
+    <div id="modal-where" style="font-size:12px;color:var(--muted)"></div>
+    <div id="modal-fields"></div>
+    <div class="btns">
+      <button id="m-cancel">Отмена</button>
+      <button id="m-create" class="primary">Создать</button>
+    </div>
+  </div>
+  <div id="modal-side" style="display:none"></div>
+</div></div>
+
+<div id="import-bg"><div id="import-modal">
+  <div class="imp-head"><h3><i class="mdi mdi-tray-arrow-down"></i> Импорт Excel «Patchen / Unpatchen»</h3>
+    <button id="imp-close" class="imp-x" title="Закрыть"><i class="mdi mdi-close"></i></button></div>
+  <div class="imp-body">
+    <div id="imp-work">
+    <button type="button" class="imp-acc" data-sec="top" aria-expanded="true"><span>Файл и превью</span><i class="mdi mdi-chevron-up"></i></button>
+    <div id="imp-top">
+    <div class="imp-row">
+      <label class="imp-lab">Файл .xlsx</label>
+      <label id="imp-drop"><i class="mdi mdi-tray-arrow-down"></i>
+        <span id="imp-dropTxt">Перетащи файл сюда или нажми для выбора</span>
+        <input id="imp-file" type="file" accept=".xlsx"></label>
+    </div>
+    <div class="imp-row imp-row2">
+      <div><label class="imp-lab">Площадка (site)</label>
+        <select id="imp-site" autocomplete="off"></select>
+        <input id="imp-site-new" class="imp-newin" placeholder="Название новой площадки" hidden></div>
+      <div><label class="imp-lab">Свич брать из</label><select id="imp-mode" autocomplete="off">
+        <option value="neu_else_alt">нового, иначе старого</option>
+        <option value="neu">только нового (Anschluss neu)</option>
+        <option value="alt">только старого (Anschluss alt)</option>
+      </select></div>
+    </div>
+    <div class="imp-row">
+      <label class="imp-lab">Локация (серверная) — шкафы живут только в локациях</label>
+      <input id="imp-loc" placeholder="Пусто = брать из файла (колонка Technikraum)">
+    </div>
+    <div id="imp-preview"></div>
+    </div>
+    <button type="button" class="imp-acc" data-sec="place" aria-expanded="false" hidden><span>Стойки и дерево</span><i class="mdi mdi-chevron-down"></i></button>
+    <div id="imp-place" hidden>
+      <div class="imp-place-cols">
+        <div class="imp-place-col">
+          <div class="imp-col-h">Как ляжет в дерево <span class="imp-mut">тап по устройству → «Настроить»</span></div>
+          <div id="imp-tree"></div>
+          <div id="imp-cfg" hidden></div>
+        </div>
+        <div class="imp-place-col">
+          <div class="imp-col-h">Стойки <span class="imp-mut">тап по свичу → тап по свободному юниту</span></div>
+          <div id="imp-rack-tabs"></div>
+          <div class="imp-size-row"><label>Размер стойки</label>
+            <input id="imp-rack-size" type="number" min="1" max="60" step="1" value="42"><span class="imp-mut">U</span></div>
+          <div id="imp-rack-grid"></div>
+        </div>
+      </div>
+    </div>
+    </div>
+    <div id="imp-conf-full" hidden></div>
+    <div id="imp-status"></div>
+  </div>
   <div class="btns">
-    <button id="m-cancel">Отмена</button>
-    <button id="m-create" class="primary">Создать</button>
+    <button id="imp-cancel">Отмена</button>
+    <button id="imp-commit" class="primary" disabled><i class="mdi mdi-database-import"></i> Импортировать</button>
+    <span id="imp-spin" class="imp-spin" hidden></span>
   </div>
 </div></div>
+
+<div id="export-bg"><div id="export-modal">
+  <div class="imp-head"><h3><i class="mdi mdi-tray-arrow-up"></i> Экспорт в Excel «Patchen / Unpatchen»</h3>
+    <button id="exp-close" class="imp-x" title="Закрыть"><i class="mdi mdi-close"></i></button></div>
+  <div class="imp-body">
+    <div class="imp-row imp-row2">
+      <div><label class="imp-lab">Формат</label><select id="exp-form" autocomplete="off">
+        <option value="patchen">Patchen / Unpatchen (розетки → свичи)</option>
+        <option value="universal">Универсальный список устройств</option>
+      </select></div>
+      <div><label class="imp-lab">Язык колонок</label><select id="exp-lang" autocomplete="off">
+        <option value="ru">Русский</option>
+        <option value="en">English</option>
+      </select></div>
+    </div>
+    <div class="imp-row">
+      <label class="imp-lab">Что выгружать — отметь площадки / локации / стойки</label>
+      <div class="exp-toolbar"><button id="exp-all" type="button">Отметить все</button>
+        <button id="exp-none" type="button">Снять все</button></div>
+      <div id="exp-tree"></div>
+    </div>
+    <div id="exp-status" class="exp-ok"></div>
+  </div>
+  <div class="btns">
+    <button id="exp-cancel">Отмена</button>
+    <button id="exp-run" class="primary"><i class="mdi mdi-tray-arrow-up"></i> Экспортировать .xlsx</button>
+    <span id="exp-spin" class="imp-spin" hidden></span>
+  </div>
+</div></div>
+
+<div id="audit-bg"><div id="audit-modal">
+  <div class="imp-head"><h3><i class="mdi mdi-clipboard-search-outline"></i> Аудит — чего не хватает и где</h3>
+    <button id="aud-close" class="imp-x" title="Закрыть"><i class="mdi mdi-close"></i></button></div>
+  <div class="imp-body">
+    <div class="imp-row">
+      <label class="imp-lab">Область</label>
+      <select id="aud-group" autocomplete="off"></select>
+    </div>
+    <div id="aud-summary"></div>
+    <div id="aud-results"></div>
+    <div id="aud-status" class="exp-ok"></div>
+  </div>
+  <div class="btns">
+    <button id="aud-cancel">Закрыть</button>
+    <button id="aud-run" class="primary"><i class="mdi mdi-magnify"></i> Проверить</button>
+    <span id="aud-spin" class="imp-spin" hidden></span>
+  </div>
+</div></div>
+
+{% if plugin_version %}<div id="pluginver" title="Версия плагина Схематика">v{{ plugin_version }}</div>{% endif %}
 
 <script type="module" src="{% static 'netbox_schematic/js/main.js' %}"></script>
 <script type="module" src="{% static 'netbox_schematic/js/responsive.js' %}"></script>

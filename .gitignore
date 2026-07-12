@@ -13,6 +13,14 @@ dist/
 .idea/
 demo_seed.py
 deploy_paste.sh
+tests_paste.sh
+bench_update.sh
+stress/
 *.md
 !README.md
 !README.ru.md
+!docs/*.md
+!CHANGELOG.md
+sample_patchen*.xlsx
+example*.xlsx
+check_compat.sh

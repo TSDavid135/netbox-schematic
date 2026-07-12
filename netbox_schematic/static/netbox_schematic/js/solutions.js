@@ -1,29 +1,41 @@
 "use strict";
-// Справочник «готовых решений» — единый источник для палитры «+», меню ПКМ
-// «Добавить», иконок узлов и логических контуров по типам. НЕ спрашиваем тип
-// устройства (это и есть готовое решение); при добавлении спрашиваем имя +
-// число сетевых портов и портов питания.
+// Catalog of «ready-made solutions» — single source for the «+» palette, the
+// right-click «Добавить» menu, node icons and logical contours by type. We
+// DON'T ask for the device type (the solution IS the type); on add we ask for a
+// name + the number of network and power ports.
 //
-// Поля решения:
-//   key        — идентификатор в категории
-//   label      — подпись (кнопка палитры / пункт меню)
-//   icon       — mdi-иконка (палитра + узел на схеме)
-//   kind       — "device" (по умолч.) | "rack" | "panel"
-//   model      — имя DeviceType в справочнике (создаётся при нужде под
-//                производителем MANUFACTURER); только для kind="device"
-//   role       — имя роли устройства (создаётся при нужде), roleColor — её цвет
-//   group      — подпись логического контура на схеме (устройства одного group
-//                группируются в один контур «<group> · <локация>»)
-//   net        — сколько сетевых интерфейсов создать по умолчанию
-//   power      — сколько портов питания создать по умолчанию
+// Solution fields:
+//   key        — id within the category
+//   label      — caption (palette button / menu item)
+//   icon       — mdi icon (palette + node on the schema)
+//   kind       — "device" (default) | "rack" | "panel"
+//   model      — DeviceType name in the catalog (created on demand under
+//                MANUFACTURER); only for kind="device"
+//   role       — device role name (created on demand); roleColor — its color
+//   group      — logical-contour caption on the schema (devices in one group
+//                merge into a single contour «<group> · <локация>»)
+//   net        — default number of network interfaces (fallback when no ports)
+//   power      — default number of power ports
+//   ports      — (opt., INSTEAD of net) port groups with TYPES for a device:
+//                [{ kind, type, count, prefix, label }]
+//                  kind   — "interface" | "power" | "poweroutlet" | "console"
+//                  type   — NetBox type for interface (e.g. "1000base-t" copper /
+//                           "1000base-x-sfp" fiber); not needed for the rest
+//                  count  — default count (editable in the modal)
+//                  prefix — port-name prefix ("eth"→eth1, "Розетка "→«Розетка 1»)
+//                  label  — counter-field caption in the add modal
 //
-// Файл лежит рядом с плагином — правится без изменения логики.
+// The file sits next to the plugin — edit without touching logic.
 export const MANUFACTURER = "Схематика";
 
 export const SOLUTIONS = {
   periph: {
     label: "Потребитель", icon: "mdi-desktop-tower-monitor",
     items: [
+      // Sockets — like a patch panel: front↔rear pairs (jacks). Node with ports on
+      // top (rear → to wall/panel) and bottom (front → to device); trace runs through.
+      { key: "sockets", label: "Розетки", icon: "mdi-ethernet", model: "Сетевые розетки", role: "Розетки", roleColor: "78909c", group: "Розетки", power: 0,
+        ports: [{ kind: "frontrear", type: "8p8c", count: 2, prefix: "Розетка ", label: "Гнёзд (отверстий)" }] },
       { key: "pc", label: "ПК", icon: "mdi-desktop-classic", model: "Рабочая станция", role: "ПК", roleColor: "2196f3", group: "Персональные компьютеры", net: 1, power: 1 },
       { key: "laptop", label: "Ноутбук", icon: "mdi-laptop", model: "Ноутбук", role: "Ноутбук", roleColor: "03a9f4", group: "Ноутбуки", net: 1, power: 1 },
       { key: "printer", label: "Принтер", icon: "mdi-printer", model: "Принтер", role: "Принтер", roleColor: "9c27b0", group: "Принтеры", net: 1, power: 1 },
@@ -43,9 +55,39 @@ export const SOLUTIONS = {
       { key: "switch", label: "Коммутатор", icon: "mdi-switch", model: "Коммутатор", role: "Коммутатор", roleColor: "8bc34a", group: "Коммутаторы", net: 24, power: 1 },
       { key: "ap", label: "Точка дост.", icon: "mdi-access-point", model: "Точка доступа", role: "Точка доступа", roleColor: "009688", group: "Точки доступа", net: 1, power: 1 },
       { key: "firewall", label: "Firewall", icon: "mdi-shield-outline", model: "Межсетевой экран", role: "Межсетевой экран", roleColor: "d32f2f", group: "Межсетевые экраны", net: 4, power: 1 },
-      { key: "media", label: "Медиаконв.", icon: "mdi-swap-horizontal", model: "Медиаконвертер", role: "Медиаконвертер", roleColor: "607d8b", group: "Медиаконвертеры", net: 2, power: 1 },
-      { key: "patch", label: "Патч-панель", icon: "mdi-format-align-justify", model: "Патч-панель", role: "Патч-панель", roleColor: "9e9e9e", group: "Патч-панели", net: 24, power: 0 },
+      { key: "media", label: "Медиаконв.", icon: "mdi-swap-horizontal", model: "Медиаконвертер", role: "Медиаконвертер", roleColor: "607d8b", group: "Медиаконвертеры", power: 1,
+        ports: [
+          { kind: "interface", type: "1000base-t", count: 1, prefix: "eth", label: "Медных (RJ45)" },
+          { kind: "interface", type: "1000base-x-sfp", count: 1, prefix: "sfp", label: "Оптических (SFP)" },
+        ] },
+      { key: "patch", label: "Патч-панель", icon: "mdi-format-align-justify", model: "Патч-панель", role: "Патч-панель", roleColor: "9e9e9e", group: "Патч-панели", power: 0,
+        // A real panel: front↔rear pairs with mapping (kind "frontrear") — NetBox
+        // runs the trace THROUGH the panel, so the switch→switch path is visible.
+        // type — connector (8p8c copper / lc fiber), not the interface type.
+        ports: [
+          { kind: "frontrear", type: "8p8c", count: 24, prefix: "Порт ",    label: "Медных (RJ45)" },
+          { kind: "frontrear", type: "lc",   count: 0,  prefix: "Оптопорт ", label: "Оптических (LC)" },
+        ] },
       { key: "provider", label: "Провайдер", icon: "mdi-web", model: "Провайдер (WAN)", role: "Провайдер", roleColor: "ff9800", group: "Провайдеры", net: 1, power: 0 },
+    ],
+  },
+  controller: {
+    label: "Контроллеры", icon: "mdi-developer-board",
+    items: [
+      { key: "wlc", label: "WLAN-контроллер", icon: "mdi-access-point-network", model: "WLAN-контроллер", role: "WLAN-контроллер", roleColor: "009688", group: "WLAN-контроллеры", power: 1,
+        ports: [{ kind: "interface", type: "1000base-t", count: 2, prefix: "eth", label: "Аплинков" }] },
+      { key: "acs", label: "СКУД", icon: "mdi-lock", model: "Контроллер СКУД", role: "Контроллер СКУД", roleColor: "5c6bc0", group: "СКУД", power: 1,
+        ports: [
+          { kind: "interface", type: "1000base-t", count: 1, prefix: "eth", label: "Сетевых" },
+          { kind: "interface", type: "other", count: 4, prefix: "Дверь ", label: "Дверей / считывателей" },
+        ] },
+      { key: "plc", label: "Автоматизация", icon: "mdi-home-automation", model: "Контроллер автоматизации", role: "Контроллер автоматизации", roleColor: "7e57c2", group: "Автоматизация", power: 1,
+        ports: [
+          { kind: "interface", type: "1000base-t", count: 1, prefix: "eth", label: "Сетевых" },
+          { kind: "interface", type: "other", count: 8, prefix: "IO", label: "Входов / выходов (I/O)" },
+        ] },
+      { key: "ctrl", label: "Другой", icon: "mdi-developer-board", model: "Контроллер", role: "Контроллер", roleColor: "78909c", group: "Контроллеры", power: 1,
+        ports: [{ kind: "interface", type: "1000base-t", count: 8, prefix: "eth", label: "Портов" }] },
     ],
   },
   power: {
@@ -65,21 +107,21 @@ export const SOLUTIONS = {
   },
 };
 
-// Порядок вкладок палитры / категорий меню «Добавить».
-export const SOLUTION_CATS = ["periph", "switch", "power", "rack"];
+// Order of palette tabs / «Добавить» menu categories.
+export const SOLUTION_CATS = ["periph", "switch", "controller", "power", "rack"];
 
-// Порядок категорий при упаковке контуров off-rack (сетевое ближе к стойкам,
-// периферия — дальше вправо; small_fix: «ПК поодаль от роутеров»).
-const CAT_ORDER = { switch: 0, power: 1, periph: 2, rack: 3 };
+// Category order when packing off-rack contours (network closer to the racks,
+// peripherals further right; small_fix: «ПК поодаль от роутеров»).
+const CAT_ORDER = { switch: 0, controller: 1, power: 2, periph: 3, rack: 4 };
 
-// role (в нижнем регистре) → {icon, group, cat} — из справопечника решений.
+// role (lowercased) → {icon, group, cat} — from the solutions catalog.
 const ROLE_INFO = {};
 for (const cat of SOLUTION_CATS)
   for (const it of (SOLUTIONS[cat].items || []))
     if (it.role) ROLE_INFO[it.role.toLowerCase()] = { icon: it.icon, group: it.group || it.role, cat };
 
-// Иконка узла по устройству: сперва по роли из справочника, затем эвристика по
-// роли/имени/модели. Общая для схемы и дерева.
+// Node icon for a device: first by catalog role, then a heuristic on
+// role/name/model. Shared by the schema and the tree.
 export function iconForDevice(dev) {
   const rn = ((dev.role && dev.role.name) || "").toLowerCase();
   if (ROLE_INFO[rn]) return ROLE_INFO[rn].icon;
@@ -98,15 +140,21 @@ export function iconForDevice(dev) {
   if (/pdu|розет/i.test(s)) return "mdi-power-socket";
   if (/patch|пач|панель/i.test(s)) return "mdi-format-align-justify";
   if (/point|точк\s*дост/i.test(s)) return "mdi-access-point";
+  if (/wlan|wlc|беспровод.*контрол/i.test(s)) return "mdi-access-point-network";
+  if (/скуд|контроль\s*доступ/i.test(s)) return "mdi-lock";
+  if (/контроллер|controller|автоматизац|\bплк\b|\bplc\b/i.test(s)) return "mdi-developer-board";
   return "mdi-server";
 }
 
-// Логическая группа устройства (для контуров off-rack): {key, label, order}.
-// По роли из справочника; иначе по роли/модели (своя группа), order — в конец.
+// Device's logical group (for off-rack contours): {key, label, order}. By
+// catalog role; else by role/model (own group), order — last.
 export function catalogGroup(dev) {
   const rn = ((dev.role && dev.role.name) || "").toLowerCase();
   const info = ROLE_INFO[rn];
-  if (info) return { key: info.group, label: info.group, order: CAT_ORDER[info.cat] ?? 9 };
+  // Sockets — FIRST among off-rack (user places them «ahead of everything that
+  // appears right of the racks»); the rest — by category order.
+  if (info) return { key: info.group, label: info.group,
+    order: rn === "розетки" ? -1 : (CAT_ORDER[info.cat] ?? 9) };
   const label = (dev.role && dev.role.name) || (dev.device_type && dev.device_type.model) || "Прочее";
   return { key: "role:" + label.toLowerCase(), label, order: 9 };
 }

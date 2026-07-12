@@ -1,28 +1,35 @@
-/* ── Холст «Сеть / IPAM»: облака-сети с локациями внутри ───────────
-   Подключается после schematic.css. Показывается при body.ipam-mode. */
+/* ── "Network / IPAM" canvas: network clouds with locations inside ───────────
+   Loaded after schematic.css. Shown on body.ipam-mode. */
 
 #ipam { display: none; }
-/* На холсте «Сети»: physical-панели скрыты, дерево мест (#side-ipam) в общем
-   сайдбаре над навигацией по холстам, справа — блок #ipam с облаками+деталями. */
+/* On the "Networks" canvas: physical panels hidden, place tree (#side-ipam)
+   in the shared sidebar above canvas nav; #ipam block with clouds+details on right. */
 #side-ipam { display: none; }
 body.ipam-mode #rackpane,
 body.ipam-mode #resizer,
 body.ipam-mode #schempwrap,
 body.ipam-mode #detail,
 body.ipam-mode #side-infra { display: none; }
-body.ipam-mode #side-ipam { display: block; flex: 1 1 auto; }
+/* flex-column (not block!) so #ipam-tree-side becomes a constrained, scrollable
+   container — as block it grew to content height and the tree wouldn't scroll. */
+body.ipam-mode #side-ipam { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 body.ipam-mode #ipam { display: flex; flex: 1; min-width: 0; min-height: 0; }
 
-/* дерево мест+сетей в сайдбаре */
-#side-ipam .side-head { padding: 0 14px 8px; }
+/* place+network tree in the sidebar — same top padding as #side-infra. */
+#side-ipam .side-head { padding: 12px 14px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ipam-sel-toggle {
+  flex-shrink: 0; background: none; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; font-weight: 600; padding: 2px 4px; letter-spacing: 0; text-transform: none;
+}
+body.ipam-selecting .ipam-sel-toggle { color: var(--ok); }
 #ipam-tree-side { display: flex; flex-direction: column; }
 .it-node {
   display: flex; align-items: center; gap: 6px; padding: 4px 12px; cursor: pointer;
   font-size: 12px; color: var(--text);
 }
 .it-node .mdi { font-size: 14px; color: var(--muted); flex-shrink: 0; }
-/* Иконки/акценты уровней — как в дереве «Инфраструктуры»: 📁 группа мест
-   (цвет питания), 🗺 площадка (accent), 📍 серверная (приглушённая). */
+/* Level icons/accents — like the Infrastructure tree: 📁 site group
+   (power color), 🗺 site (accent), 📍 location (muted). */
 .it-node.k-sitegroup .mdi { color: var(--power); }
 .it-node.k-site .mdi { color: var(--accent); }
 .it-node.k-location .mdi { color: var(--muted); }
@@ -31,18 +38,18 @@ body.ipam-mode #ipam { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .it-node.k-site .it-name { font-weight: 600; }
 .it-node.k-location .it-name { font-weight: 600; }
 .it-node:hover { background: var(--panel-2); }
-/* Место, чья схема загружена (ленивая отрисовка): корень — акцент (полоска слева),
-   потомки — серым var(--muted), как «на схеме» на «Инфраструктуре». */
+/* Place whose schema is loaded (lazy render): root — accent (left stripe),
+   children — grey var(--muted), like "on schema" on Infrastructure. */
 .it-node.on-schema { background: color-mix(in srgb, var(--muted) 16%, transparent); }
 .it-node.on-schema:hover { background: color-mix(in srgb, var(--muted) 30%, transparent); }
 .it-node.loaded-root { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-/* Стрелка сворачивания папки-группы — как .tree-chevron на «Инфраструктуре». */
+/* Group-folder collapse arrow — like .tree-chevron on Infrastructure. */
 .it-chevron { background: none; border: none; color: var(--muted); cursor: pointer;
   padding: 0; margin: 0 -1px; font-size: 13px; line-height: 1; flex-shrink: 0; }
 .it-chevron:hover { color: var(--text); }
-/* Валидная цель при переносе сети в дереве — акцентная подсветка */
+/* Valid drop target when moving a network in the tree — accent highlight */
 .it-node.drop-hl { background: color-mix(in srgb, var(--accent) 18%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
-/* Сети в дереве перетаскиваются в режиме правки ДЕРЕВА (свой столбец). */
+/* Tree networks drag only in TREE-edit mode (own column). */
 body.ipamtree-edit .it-net { cursor: grab; }
 .it-net.dragging { opacity: 0.5; }
 .it-node.k-region .it-name { font-weight: 700; }
@@ -52,68 +59,92 @@ body.ipamtree-edit .it-net { cursor: grab; }
   padding: 2px 12px; cursor: pointer;
 }
 .it-net:hover { background: var(--panel-2); }
-/* Иконка сети — mdi (как у .net-chip). Раньше был CSS content "◈", он ломался в
-   мохибейк при отдаче CSS без charuset — mdi надёжнее и единообразнее. */
+/* Network icon — mdi (like .net-chip). Was CSS content "◈", but broke into
+   mojibake when CSS served without charset — mdi is safer and consistent. */
 .it-net .mdi { font-size: 12px; opacity: 0.75; flex-shrink: 0; color: var(--net); }
-/* Номер сети загруженного места — серым (var(--muted)), заодно с местами. */
+/* Loaded place's network number — grey (var(--muted)), same as places. */
 .it-net.on-schema { background: color-mix(in srgb, var(--muted) 16%, transparent); }
 .it-net.on-schema:hover { background: color-mix(in srgb, var(--muted) 30%, transparent); }
+/* "Выбрать" mode: selectable networks + selected highlight (wins over on-schema). */
+body.ipam-selecting .it-net, body.ipam-selecting .net-chip.in-tree { cursor: pointer; }
+.it-net.sel, .net-chip.sel { background: color-mix(in srgb, var(--ok) 24%, transparent); box-shadow: inset 3px 0 0 var(--ok); }
+/* When a bottom action bar (#tree-actions / #ipam-actions) is up, pad BOTH trees
+   so the last item — incl. the "Сети вне мест", which live INSIDE the scrollable
+   tree — can scroll ABOVE the bar into empty space instead of being covered. */
+body.tree-selecting #tree, body.tree-moving #tree,
+body.ipam-selecting #ipam-tree-side, body.ipam-moving #ipam-tree-side {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+/* "Вне мест" drop target added at the bottom of the tree during a move. */
+#ipam-out-target { color: var(--muted); }
+#ipam-out-target .mdi { color: var(--muted); }
+/* The batch-action bar (#ipam-actions) reuses the Infrastructure #tree-actions
+   styling — see responsive.css. */
 .it-sub { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 12px 14px 4px; margin-top: 8px; border-top: 1px solid var(--line); }
 .it-free { display: flex; flex-direction: column; gap: 4px; padding: 0 10px; }
 
-/* центр: блоки-места */
+/* center: place blocks */
 #ipam-main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px 20px 0; }
 #ipam-main .pane-title { flex-shrink: 0; }
-/* Полотно с зумом/паном (как на Инфраструктуре): viewport обрезает, scroll даёт
-   скроллбары/панораму, #ipam-clouds масштабируется transform:scale. */
+/* Zoom/pan canvas (like Infrastructure): viewport clips, scroll gives
+   scrollbars/pan, #ipam-clouds scales via transform:scale. */
 #ipam-viewport { flex: 1; position: relative; overflow: hidden; }
-/* Полотно не выделяется мышью (как схема Инфраструктуры). */
-#ipam-scroll { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; }
+/* Canvas not mouse-selectable (like the Infrastructure schema). */
+#ipam-scroll { position: absolute; inset: 0; overflow: auto; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-x pan-y; }
 #ipam-scroll.panning { cursor: grabbing; }
 #ipam-clouds {
   display: flex; flex-wrap: wrap; gap: 18px; align-content: flex-start;
-  transform-origin: 0 0; padding: 30px 50px 120px 84px;   /* слева больше пустого места */
+  /* Content-sized (like #schema): grows with the diagram and pans, instead of
+     being capped at the viewport width and compressing on a narrow screen. */
+  width: max-content; min-width: 100%;
+  transform-origin: 0 0; padding: 30px 50px 120px 84px;   /* more empty space on the left */
 }
 
-/* блок-место: тонкая пунктирная рамка МЯГКОГО цвета по типу (группа — тёплый,
-   площадка — синий, серверная — бирюза). Название — ВНУТРИ контура (в потоке),
-   не на рамке; внутренний отступ по всему периметру ≈ высоте названия. */
+/* place block: thin dashed border in a SOFT color by type (group — warm,
+   site — blue, location — teal). Title INSIDE the outline (in flow), not on
+   the border; padding all around ≈ title height. */
 .place {
   position: relative; border-radius: 12px;
   border: 2.5px dashed color-mix(in srgb, var(--muted) 45%, transparent);
   padding: 22px; display: flex; flex-direction: column; gap: 12px;
-  width: fit-content; align-self: flex-start; min-width: 150px;
+  /* max-content (not fit-content) so a contour is sized by its content and never
+     squeezed by a narrow viewport — you pan/zoom to it, like an Infra node. */
+  width: max-content; flex-shrink: 0; align-self: flex-start; min-width: 150px;
 }
 .place.k-sitegroup { border-color: color-mix(in srgb, var(--power) 52%, transparent); }
 .place.k-site { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
 .place.k-location { border-color: color-mix(in srgb, #e53935 60%, transparent); }
-/* Название — внутри контура сверху (в потоке), НЕ на рамке. Мягкая подложка по
-   типу (чуть бледнее цвета рамки) + внутренний отступ вокруг надписи. */
+/* Title — inside outline, top (in flow), NOT on the border. Soft backing by
+   type (a bit paler than border color) + padding around the text. */
 .place-cap {
-  display: inline-flex; align-items: baseline; gap: 6px; align-self: flex-start;
-  padding: 3px 10px; border-radius: 6px;
+  position: absolute; top: -11px; left: 14px; z-index: 3;
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 2px 10px; border-radius: 6px;
 }
-.place.k-sitegroup > .place-cap { background: color-mix(in srgb, var(--power) 15%, transparent); }
-.place.k-site > .place-cap { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.place.k-location > .place-cap { background: color-mix(in srgb, #e53935 15%, transparent); }
-body.ipam-edit .place-cap { cursor: grab; }        /* перенос места за название */
+/* On the border → opaque bg (mixed with the canvas, not transparent) so it
+   "breaks" the dashed top line like a fieldset legend. */
+.place.k-sitegroup > .place-cap { background: color-mix(in srgb, var(--power) 16%, var(--bg)); }
+.place.k-site > .place-cap { background: color-mix(in srgb, var(--accent) 16%, var(--bg)); }
+.place.k-location > .place-cap { background: color-mix(in srgb, #e53935 16%, var(--bg)); }
+body.ipam-edit .place-cap { cursor: pointer; }     /* tap the title → add a network here (drag still moves the place) */
+body.ipam-edit .place-cap.cap-add::after { content: "+"; margin-left: 6px; color: var(--ok); font-weight: 700; font-size: 14px; }
 .place-cap.dragging { opacity: 0.5; }
-/* Ховер по названию (ручке) подсвечивает ВСЮ площадь контура — видно, что тащим
-   его целиком (как весь блок сети). */
+/* Hover on the title (handle) highlights the WHOLE outline — shows we drag
+   it entirely (like the whole network block). */
 body.ipam-edit .place:has(> .place-cap:hover) { background: color-mix(in srgb, var(--muted) 10%, transparent); }
 .pc-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 .pc-name { font-size: 13px; font-weight: 600; }
 .place-body { display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start; align-items: flex-start; min-height: 20px; }
-/* Пустое место (нет вложенных и сетей) — название по ЦЕНТРУ контура. */
+/* Empty place (no children/networks) — title CENTERED in the outline. */
 .place.empty-place { align-items: center; justify-content: center; min-height: 84px; }
 .place.empty-place > .place-cap { align-self: center; }
 .place.empty-place > .place-body { display: none; }
 .place.drop-ok { border-color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 30%, transparent); }
 .place.flash { animation: ipam-flash 1.2s ease; }
 @keyframes ipam-flash { 0%,100% { box-shadow: none; } 30% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 40%, transparent); } }
-/* Призрак «Сюда» — серый прямоугольник в месте под курсором при переносе
-   сети (см. _moveGhost в ipam.js). Не ловит события — не мешает mouseover. */
+/* "Drop here" ghost — grey rect in the place under cursor while moving a
+   network (see _moveGhost in ipam.js). No pointer events — won't block mouseover. */
 .net-ghost {
   min-width: 140px; min-height: 44px; display: flex; align-items: center; justify-content: center;
   border: 1.5px dashed var(--muted); border-radius: 10px;
@@ -121,7 +152,7 @@ body.ipam-edit .place:has(> .place-cap:hover) { background: color-mix(in srgb, v
   color: var(--muted); font-size: 12px; pointer-events: none;
 }
 
-/* блок сети: пунктир СИНИЙ (внутри места). CIDR + счётчик, внутри адреса. */
+/* network block: BLUE dashes (inside a place). CIDR + count, addresses inside. */
 .net-block {
   border: 2.5px dashed var(--net); border-radius: 10px; padding: 8px 10px;
   min-width: 180px; background: color-mix(in srgb, var(--net) 6%, transparent);
@@ -129,18 +160,18 @@ body.ipam-edit .place:has(> .place-cap:hover) { background: color-mix(in srgb, v
 }
 .net-block:hover { background: color-mix(in srgb, var(--net) 12%, transparent); }
 .nb-cap { display: flex; flex-direction: column; gap: 2px; }
-/* В правке весь блок сети — ручка переноса (перетаскивание с зажатым ЛКМ) */
+/* In edit mode the whole network block is a drag handle (hold LMB) */
 body.ipam-edit .net-block { cursor: grab; }
 .net-block.dragging { opacity: 0.5; }
-/* Номер сети (CIDR) — бейдж с внутренним отступом и мягкой подложкой. */
+/* Network number (CIDR) — badge with padding and soft backing. */
 .nb-cidr {
   font-family: var(--mono); font-size: 13px; font-weight: 700; color: var(--net);
   align-self: flex-start; padding: 2px 8px; border-radius: 5px;
   background: color-mix(in srgb, var(--net) 14%, transparent);
 }
 .nb-count { font-size: 10px; color: var(--muted); white-space: nowrap; }
-.nb-used { color: var(--err); font-weight: 600; }   /* занято — красным */
-.nb-free { color: var(--ok); font-weight: 600; }    /* свободно — зелёным */
+.nb-used { color: var(--err); font-weight: 600; }   /* used — red */
+.nb-free { color: var(--ok); font-weight: 600; }    /* free — green */
 .nb-addrs { display: flex; flex-wrap: wrap; gap: 4px; }
 .addr {
   font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 4px;
@@ -150,15 +181,15 @@ body.ipam-edit .net-block { cursor: grab; }
 .addr.more { color: var(--muted); }
 .addr.free-note { color: var(--ok); border-style: dashed; }
 
-/* item 7: сеть site-уровня как КОНТУР с локациями внутри. CIDR кликабельный в
-   углу, тело — вложенные локации. Сам контур НЕ ручка (ручка — только угол). */
+/* item 7: site-level network as an OUTLINE with locations inside. CIDR clickable
+   in the corner, body — nested locations. Outline itself is NOT a handle (only the corner). */
 .net-block.net-contour {
   position: relative; padding: 12px; min-width: 210px; cursor: default;
   width: fit-content; background: color-mix(in srgb, var(--net) 4%, transparent);
 }
 body.ipam-edit .net-block.net-contour { cursor: default; }
-/* Заголовок-бейдж (CIDR + счётчик) — В ПОТОКЕ сверху, в ОДНУ строку (nowrap) →
-   подложка растягивается по тексту «… занято … свободно», а контур обтягивает её. */
+/* Header badge (CIDR + count) — IN FLOW at top, ONE line (nowrap) → backing
+   stretches to the "… used … free" text, and the outline wraps it. */
 .net-contour .nc-corner {
   align-self: flex-start; display: flex; align-items: baseline; gap: 8px; white-space: nowrap;
   cursor: pointer; user-select: none; padding: 3px 9px; border-radius: 6px;
@@ -171,17 +202,17 @@ body.ipam-edit .net-contour .nc-corner { cursor: grab; }
 .net-contour .nc-body { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; min-height: 20px; }
 .net-contour.dragging { opacity: 0.5; }
 
-/* сеть вне мест — чип (дерево / зона внизу холста) */
+/* network outside places — chip (tree / zone at canvas bottom) */
 .net-chip {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 8px; user-select: none;
   background: var(--panel-2); border: 1px solid var(--line); font-family: var(--mono); font-size: 12px;
 }
-body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }   /* чип на полотне — режим полотна */
-body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* чип в дереве — режим дерева */
+body.ipam-edit .net-chip:not(.in-tree) { cursor: grab; }   /* chip on canvas — canvas mode */
+body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* chip in tree — tree mode */
 .net-chip .mdi { color: var(--net); font-size: 14px; }
 .net-chip.dragging { opacity: 0.5; }
-/* Плавающий чип копии сети у курсора (режим «Дублировать в…»). */
+/* Floating network-copy chip at cursor ("Duplicate to…" mode). */
 .net-chip.dup-ghost { position: fixed; z-index: 9999; pointer-events: none; opacity: 0.92; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
 .free-zone { flex: 1 1 100%; border-top: 1px dashed var(--line); padding-top: 12px; margin-top: 6px; }
 .fz-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 8px; }
@@ -189,15 +220,15 @@ body.ipamtree-edit .net-chip.in-tree { cursor: grab; }     /* чип в дере
 
 body.ipam-dragging { cursor: grabbing; }
 
-/* Контекст-меню дерева — общий стиль .treectx из schematic.css (как на
-   Инфраструктуре). Свой .ipam-menu удалён. */
+/* Tree context menu — shared .treectx style from schematic.css (as on
+   Infrastructure). Own .ipam-menu removed. */
 .id-btn { margin: 10px 0 4px; padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;
   background: transparent; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text); }
 .id-btn.danger { border-color: color-mix(in srgb, var(--err) 50%, var(--line)); color: var(--err); }
 
-/* детали справа */
+/* details on the right */
 #ipam-detail {
-  position: relative;   /* якорь для кнопки режима .ms-corner в правом углу */
+  position: relative;   /* anchor for the .ms-corner mode button in the right corner */
   width: 300px; flex-shrink: 0; overflow-y: auto;
   background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px;
 }

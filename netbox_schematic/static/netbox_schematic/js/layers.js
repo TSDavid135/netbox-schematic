@@ -1,30 +1,30 @@
 "use strict";
-// LayerManager: слои-оверлеи поверх physical-схемы
-// Единый механизм подсветки логических сущностей, «размазанных» по уже
-// нарисованным портам (VLAN, а в будущем Circuits/Wireless/Питание). Выбор
-// сущности в панели «Слои» → подсветка причастных портов + затухание
-// остального (тот же приём, что hover/trace) → бейдж в тултипе порта.
+// LayerManager: overlay layers on top of the physical schema.
+// Unified highlighting of logical entities "smeared" across already-drawn
+// ports (VLAN; later Circuits/Wireless/Power). Picking an entity in the
+// "Слои" panel highlights the involved ports and dims the rest (same trick
+// as hover/trace), plus a badge in the port tooltip.
 //
-// Сущность НЕ рисуется отдельной нодой — она подсвечивает существующие порты.
-// Панель живёт в оверлее схемы (#layers), не скроллится и не масштабируется.
+// An entity is NOT drawn as a separate node — it highlights existing ports.
+// The panel lives in the schema overlay (#layers); it neither scrolls nor zooms.
 
 import { $, state, portKey, termKey } from "./core.js";
 import { setStatus } from "./api.js";
 
-// Активный слой: { kind, id, portKeys:Set, badge:(port)=>string|null }.
-// null — ничего не выбрано. Храним в state, чтобы пережить перерисовку схемы.
+// Active layer: { kind, id, portKeys:Set, badge:(port)=>string|null }.
+// null — nothing selected. Kept in state to survive schema re-render.
 export class LayerManager {
-  // Цвет подсветки под тип слоя (используется как --layer-color в CSS).
+  // Highlight color per layer type (used as --layer-color in CSS).
   static LAYER_COLOR = { power: "var(--power)", console: "var(--console)",
     wireless: "var(--wireless)", circuit: "var(--circuit)", vlan: "var(--accent)" };
   constructor(app) {
     this.app = app;
   }
 
-  // VLAN: собрать список VLAN, реально присутствующих на портах
-  // Возвращает Map vid → { vlan, portKeys:Set } по загруженным интерфейсам
-  // (untagged_vlan + tagged_vlans + qinq_svlan). Только dcim.interface несёт
-  // VLAN; остальные типы портов пропускаем.
+  // VLAN: collect VLANs actually present on ports.
+  // Returns Map vid → { vlan, portKeys:Set } over the loaded interfaces
+  // (untagged_vlan + tagged_vlans + qinq_svlan). Only dcim.interface carries
+  // VLANs; other port types are skipped.
   _collectVlans() {
     const byVlan = new Map();
     const add = (vlan, key) => {
@@ -43,15 +43,15 @@ export class LayerManager {
     return byVlan;
   }
 
-  // Console-связи: порты, участвующие в кабелях console↔console
-  // Возвращает Set portKey всех console/console-server-портов, у которых есть
-  // кабель (т.е. реально связаны). Слой один (не список), как галочка.
+  // Console links: ports participating in console↔console cables.
+  // Returns a Set of portKeys of all console/console-server ports that have
+  // a cable (i.e. actually linked). Single layer (a checkbox, not a list).
   _collectConsolePorts() {
     const keys = new Set(), cables = new Set();
     const isConsole = ot => ot === "dcim.consoleport" || ot === "dcim.consoleserverport";
     for (const c of state.cables) {
       const terms = [...(c.a_terminations || []), ...(c.b_terminations || [])];
-      // Кабель относится к console-слою, если хоть один конец — console-порт.
+      // A cable belongs to the console layer if at least one end is a console port.
       if (!terms.some(t => isConsole(t.object_type))) continue;
       cables.add(c.id);
       for (const t of terms) {
@@ -62,19 +62,19 @@ export class LayerManager {
     return { keys, cables };
   }
 
-  // Питание: порты цепи питания + провода + суммарная нагрузка
-  // Цепь питания в NetBox — это power-port ↔ (кабель) ↔ power-outlet, плюс
-  // ВНУТРЕННЯЯ связь outlet.power_port (розетки PDU питаются от его входного
-  // порта — кабеля тут нет, ассоциация в самой розетке). Слой один (галочка),
-  // как console: подсвечивает все power-порты/розетки, участвующие в питании,
-  // И сами power-кабели. Заодно считает нагрузку по allocated_draw/maximum_draw
-  // (Вт) — источника PowerFeed в демо-данных нет, поэтому «ёмкость Feed» пока
-  // не показываем (см. .md: узел-источник Panel/Feed — следующий шаг).
+  // Power: power-chain ports + wires + total load.
+  // A NetBox power chain is power-port ↔ (cable) ↔ power-outlet, plus the
+  // INTERNAL outlet.power_port link (PDU outlets feed from its input port —
+  // no cable there, the association lives in the outlet itself). Single layer
+  // (checkbox), like console: highlights all power ports/outlets in the chain
+  // AND the power cables themselves. Also sums load via allocated_draw/
+  // maximum_draw (W) — demo data has no PowerFeed source, so "Feed capacity"
+  // is not shown yet (see .md: Panel/Feed source node is the next step).
   _collectPower() {
     const isPowerOt = ot => ot === "dcim.powerport" || ot === "dcim.poweroutlet";
     const keys = new Set(), cables = new Set();
     let allocated = 0, maximum = 0;
-    // 1) Порты/розетки на power-кабелях.
+    // 1) Ports/outlets on power cables.
     for (const c of state.cables) {
       const terms = [...(c.a_terminations || []), ...(c.b_terminations || [])];
       if (!terms.some(t => isPowerOt(t.object_type))) continue;
@@ -84,8 +84,8 @@ export class LayerManager {
         if (state.ports[k]) keys.add(k);
       }
     }
-    // 2) Внутренняя связь розетки с питающим её портом (PDU: outlet → power_port).
-    //    Провода нет — но обе точки принадлежат цепи, подсвечиваем оба.
+    // 2) Internal link outlet → its feeding power_port (PDU).
+    //    No wire, but both points belong to the chain — highlight both.
     for (const [key, p] of Object.entries(state.ports)) {
       if (p.otype !== "dcim.poweroutlet") continue;
       const pp = p.item.power_port;
@@ -93,8 +93,8 @@ export class LayerManager {
       const ppKey = portKey("dcim.powerport", pp.id);
       if (state.ports[ppKey]) { keys.add(ppKey); keys.add(key); }
     }
-    // 3) Нагрузка: суммируем draw по вовлечённым power-портам (не розеткам —
-    //    draw объявляется на потребителе, т.е. на power-port устройства).
+    // 3) Load: sum draw over the involved power-ports (not outlets — draw is
+    //    declared on the consumer, i.e. the device's power-port).
     for (const key of keys) {
       const p = state.ports[key];
       if (!p || p.otype !== "dcim.powerport") continue;
@@ -104,19 +104,19 @@ export class LayerManager {
     return { keys, cables, allocated, maximum };
   }
 
-  // Wireless: радио-линки между интерфейсами двух устройств
-  // WirelessLink = interface_a ↔ interface_b (оба dcim.interface). Кабеля нет,
-  // связь чисто логическая. Считаем по ДАННЫМ (оба устройства линка в текущей
-  // группе), а НЕ по state.ports — тот зависит от режима отображения (в физ.
-  // режиме wireless-портов нет в DOM, но связь-то существует). Рисование/
-  // подсветка потом сами проверят наличие порта в DOM. Слой один (галочка).
+  // Wireless: radio links between interfaces of two devices.
+  // WirelessLink = interface_a ↔ interface_b (both dcim.interface). No cable,
+  // the link is purely logical. Computed from DATA (both link devices in the
+  // current group), NOT from state.ports — that depends on the view mode (in
+  // physical mode wireless ports are absent from the DOM, yet the link
+  // exists). Drawing/highlighting checks DOM port presence later. Single layer.
   _collectWireless() {
     const pairs = [], keys = new Set();
     const inGroup = new Set((state.devices || []).map(d => d.id));
     for (const wl of state.wirelessLinks || []) {
       const ia = wl.interface_a, ib = wl.interface_b;
       if (!ia || !ib) continue;
-      // оба конца должны принадлежать устройствам текущей группы
+      // both ends must belong to devices of the current group
       const da = ia.device && ia.device.id, db = ib.device && ib.device.id;
       if (!inGroup.has(da) || !inGroup.has(db)) continue;
       const ka = portKey("dcim.interface", ia.id), kb = portKey("dcim.interface", ib.id);
@@ -126,19 +126,19 @@ export class LayerManager {
     return { pairs, keys };
   }
 
-  // Circuits: порты, у которых кабель уходит в circuit-терминацию
-  // Circuit «уходит в WAN» через CircuitTermination, привязанную кабелем к
-  // порту устройства. Возвращает Set portKey таких портов + Map portKey→circuit
-  // (для бейджа/значка «в облако»). Один слой (галочка). Данные — из state.cables
-  // (кабель circuittermination↔порт) + state.circuitTerms/state.circuits.
+  // Circuits: ports whose cable goes to a circuit termination.
+  // A circuit "exits to WAN" via a CircuitTermination cabled to a device
+  // port. Returns a Set of such portKeys + Map portKey→circuit (for the
+  // badge / "to cloud" icon). Single layer (checkbox). Data: state.cables
+  // (circuittermination↔port cable) + state.circuitTerms/state.circuits.
   _collectCircuits() {
     const keys = new Set();
     const byPort = new Map();     // portKey → { circuit, term }
-    // индексы терминаций и каналов по id
+    // terminations and circuits indexed by id
     const termById = new Map((state.circuitTerms || []).map(t => [t.id, t]));
     const circById = new Map((state.circuits || []).map(c => [c.id, c]));
-    // state.cables уже отфильтрован по стойкам группы → кабель тут = кабель
-    // группы; проверка state.ports НЕ нужна (он зависит от режима отображения).
+    // state.cables is already filtered by group racks → any cable here is a
+    // group cable; do NOT check state.ports (it depends on the view mode).
     for (const c of state.cables) {
       const terms = [...(c.a_terminations || []), ...(c.b_terminations || [])];
       const ct = terms.find(t => t.object_type === "circuits.circuittermination");
@@ -153,12 +153,12 @@ export class LayerManager {
     return { keys, byPort };
   }
 
-  // рендер панели «Слои»: секция VLAN + секция связей
+  // render the "Слои" panel: VLAN section + links section
   renderPanel() {
     const host = $("#layers");
     if (!host) return;
     const vlans = this._collectVlans();
-    state._vlanIndex = vlans;   // для тултипа порта (бейджи)
+    state._vlanIndex = vlans;   // for the port tooltip (badges)
     const vlanList = [...vlans.values()].sort((a, b) => (a.vlan.vid ?? 0) - (b.vlan.vid ?? 0));
 
     const console_ = this._collectConsolePorts();
@@ -177,7 +177,7 @@ export class LayerManager {
     const body = host.querySelector(".ly-body");
     let html = "";
 
-    // Секция VLAN.
+    // VLAN section.
     html += `<div class="ly-sub">VLAN (подсветка портов)</div>`;
     if (vlanList.length) {
       html += vlanList.map(({ vlan, portKeys }) =>
@@ -190,7 +190,7 @@ export class LayerManager {
       html += `<div class="ly-empty">VLAN на портах группы нет</div>`;
     }
 
-    // Секция связей (console + питание; далее circuits/wireless).
+    // Links section (console + power; then circuits/wireless).
     html += `<div class="ly-sub">Связи</div>`;
     if (console_.cables.size) {
       html += `<button class="ly-item" type="button" data-layer="console" data-id="0">
@@ -201,7 +201,7 @@ export class LayerManager {
     } else {
       html += `<div class="ly-empty">console-кабелей в группе нет</div>`;
     }
-    // Питание: галочка + суммарная нагрузка (Вт) под именем, если объявлена.
+    // Power: checkbox + total load (W) under the name, if declared.
     if (power.keys.size) {
       const load = power.allocated || power.maximum
         ? `<span class="ly-meta">${power.allocated ? power.allocated + " Вт" : "?"}${power.maximum ? " / " + power.maximum + " Вт макс" : ""}</span>`
@@ -214,7 +214,7 @@ export class LayerManager {
     } else {
       html += `<div class="ly-empty">цепей питания в группе нет</div>`;
     }
-    // Wireless: галочка, счётчик = число радио-линков в группе.
+    // Wireless: checkbox, counter = number of radio links in the group.
     if (wireless.pairs.length) {
       html += `<button class="ly-item" type="button" data-layer="wireless" data-id="0">
            <span class="ly-dot" style="border-color:var(--wireless,#b98cff)"></span>
@@ -224,7 +224,7 @@ export class LayerManager {
     } else {
       html += `<div class="ly-empty">радио-линков в группе нет</div>`;
     }
-    // Circuits: галочка, счётчик = число портов с выходом в circuit.
+    // Circuits: checkbox, counter = number of ports exiting to a circuit.
     if (circuits.keys.size) {
       html += `<button class="ly-item" type="button" data-layer="circuit" data-id="0">
            <span class="ly-dot" style="border-color:var(--circuit,#4fc3e8)"></span>
@@ -238,31 +238,31 @@ export class LayerManager {
     html += `<button class="ly-clear" type="button"><i class="mdi mdi-close"></i> снять подсветку</button>`;
     body.innerHTML = html;
 
-    // Клик по пункту — тоггл: повторный клик по активному снимает выбор.
+    // Item click toggles: clicking the active one again clears the selection.
     body.querySelectorAll(".ly-item").forEach(btn => {
       btn.addEventListener("click", () => this._toggle(btn.dataset.layer, +btn.dataset.id));
     });
     body.querySelector(".ly-clear").addEventListener("click", () => this.clear());
 
-    // Восстановить активный слой после перерисовки схемы.
+    // Restore the active layer after a schema re-render.
     if (state.activeLayer) this._restoreActive();
     this._syncPanelState();
   }
 
-  // Тоггл слоя по (kind,id): повторный клик по активному снимает.
+  // Toggle a layer by (kind,id): a repeat click on the active one clears it.
   _toggle(kind, id) {
     if (state.activeLayer && state.activeLayer.kind === kind && state.activeLayer.id === id) {
       this.clear();
       return;
     }
-    // Слой живёт в «своём» режиме отображения: wireless/circuit — в сетевом,
-    // остальные (vlan/console/power) — в физическом. Клик по «чужому» слою
-    // сначала переключает режим (там его порты видны), потом подсвечивает.
+    // Each layer lives in "its" view mode: wireless/circuit — network,
+    // the rest (vlan/console/power) — physical. Clicking a "foreign" layer
+    // first switches the mode (its ports are visible there), then highlights.
     const needNet = kind === "wireless" || kind === "circuit";
     const wantMode = needNet ? "net" : "phys";
     if (state.viewMode !== wantMode && this.app.schema) {
       state.viewMode = wantMode;
-      this.app.schema.applyViewMode();   // перекладка узлов под нужный режим
+      this.app.schema.applyViewMode();   // relayout nodes for the target mode
     }
     if (kind === "vlan")
       this.selectVlan(id);
@@ -276,7 +276,7 @@ export class LayerManager {
       this.selectCircuits();
   }
 
-  // Восстановить активный слой после перерисовки (данные могли исчезнуть).
+  // Restore the active layer after a re-render (its data may have vanished).
   _restoreActive() {
     const a = state.activeLayer;
     if (a.kind === "vlan") {
@@ -292,7 +292,7 @@ export class LayerManager {
     }
   }
 
-  // выбор VLAN → подсветка
+  // VLAN selection → highlight
   selectVlan(vid) {
     const entry = state._vlanIndex && state._vlanIndex.get(vid);
     if (!entry) { this.clear(); return; }
@@ -303,7 +303,7 @@ export class LayerManager {
     this._syncPanelState();
   }
 
-  // выбор Console-слоя → подсветка console-портов
+  // Console layer selection → highlight console ports
   selectConsole() {
     const keys = state._consolePorts || new Set();
     if (!keys.size) { this.clear(); return; }
@@ -314,7 +314,7 @@ export class LayerManager {
     this._syncPanelState();
   }
 
-  // выбор слоя «Питание» → подсветка цепи питания
+  // Power layer selection → highlight the power chain
   selectPower() {
     const power = state._power;
     if (!power || !power.keys.size) { this.clear(); return; }
@@ -325,34 +325,34 @@ export class LayerManager {
     this._syncPanelState();
   }
 
-  // выбор слоя «Wireless» → подсветка интерфейсов + волнистые линии
+  // Wireless layer selection → highlight interfaces + wavy lines
   selectWireless() {
     const w = state._wireless;
     if (!w || !w.pairs.length) { this.clear(); return; }
     state.activeLayer = { kind: "wireless", id: 0, portKeys: w.keys, pairs: w.pairs };
     this._applyHighlight(w.keys);
-    // радио-линии рисует схема (у линка нет кабеля → своя геометрия)
+    // radio lines are drawn by the schema (a link has no cable → own geometry)
     if (this.app.schema) this.app.schema.drawRadioLinks();
     setStatus(`Wireless: ${w.pairs.length} радио-линков (интерфейсов: ${w.keys.size})`, "ok");
     this._syncPanelState();
   }
 
-  // выбор слоя «Circuits» → подсветка портов с выходом в WAN
+  // Circuits layer selection → highlight ports exiting to WAN
   selectCircuits() {
     const c = state._circuits;
     if (!c || !c.keys.size) { this.clear(); return; }
     state.activeLayer = { kind: "circuit", id: 0, portKeys: c.keys };
     this._applyHighlight(c.keys);
-    // Circuits и Wireless живут в одном (сетевом) режиме — при выборе Circuits
-    // радио-линии не должны пропадать. drawRadioLinks в сетевом режиме рисует
-    // все радио-линки независимо от активного слоя.
+    // Circuits and Wireless share the network mode — selecting Circuits must
+    // not hide radio lines. In network mode drawRadioLinks draws all radio
+    // links regardless of the active layer.
     if (this.app.schema) this.app.schema.drawRadioLinks();
     setStatus(`Circuits: ${c.keys.size} выход${c.keys.size === 1 ? "" : "ов"} в WAN`, "ok");
     this._syncPanelState();
   }
 
 
-  // Отметить активный пункт и показать/скрыть «снять подсветку».
+  // Mark the active item and show/hide the "снять подсветку" button.
   _syncPanelState() {
     const host = $("#layers");
     if (!host) return;
@@ -363,10 +363,10 @@ export class LayerManager {
     if (clear) clear.style.display = a ? "flex" : "none";
   }
 
-  // общий механизм подсветки портов (переиспользуемый)
-  // Гасит все узлы/порты/провода, подсвечивает переданные порты и их узлы.
-  // hlCables (Set id) — кабели, которые НЕ гасим, а подсвечиваем (для слоёв,
-  // где смысл именно в проводах, напр. console-связи).
+  // Shared (reusable) port-highlight mechanism.
+  // Dims all nodes/ports/wires, highlights the given ports and their nodes.
+  // hlCables (Set of ids) — cables to highlight instead of dimming (for
+  // layers where the wires are the point, e.g. console links).
   _applyHighlight(portKeys, hlCables) {
     const devIds = new Set();
     for (const [key, p] of Object.entries(state.ports)) {
@@ -385,17 +385,17 @@ export class LayerManager {
       w.classList.toggle("layer-dim", !keep);
     });
     document.body.classList.add("layer-active");
-    // Подсветка узлов/портов — под цвет ТИПА слоя (питание → оранжевый и т.д.),
-    // а не всегда accent. CSS читает var(--layer-color).
+    // Node/port highlight follows the layer TYPE color (power → orange etc.),
+    // not always accent. CSS reads var(--layer-color).
     document.body.style.setProperty("--layer-color", LayerManager.LAYER_COLOR[
       state.activeLayer && state.activeLayer.kind] || "var(--accent)");
   }
 
-  // Заново наложить классы активного слоя на ПРОВОДА после того, как схема их
-  // пересоздала (redrawWires чистит svg → провода теряют layer-hl/layer-dim).
-  // Порты/узлы при зуме не пересоздаются и классы сохраняют, поэтому трогаем
-  // только пути. Иначе при смене масштаба выделение слоя «сбрасывалось»
-  // (провода переставали тускнеть). Для wireless провода рисует drawRadioLinks.
+  // Re-apply active-layer classes to WIRES after the schema recreated them
+  // (redrawWires clears the svg → wires lose layer-hl/layer-dim). Ports and
+  // nodes are not recreated on zoom and keep their classes, so only paths
+  // are touched. Otherwise zooming "reset" the layer selection (wires
+  // stopped dimming). For wireless the wires are drawn by drawRadioLinks.
   reapplyToWires() {
     const a = state.activeLayer;
     if (!a) return;
@@ -415,15 +415,15 @@ export class LayerManager {
     document.querySelectorAll("#wires path.wire").forEach(w => w.classList.remove("layer-dim", "layer-hl"));
     document.body.classList.remove("layer-active");
     document.body.style.removeProperty("--layer-color");
-    // убрать нарисованные радио-линии (drawRadioLinks сам ничего не рисует,
-    // когда слой не wireless — но старые пути надо снять)
+    // remove drawn radio lines (drawRadioLinks draws nothing itself when the
+    // layer is not wireless — but stale paths must be cleared)
     if (wasWireless && this.app.schema) this.app.schema.drawRadioLinks();
     this._syncPanelState();
   }
 
-  // Бейдж для тултипа порта, зависит от типа порта:
-  //  · интерфейс → список VLAN, которые он несёт;
-  //  · power-port/outlet → нагрузка (Вт) и питающий порт (для розетки PDU).
+  // Badge for the port tooltip, depends on port type:
+  //  · interface → list of VLANs it carries;
+  //  · power-port/outlet → load (W) and feeding port (for a PDU outlet).
   portBadge(otype, id) {
     if (otype === "dcim.powerport" || otype === "dcim.poweroutlet")
       return this._powerBadge(otype, id);
@@ -437,11 +437,11 @@ export class LayerManager {
     for (const v of it.tagged_vlans || []) vids.push(String(v.vid));
     if (it.qinq_svlan) vids.push(it.qinq_svlan.vid + " (svlan)");
     if (vids.length) parts.push("VLAN: " + vids.join(", "));
-    // радио-линк на этом интерфейсе (по ключу порта)
+    // radio link on this interface (by port key)
     const key = portKey(otype, id);
     const wl = (state._wireless?.pairs || []).find(pr => pr.a === key || pr.b === key);
     if (wl) parts.push("Wireless" + (wl.ssid ? ": " + wl.ssid : ""));
-    // circuit-выход в WAN на этом порту
+    // circuit exit to WAN on this port
     const circ = state._circuits?.byPort?.get(key);
     if (circ) {
       const c = circ.circuit;
@@ -452,7 +452,7 @@ export class LayerManager {
     return parts.length ? parts.join(" · ") : null;
   }
 
-  // Бейдж питания: draw для power-port, питающий порт для розетки PDU.
+  // Power badge: draw for a power-port, feeding port for a PDU outlet.
   _powerBadge(otype, id) {
     const p = state.ports[portKey(otype, id)];
     if (!p) return null;
