@@ -8,7 +8,7 @@ Sites, racks, devices, ports and cables on a single interactive 2D schematic —
 watch a signal travel from a PC through patch panels to the core switch, and build
 your infrastructure with clicks instead of forms and tables.
 
-![version](https://img.shields.io/badge/version-0.68.46-2f81f7)
+![version](https://img.shields.io/badge/version-0.69.6-2f81f7)
 ![NetBox](https://img.shields.io/badge/NetBox-4.6-00d9a6)
 ![build](https://img.shields.io/badge/build_step-none-2ea043)
 ![deps](https://img.shields.io/badge/backend_deps-openpyxl-2ea043)
@@ -38,7 +38,7 @@ Switch canvases from the header (native picker on mobile).
 | **Virtualization** | 🟡 Planned | Clusters, VMs, VM interfaces, a VLAN bus. |
 | **Tunnels / VPN** | 🟡 Planned | Tunnels / L2VPN as an overlay over interfaces. |
 
-## ✨ Current version — `0.68.46`
+## ✨ Current version — `0.69.6`
 
 Everything below works today. The project is pre-1.0 and iterating quickly.
 
@@ -58,6 +58,14 @@ Everything below works today. The project is pre-1.0 and iterating quickly.
   axes — neither nests inside the other — so putting both in one tree is ambiguous. The
   plugin uses **Site Group** for the organisational hierarchy (it nests: campus →
   office → branch); a site's Region, if set, is just a label, not a tree level.
+
+**Device catalog** (⊞ in the header)
+- Browse device types and **preview how each renders as a node** (physical + wireless
+  views side by side) before placing it.
+- For your own models (manufacturer *Схематика*) edit the **stock ports** — rows of
+  kind + type + count — written back as component templates on the type.
+- **Apply to all** devices of a type, or **↦ by role**: assign a model to every device of
+  a role and **reconcile** its ports — add missing, drop free extras, keep cabled ones.
 
 **📱 Mobile & tablet**
 - Sidebar becomes a drawer; details and rack views become bottom-sheets you can

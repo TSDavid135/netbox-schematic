@@ -8,7 +8,13 @@
 // loaded as its own <script> (not via main.js), works on all canvases.
 
 const body = document.body;
-const close = () => body.classList.remove("nav-open", "sheet-open");
+// Closing the detail sheet resets its scroll — so the NEXT open starts at the top
+// (an in-place edit keeps the position; see device.show / keepScroll).
+const resetDetailScroll = () => {
+  for (const id of ["detail", "ipam-detail"]) { const el = document.getElementById(id); if (el) el.scrollTop = 0; }
+};
+const dropSheet = () => { body.classList.remove("sheet-open"); resetDetailScroll(); };
+const close = () => { body.classList.remove("nav-open", "sheet-open"); resetDetailScroll(); };
 
 // iOS Safari IGNORES viewport `user-scalable=no` (re-enabled for a11y), so its
 // pinch-zoom would still zoom the whole page (topbar hides) and zoom the tree.
@@ -23,7 +29,7 @@ if (nav) nav.addEventListener("click", e => {
   e.stopPropagation();
   // In «Выбрать» mode the tree can't be closed (needs «Отмена» first).
   if (body.classList.contains("nav-open") && body.classList.contains("tree-selecting")) return;
-  body.classList.remove("sheet-open");
+  dropSheet();
   body.classList.toggle("nav-open");
 });
 
@@ -131,8 +137,8 @@ const swipeClose = (id, scrollerSel, onClose, sideAware) => {
   el.addEventListener("touchend", end, { passive: true });
   el.addEventListener("touchcancel", end, { passive: true });
 };
-swipeClose("detail", null, () => body.classList.remove("sheet-open"), true);
-swipeClose("ipam-detail", null, () => body.classList.remove("sheet-open"), true);
+swipeClose("detail", null, dropSheet, true);
+swipeClose("ipam-detail", null, dropSheet, true);
 swipeClose("rackpane", "#racks", () => { body.classList.add("rack-collapsed"); body.classList.remove("rack-edit"); }, false);
 
 // Esc — close overlays.

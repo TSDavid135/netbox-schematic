@@ -156,19 +156,25 @@ class _Mixin {
       }
       const key = portKey(kind.otype, item.id);
       const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
-      // Touch: 1st tap — tooltip + link highlight; 2nd tap on the SAME port —
-      // trace through patch panels + close tooltip (dblclick is unreliable on iOS,
-      // tooltip always opened first). Desktop — unchanged (click = link, dblclick = trace).
+      // Touch: 1st tap lights the immediate link + opens the tooltip; a 2nd tap on
+      // the SAME (already-selected) port traces the whole path AND closes the tip so
+      // the path is visible. Desktop — click = link, dblclick = trace.
       if (touch && this._tipPort === key) {
         this._tipPort = null;
         const tip = $("#tip"); if (tip) tip.style.display = "none";
-        if (kind.ep === "interfaces" || kind.ep === "power-ports" || kind.ep === "power-outlets")
-          this._trace(kind.ep, item);
-        else this._traceLocal(item);
+        this._trace(kind.ep, item);
         return;
       }
       this._traceLocal(item);
       this._tipPort = touch ? key : null;
+      return;
+    }
+    // On-node «Модель» / «Порты» overlay is open: a FREE port must NOT start or finish
+    // a new link here. We stay in schema-edit mode (don't touch it), but wiring while
+    // changing a model / shifting numbers is wrong. Occupied ports already returned
+    // above with their menu — only the free-port flow reaches this point.
+    if (this._modelMode || this._portShift) {
+      setStatus("идёт правка модели / портов — новые связи не создаём", "");
       return;
     }
     if (!edit) {
@@ -427,38 +433,57 @@ class _Mixin {
     // Single-view: double tap reveals the TARGET node (no API trace to build in
     // single view — only this device is on the schema).
     if (state.single) { this._revealFromPort(kind.otype, item.id); return; }
-    if (kind.ep === "interfaces" || kind.ep === "power-ports" || kind.ep === "power-outlets")
-      this._trace(kind.ep, item);
-    else
-      this._traceLocal(item);
+    // Full path through patch panels to the far end (the switch port) — for ALL port
+    // types. Front/rear/console ports have a /trace/ endpoint too; they used to only
+    // show the local link, so a socket's rear port never traced through the panel.
+    this._trace(kind.ep, item);
   }
   async _trace(ep, item) {
     this._clearTrace();                                     // reset previous highlight/dimming
     try {
-      const segments = await api(`/dcim/${ep}/${item.id}/trace/`);
-      const cableIds = new Set(segments.map(s => s[1] && s[1].id).filter(Boolean));
+      // Path-endpoint ports (interface/console/power) expose /trace/ (segments);
+      // pass-through ports (front/rear) have NO /trace/ — they expose /paths/
+      // (CablePaths through the port). Both reduce to a flat list of path NODES
+      // (terminations + cables) whose `url` we parse identically, so a socket's
+      // REAR port now traces through the patch panel to the switch too.
+      const passthrough = ep === "front-ports" || ep === "rear-ports";
+      const nodes = [];
+      if (passthrough) {
+        for (const pth of (await api(`/dcim/${ep}/${item.id}/paths/`)) || [])
+          for (const layer of (pth.path || [])) for (const n of (layer || [])) nodes.push(n);
+      } else {
+        for (const seg of (await api(`/dcim/${ep}/${item.id}/trace/`)) || []) {
+          for (const t of (seg[0] || [])) nodes.push(t);
+          if (seg[1]) nodes.push(seg[1]);            // the cable
+          for (const t of (seg[2] || [])) nodes.push(t);
+        }
+      }
+      const selfDev = item.device && item.device.id;
+      const cableIds = new Set(), portKeys = new Set(), devIds = new Set(), panelIds = new Set();
+      let endPort = null;
+      for (const n of nodes) {
+        const m = ((n && n.url) || "").match(/\/dcim\/([a-z-]+)\/(\d+)\//);
+        if (!m) continue;
+        if (m[1] === "cables") { cableIds.add(n.id != null ? n.id : +m[2]); continue; }
+        if (EP_TO_OTYPE[m[1]]) {
+          portKeys.add(EP_TO_OTYPE[m[1]] + ":" + m[2]);
+          if (!selfDev || !n.device || n.device.id !== selfDev) endPort = n;   // far side, for the label
+        }
+        if (n.device) devIds.add(n.device.id);
+        // feeder in a power trace → keep its panel bright (don't dim)
+        if (m[1] === "power-feeds") {
+          const feed = (state.powerFeeds || []).find(f => f.id === +m[2]);
+          if (feed && feed.power_panel) panelIds.add(feed.power_panel.id);
+        }
+      }
       this._hlCables = cableIds;   // survive zoom: redrawWires restores wire highlight
-      const portKeys = new Set(), devIds = new Set(), panelIds = new Set();
-      for (const seg of segments)
-        for (const side of [seg[0], seg[2]])
-          for (const t of (side || [])) {
-            if (t.device) devIds.add(t.device.id);
-            const m = (t.url || "").match(/\/dcim\/([a-z-]+)\/(\d+)\//);
-            if (m && EP_TO_OTYPE[m[1]]) portKeys.add(EP_TO_OTYPE[m[1]] + ":" + m[2]);
-            // feeder in a power trace → keep its panel bright (don't dim)
-            if (m && m[1] === "power-feeds") {
-              const feed = (state.powerFeeds || []).find(f => f.id === +m[2]);
-              if (feed && feed.power_panel) panelIds.add(feed.power_panel.id);
-            }
-          }
       document.querySelectorAll("#wires path.wire").forEach(p => {
         p.classList.remove("hl", "dim");
         p.classList.add(cableIds.has(+p.dataset.cable) ? "hl" : "dim");
       });
       Object.entries(state.ports).forEach(([k, p]) => p.el.classList.toggle("hl", portKeys.has(k)));
       // Trace nodes — bright (hl), the REST dim (dim2). Clear conn-hl from a
-      // prior hover/single click so dimming doesn't «stick» under the
-      // continuation (this was exactly the snag).
+      // prior hover/single click so dimming doesn't «stick» under the continuation.
       Object.entries(state.nodeEls).forEach(([id, el]) => {
         const inTrace = devIds.has(+id);
         el.classList.toggle("hl", inTrace);
@@ -468,11 +493,11 @@ class _Mixin {
       Object.entries(state.rackDevEls).forEach(([id, el]) => el.classList.toggle("hl", devIds.has(+id)));
       // Panels: all dim except those whose feeder is in the power trace.
       Object.entries(state.powerBoxEls || {}).forEach(([id, el]) => el.classList.toggle("dim2", !panelIds.has(+id)));
-      const last = segments[segments.length - 1];
-      const endT = last && last[2] && last[2][0];
-      const endTxt = endT ? (endT.device ? endT.device.name + "/" : "") + (endT.name || "?") : "?";
+      if (!cableIds.size) { setStatus("у порта нет кабельного пути", ""); return; }
+      const endTxt = endPort ? (endPort.device ? endPort.device.name + "/" : "") + (endPort.name || "?") : "?";
+      const n = cableIds.size;
       this._armTraceClear();
-      setStatus(`путь: ${item.name} → ${endTxt} (${segments.length} кабел${segments.length === 1 ? "ь" : "я/ей"}) — клик снимет`, "ok");
+      setStatus(`путь: ${item.name} → ${endTxt} (${n} кабел${n === 1 ? "ь" : "я/ей"}) — клик снимет`, "ok");
     } catch (e) {
       setStatus("трасса не построилась: " + e.message, "err");
     }

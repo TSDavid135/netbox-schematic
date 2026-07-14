@@ -19,6 +19,7 @@ import { initTheme } from "./theme.js";
 import { ImportUI } from "./importui.js";
 import { ExportUI } from "./exportui.js";
 import { AuditUI } from "./auditui.js";
+import { CatalogUI } from "./catalog.js";
 
 const app = {};
 app.device = new DeviceManager(app);
@@ -29,6 +30,7 @@ app.rack = new RackManager(app);
 app.tree = new TreeManager(app);
 app.search = new SearchManager(app);
 app.filter = new RoleFilter(app);
+app.catalog = new CatalogUI(app);   // device-type catalog (node preview by type)
 // Proxy methods that managers call through app
 app.openModal = (...a) => app.device.openModal(...a);
 app.connect = () => connect();
@@ -54,6 +56,7 @@ app.renderAll = group => renderAll(group);
   app.exportui.bind();
   app.auditui = new AuditUI(app);
   app.auditui.bind();
+  app.catalog.bind();
 }
 
 // Header user menu (click the name → dropdown; click outside → close).

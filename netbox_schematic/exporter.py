@@ -21,6 +21,18 @@ def _num(name):
     return m.group(1) if m else str(name)
 
 
+_RE_NETZ = re.compile(r"\[Сеть:\s*([^\]]*)\]")
+
+
+def _netz_of(iface):
+    """Read back the «Netz» value the importer stored as a [Сеть: …] marker in the
+    switch-interface description (option-2 storage) — round-trips the column."""
+    if iface is None:
+        return ""
+    m = _RE_NETZ.search(getattr(iface, "description", "") or "")
+    return m.group(1).strip() if m else ""
+
+
 def _far_port(port):
     """Port on the OTHER end of the cable (or None)."""
     from dcim.models import Cable
@@ -97,7 +109,7 @@ def _row_for(d, s_rp):
     far = _far_port(s_rp)
     if far is None:
         return None
-    panel = port = switch = swref = None
+    panel = port = switch = swref = sw_if = None
     if isinstance(far, RearPort):
         panel = far.device
         port = _num(far.name)
@@ -105,9 +117,9 @@ def _row_for(d, s_rp):
         if fp:
             swp = _far_port(fp)
             if isinstance(swp, Interface):
-                switch, swref = swp.device, _sw_ref(swp.device, swp.name)
+                switch, swref, sw_if = swp.device, _sw_ref(swp.device, swp.name), swp
     elif isinstance(far, Interface):
-        switch, swref = far.device, _sw_ref(far.device, far.name)   # socket straight into a switch
+        switch, swref, sw_if = far.device, _sw_ref(far.device, far.name), far   # socket straight into a switch
     # DVS (cabinet): the panel's rack; with no panel (device straight into a
     # switch), the SWITCH's rack — that's where the patch lands. Fall back to the
     # socket's own rack only if neither is racked.
@@ -120,7 +132,7 @@ def _row_for(d, s_rp):
         "socket": d.name, "rack": rack.name if rack else "",
         "panel": _num(panel.name) if panel else "", "panel_port": port or "",
         "neu_type": "SW" if switch else "", "neu_ref": swref or "",
-        "netz": "",
+        "netz": _netz_of(sw_if),
     }
 
 
@@ -141,7 +153,7 @@ def _row_from_endpoint(d, iface):
                    "location": "", "socket": far.device.name, "rack": "", "panel": "",
                    "panel_port": "", "neu_type": "", "neu_ref": "", "netz": ""}
         return row
-    panel = port = switch = swref = None
+    panel = port = switch = swref = sw_if = None
     if isinstance(far, RearPort):                      # straight into a patch panel's rear
         panel = far.device
         port = _num(far.name)
@@ -149,9 +161,9 @@ def _row_from_endpoint(d, iface):
         if fp:
             swp = _far_port(fp)
             if isinstance(swp, Interface):
-                switch, swref = swp.device, _sw_ref(swp.device, swp.name)
+                switch, swref, sw_if = swp.device, _sw_ref(swp.device, swp.name), swp
     elif isinstance(far, Interface):                   # straight into a switch (or another device)
-        switch, swref = far.device, _sw_ref(far.device, far.name)
+        switch, swref, sw_if = far.device, _sw_ref(far.device, far.name), far
     else:
         return None
     rack = ((panel.rack if (panel and panel.rack_id) else None)
@@ -164,7 +176,7 @@ def _row_from_endpoint(d, iface):
         "socket": "", "rack": rack.name if rack else "",
         "panel": _num(panel.name) if panel else "", "panel_port": port or "",
         "neu_type": "SW" if switch else "", "neu_ref": swref or "",
-        "netz": "",
+        "netz": _netz_of(sw_if),
     }
 
 
@@ -190,7 +202,7 @@ def _row_from_panel(panel, fp):
         "socket": socket.name if socket else "",
         "rack": rack.name if rack else "",
         "panel": _num(panel.name), "panel_port": _num(fp.name),
-        "neu_type": "SW", "neu_ref": swref, "netz": "",
+        "neu_type": "SW", "neu_ref": swref, "netz": _netz_of(swp),
     }
 
 
