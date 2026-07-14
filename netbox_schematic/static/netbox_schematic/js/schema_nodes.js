@@ -27,9 +27,13 @@ class _Mixin {
   _placeStackBadge(node, dev) {
     const vc = dev.virtual_chassis;
     const master = vc.master === dev.id ? " · мастер" : "";
+    // Badge shows the stack SIZE (member count) — same number on every node of the
+    // stack — counted from all loaded devices sharing this virtual chassis.
+    const size = (state.allDevices || state.devices || [])
+      .filter(d => d.virtual_chassis && d.virtual_chassis.id === vc.id).length || 1;
     const badge = mk("div", { className: "stack-badge",
-      title: `Стек «${vc.name}» · позиция ${dev.vc_position ?? "?"}${master}`,
-      html: `<i class="mdi mdi-layers-triple"></i><b>${dev.vc_position ?? "•"}</b>` });
+      title: `Стек «${vc.name}» · участников: ${size} · позиция ${dev.vc_position ?? "?"}${master}`,
+      html: `<i class="mdi mdi-layers-triple"></i><b>${size}</b>` });
     badge.addEventListener("click", ev => {
       ev.stopPropagation();
       this._highlightStack(vc.id);
@@ -147,14 +151,49 @@ class _Mixin {
     const nTop = topV.reduce((n, x) => n + x.items.length, 0);
     const nBotL = botLeftV.reduce((n, x) => n + x.items.length, 0);
     const nBotR = botRightV.reduce((n, x) => n + x.items.length, 0);
-    // Width: max(min, top row, bottom clusters with gap). In net view + edit,
-    // reserve a slot for the green "+" (create wireless interface).
-    const addWl = net && edit ? 1 : 0;
-    const GAP_MID = (nBotL + addWl) && nBotR ? STEP : 0;
-    const topNeed = nTop ? EDGE * 2 + nTop * STEP : 0;
-    const botNeed = (nBotL + addWl + nBotR) ? EDGE * 2 + (nBotL + addWl + nBotR) * STEP + GAP_MID : 0;
-    const width = Math.max(MIN_W, topNeed, botNeed);
-    return { net, edit, EDGE, top, topV, botLeftV, botRightV, nBotL, nBotR, width };
+    const addWl = net && edit ? 1 : 0;   // green "+" slot (create wireless) in net+edit
+
+    // Port placement → `slots` {g,item,ordinal,isTop,leftPx}, so schema and catalog
+    // place ports identically. Default (no front/rear pair): top & bottom-left from
+    // the LEFT edge, console from the RIGHT — the long-standing layout, unchanged.
+    // When a front/rear TRUNK coexists with interfaces/power, the trunk anchors LEFT
+    // and interfaces (top) + power (bottom) are CENTERED in the middle, console stays
+    // bottom-right (user request; purely visual — data untouched).
+    const isFR = o => o === "dcim.frontport" || o === "dcim.rearport";
+    const cnt = arr => arr.reduce((n, x) => n + x.items.length, 0);
+    const trunkTop = topV.filter(x => isFR(x.g.kind.otype)), midTop = topV.filter(x => !isFR(x.g.kind.otype));
+    const trunkBot = botLeftV.filter(x => isFR(x.g.kind.otype)), midBot = botLeftV.filter(x => !isFR(x.g.kind.otype));
+    const nTrunk = Math.max(cnt(trunkTop), cnt(trunkBot)), nMidTop = cnt(midTop), nMidBot = cnt(midBot);
+    const centered = !net && nTrunk > 0 && (nMidTop + nMidBot) > 0;
+
+    const slots = [];
+    const push = (g, item, ordinal, isTop, leftPx) => slots.push({ g, item, ordinal, isTop, leftPx });
+    let width;
+    if (centered) {
+      const GAP = STEP, midCols = Math.max(nMidTop, nMidBot);
+      // Width fits: trunk (left) + mid + console (right) with gaps; mid is CENTRED
+      // between the trunk and the console, console sits at the bottom-RIGHT edge.
+      const cols = nTrunk + (nTrunk && (midCols || nBotR) ? 1 : 0) + midCols + (midCols && nBotR ? 1 : 0) + nBotR;
+      width = Math.max(MIN_W, EDGE * 2 + cols * STEP);
+      let i = 0; for (const { g, items } of trunkTop) for (const it of items) push(g, it, i + 1, true, EDGE + (i++) * STEP);
+      let f = 0; for (const { g, items } of trunkBot) for (const it of items) push(g, it, f + 1, false, EDGE + (f++) * STEP);
+      let c = 0; for (const { g, items } of botRightV) for (const it of items) { push(g, it, c + 1, false, width - EDGE - DOT - (nBotR - c - 1) * STEP); c++; }
+      const trunkEnd = EDGE + nTrunk * STEP + (nTrunk ? GAP : 0);
+      const consoleLeft = nBotR ? width - EDGE - DOT - (nBotR - 1) * STEP - GAP : width - EDGE;
+      const midMid = (trunkEnd + consoleLeft) / 2;
+      const tS = midMid - nMidTop * STEP / 2, bS = midMid - nMidBot * STEP / 2;
+      let m = 0; for (const { g, items } of midTop) for (const it of items) push(g, it, m + 1, true, tS + (m++) * STEP);
+      let p = 0; for (const { g, items } of midBot) for (const it of items) push(g, it, p + 1, false, bS + (p++) * STEP);
+    } else {
+      const GAP_MID = (nBotL + addWl) && nBotR ? STEP : 0;
+      const topNeed = nTop ? EDGE * 2 + nTop * STEP : 0;
+      const botNeed = (nBotL + addWl + nBotR) ? EDGE * 2 + (nBotL + addWl + nBotR) * STEP + GAP_MID : 0;
+      width = Math.max(MIN_W, topNeed, botNeed);
+      let i = 0; for (const { g, items } of topV) for (const it of items) push(g, it, i + 1, true, EDGE + (i++) * STEP);
+      let l = 0; for (const { g, items } of botLeftV) for (const it of items) push(g, it, l + 1, false, EDGE + (l++) * STEP);
+      let j = 0; for (const { g, items } of botRightV) for (const it of items) { push(g, it, j + 1, false, width - EDGE - DOT - (nBotR - j - 1) * STEP); j++; }
+    }
+    return { net, edit, EDGE, top, topV, botLeftV, botRightV, nBotL, nBotR, width, slots };
   }
 
   // Layout of ONE node: ports + width for the current mode.
@@ -219,23 +258,9 @@ class _Mixin {
         `<span class="edge-label b r">${botRightV.map(x => x.g.kind.label).join(" · ")}</span>`);
     }
 
-    // Top row + bottom-left: from the LEFT edge rightward (port N under port N).
-    let i = 0;
-    for (const { g, items } of topV)
-      for (const item of items)
-        this._placeDot(node, dev, g, item, i + 1, true, EDGE + (i++) * STEP);
-    let l = 0;
-    for (const { g, items } of botLeftV)
-      for (const item of items)
-        this._placeDot(node, dev, g, item, l + 1, false, EDGE + (l++) * STEP);
-    // Bottom-right (power): from the RIGHT edge leftward.
-    let j = 0;
-    for (const { g, items } of botRightV)
-      for (const item of items) {
-        const fromRight = nBotR - j;
-        this._placeDot(node, dev, g, item, j + 1, false, width - EDGE - DOT - (fromRight - 1) * STEP);
-        j++;
-      }
+    // Ports — positions precomputed in _nodeParts (shared by schema & catalog, so a
+    // front/rear node centres its interfaces/power identically in both places).
+    for (const s of P.slots) this._placeDot(node, dev, s.g, s.item, s.ordinal, s.isTop, s.leftPx);
     // Green "+" in the Wireless row (net view + edit): create a REAL wireless
     // interface. A logical (radio) port, added freely — unlike physical sockets
     // (see discussion). Present on EVERY node.
@@ -243,10 +268,10 @@ class _Mixin {
     // In edit mode — a pencil centered on the node's RIGHT edge: the full device
     // edit modal (all default NetBox fields).
     if (edit) {
-      const pen = mk("div", { className: "node-edit", title: "Изменить устройство",
-        html: `<i class="mdi mdi-pencil"></i>` });
-      pen.addEventListener("click", ev => { ev.stopPropagation(); this.app.device.editDevice(dev); });
-      node.appendChild(pen);
+      const kebab = mk("div", { className: "node-edit", title: "Действия с устройством",
+        html: `<i class="mdi mdi-dots-vertical"></i>` });
+      kebab.addEventListener("click", ev => { ev.stopPropagation(); this._openNodeMenu(dev, kebab); });
+      node.appendChild(kebab);
     }
   }
 
@@ -270,6 +295,266 @@ class _Mixin {
       setStatus("создан wireless-интерфейс " + name + " на " + dev.name, "ok");
       await this.app.renderAll(state.group);
     } catch (e) { setStatus("не удалось создать wireless: " + e.message, "err"); }
+  }
+
+  // Kebab (⋮) on a node in edit mode → dropdown of actions. «Изменить» opens the full
+  // edit modal; «Модель»/«Порты» will enter on-canvas modes (WIP — see node_model_edit.md).
+  _openNodeMenu(dev, anchor) {
+    this._closeNodeMenu();
+    const menu = mk("div", { className: "node-menu" });
+    const item = (icon, label, fn) => {
+      const el = mk("div", { className: "nm-item", html: `<i class="mdi ${icon}"></i><span>${label}</span>` });
+      el.addEventListener("click", e => { e.stopPropagation(); this._closeNodeMenu(); fn(); });
+      menu.appendChild(el);
+    };
+    item("mdi-swap-horizontal", "Порты", () => this._startPortShift(dev));
+    item("mdi-pencil-outline", "Модель", () => this._startModelChange(dev));
+    item("mdi-pencil", "Изменить", () => this.app.device.editDevice(dev));
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8)) + "px";
+    // Open UP when the button sits below the screen's vertical middle, else DOWN —
+    // so the dropdown never runs off the bottom edge.
+    const openUp = r.top + r.height / 2 > innerHeight / 2;
+    menu.style.top = (openUp ? r.top - menu.offsetHeight - 4 : r.bottom + 4) + "px";
+    this._nodeMenu = menu;
+    this._closeNodeMenuBound = e => { if (!menu.contains(e.target)) this._closeNodeMenu(); };
+    setTimeout(() => document.addEventListener("mousedown", this._closeNodeMenuBound), 0);
+  }
+  _closeNodeMenu() {
+    if (this._nodeMenu) { this._nodeMenu.remove(); this._nodeMenu = null; }
+    if (this._closeNodeMenuBound) { document.removeEventListener("mousedown", this._closeNodeMenuBound); this._closeNodeMenuBound = null; }
+  }
+  // «Модель» — смена device_type устройства на схеме (Фаза B v1). Открываем
+  // одиночный вид (нода + усики, затемнение — переиспускаем showSingleDevice),
+  // сверху панель: ✗ / выбор модели / ✓. ✓ → PATCH device_type + grow портов новой
+  // модели (только добавление); ✗/✓ возвращают в область. Живое превью — следующим.
+  async _startModelChange(dev) {
+    if (this._modelMode) return;
+    const node = state.nodeEls[dev.id];
+    if (!node) { setStatus("нода не на схеме", "err"); return; }
+    setStatus("загружаю модели…");
+    let types = [];
+    try { types = await apiAll("/dcim/device-types/"); } catch (_) {}
+    types.sort((a, b) => (((a.manufacturer || {}).name || "") + (a.model || ""))
+      .localeCompare(((b.manufacturer || {}).name || "") + (b.model || "")));
+    setStatus("");
+    // Overlay on the CURRENT view (NO navigation): dim everything, this node's cables
+    // → whiskers, model window on top. Exit only via ✓/✗ (restores the view).
+    const schema = document.getElementById("schema");
+    if (schema) schema.classList.add("node-focus");
+    node.classList.add("focus-node");
+    this._drawNodeWhiskers(dev.id);
+    const curId = dev.device_type && dev.device_type.id;
+    const bar = mk("div", { className: "model-bar" });
+    const cancel = mk("button", { className: "mb-btn mb-cancel", title: "Отмена (Esc)", html: `<i class="mdi mdi-close"></i>` });
+    const lbl = mk("span", { className: "mb-lbl", html: `<i class="mdi mdi-pencil-outline"></i> Модель` });
+    const sel = mk("select", { className: "mb-sel" });
+    for (const t of types) {
+      const o = document.createElement("option"); o.value = t.id;
+      o.textContent = ((t.manufacturer || {}).name ? t.manufacturer.name + " · " : "") + (t.display || t.model);
+      if (t.id === curId) o.selected = true; sel.appendChild(o);
+    }
+    const ok = mk("button", { className: "mb-btn mb-ok", title: "Применить", html: `<i class="mdi mdi-check"></i>` });
+    bar.append(cancel, lbl, sel, ok);
+    document.body.appendChild(bar);
+    this._modelMode = { dev, node, chosen: curId, bar, origGroups: node._groups };
+    this._positionModelBar();
+    this._modelScroll = () => this._positionModelBar();
+    const pane = $("#schempane"); if (pane) pane.addEventListener("scroll", this._modelScroll);
+    window.addEventListener("resize", this._modelScroll);
+    sel.addEventListener("change", () => this._previewModel(+sel.value));
+    cancel.addEventListener("click", () => this._exitModelChange(false));
+    ok.addEventListener("click", () => this._exitModelChange(true));
+    this._modelEsc = e => { if (e.key === "Escape") this._exitModelChange(false); };
+    document.addEventListener("keydown", this._modelEsc);
+  }
+  async _exitModelChange(apply) {
+    const m = this._modelMode; if (!m) return;
+    this._modelMode = null;
+    if (m.bar) m.bar.remove();
+    if (this._modelEsc) { document.removeEventListener("keydown", this._modelEsc); this._modelEsc = null; }
+    if (this._modelScroll) { const pane = $("#schempane"); if (pane) pane.removeEventListener("scroll", this._modelScroll); window.removeEventListener("resize", this._modelScroll); this._modelScroll = null; }
+    const schema = document.getElementById("schema");
+    if (schema) schema.classList.remove("node-focus");
+    if (m.node) m.node.classList.remove("focus-node");
+    const curId = m.dev.device_type && m.dev.device_type.id;
+    if (apply && m.chosen && m.chosen !== curId) {
+      try {
+        setStatus("меняю модель…");
+        await api("/dcim/devices/" + m.dev.id + "/", "PATCH", { device_type: m.chosen });
+        const r = await this.app.device.applyModel(m.dev.id, m.chosen);
+        setStatus(`модель изменена: +${r.added} / −${r.removed} портов`, "ok");
+      } catch (e) { setStatus("не удалось сменить модель: " + e.message, "err"); }
+      await this.app.tree.reload();   // ports changed → re-render the area
+      return;
+    }
+    if (m.node && m.origGroups) { m.node._groups = m.origGroups; this._layoutNode(m.dev, m.node); }
+    this.redrawWires();   // cancel → restore node + wires, keep the area view
+  }
+  // Where the model / port-shift action bar floats. On a phone/tablet it sits around
+  // the MIDDLE of the screen (a floating panel, not over the schema — the node is
+  // dimmed behind it). On desktop it sits just ABOVE the node (below if there's no
+  // room up top), following the node as usual.
+  _positionBarAboveNode(bar, node) {
+    if (!bar) return;
+    const bw = bar.offsetWidth || 300, bh = bar.offsetHeight || 40;
+    const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 1024;
+    if (touch || !node) {
+      bar.style.left = Math.max(8, (innerWidth - bw) / 2) + "px";
+      bar.style.top = Math.max(8, innerHeight * 0.5 - bh / 2) + "px";
+      return;
+    }
+    const nb = node.getBoundingClientRect();
+    const left = Math.min(Math.max(8, nb.left + nb.width / 2 - bw / 2), innerWidth - bw - 8);
+    let top = nb.top - bh - 52;                       // above the node…
+    if (top < 8) top = Math.min(nb.bottom + 52, innerHeight - bh - 8);   // …or below if no room
+    bar.style.left = left + "px"; bar.style.top = top + "px";
+  }
+  _positionModelBar() { const m = this._modelMode; if (m) this._positionBarAboveNode(m.bar, m.node); }
+  _positionPortShiftBar() { const m = this._portShift; if (m) this._positionBarAboveNode(m.bar, m.node); }
+  // Live preview: re-render the node with the picked model's ports, keeping OCCUPIED
+  // ports in their slot BY NUMBER (extras beyond the model stay visible). No DB writes.
+  async _previewModel(dtId) {
+    const m = this._modelMode; if (!m) return;
+    m.chosen = dtId;
+    let modelGroups = [];
+    try { modelGroups = await this.app.catalog.typeToGroups(dtId); } catch (_) {}
+    if (this._modelMode !== m) return;
+    const cur = state._devPorts[m.dev.id] || m.node._groups || [];
+    m.node._groups = this._mergeModelGroups(modelGroups, cur);
+    const type = (m.types || []).find(t => t.id === dtId) || m.dev.device_type;
+    this._layoutNode({ ...m.dev, device_type: type }, m.node);
+    this._drawNodeWhiskers(m.dev.id);
+    this._positionModelBar();
+  }
+  // model templates + device OCCUPIED ports → merged groups (occupied wins its number;
+  // occupied ports numbered beyond the model are appended so they stay visible).
+  _mergeModelGroups(modelGroups, curGroups) {
+    const _pn = name => { const x = String(name || "").match(/(\d+)(?!.*\d)/); return x ? x[1] : null; };
+    const busy = it => !!(it.cable || it.wireless_link);
+    const occ = {};
+    for (const g of curGroups) for (const it of g.items) if (busy(it)) (occ[g.kind.otype] = occ[g.kind.otype] || []).push(it);
+    const used = new Set(), out = [];
+    for (const g of modelGroups) {
+      const byNum = {};
+      for (const it of (occ[g.kind.otype] || [])) { const nn = _pn(it.name); if (nn != null && !(nn in byNum)) byNum[nn] = it; }
+      out.push({ kind: g.kind, items: g.items.map(it => {
+        const nn = _pn(it.name);
+        if (nn != null && byNum[nn]) { used.add(byNum[nn]); return byNum[nn]; }
+        return it;
+      }) });
+    }
+    const outBy = {}; for (const g of out) outBy[g.kind.otype] = g;
+    for (const [otype, items] of Object.entries(occ)) {
+      const extra = items.filter(it => !used.has(it));
+      if (!extra.length) continue;
+      if (outBy[otype]) outBy[otype].items = outBy[otype].items.concat(extra);
+      else { const orig = curGroups.find(x => x.kind.otype === otype); if (orig) out.push({ kind: orig.kind, items: extra }); }
+    }
+    out.sort((a, b) => PORT_KINDS.indexOf(a.kind) - PORT_KINDS.indexOf(b.kind));
+    return out;
+  }
+  // «Порты» (Фаза D) — сдвиг номеров СВОБОДНЫХ портов по категориям. Тот же оверлей
+  // (затемнение + усики), панель над нодой: ✗ + ⟨N⟩ на категорию. ⟩ = +N, ⟨ = −N к
+  // свободным (N = число портов категории в модели); занятые остаются, свободный-дубль
+  // занятого отбрасывается. Каждый клик применяется сразу (у свободных нет кабелей).
+  async _startPortShift(dev) {
+    if (this._portShift || this._modelMode) return;
+    const node = state.nodeEls[dev.id];
+    if (!node) { setStatus("нода не на схеме", "err"); return; }
+    let modelGroups = [];
+    try { modelGroups = await this.app.catalog.typeToGroups((dev.device_type || {}).id); } catch (_) {}
+    const CATS = [
+      { key: "interface", label: "Интерфейсы", otypes: ["dcim.interface"] },
+      { key: "frontrear", label: "Front/Rear", otypes: ["dcim.rearport", "dcim.frontport"] },
+      { key: "power", label: "Питание", otypes: ["dcim.powerport", "dcim.poweroutlet"] },
+      { key: "console", label: "Console", otypes: ["dcim.consoleport", "dcim.consoleserverport"] },
+    ];
+    const nOf = otypes => modelGroups.filter(g => otypes.includes(g.kind.otype)).reduce((mx, g) => Math.max(mx, g.items.length), 0);
+    const cur = state._devPorts[dev.id] || node._groups || [];
+    const cats = CATS.filter(c => cur.some(g => c.otypes.includes(g.kind.otype) && g.items.length)).map(c => ({ ...c, n: nOf(c.otypes) }));
+    const schema = document.getElementById("schema");
+    if (schema) schema.classList.add("node-focus");
+    node.classList.add("focus-node");
+    this._drawNodeWhiskers(dev.id);
+    const bar = mk("div", { className: "model-bar portshift-bar" });
+    const cancel = mk("button", { className: "mb-btn mb-cancel", title: "Готово (Esc)", html: `<i class="mdi mdi-close"></i>` });
+    bar.appendChild(cancel);
+    for (const c of cats) {
+      const grp = mk("span", { className: "ps-cat" });
+      const lb = mk("button", { className: "ps-arrow", title: `−${c.n} к свободным`, html: `<i class="mdi mdi-chevron-left"></i>` });
+      const nm = mk("span", { className: "ps-lbl", html: `${c.label} ·${c.n}` });
+      const rb = mk("button", { className: "ps-arrow", title: `+${c.n} к свободным`, html: `<i class="mdi mdi-chevron-right"></i>` });
+      lb.addEventListener("click", () => this._shiftCategory(dev, c, -1));
+      rb.addEventListener("click", () => this._shiftCategory(dev, c, +1));
+      grp.append(lb, nm, rb); bar.appendChild(grp);
+    }
+    document.body.appendChild(bar);
+    this._portShift = { dev, node, bar };
+    this._positionPortShiftBar();
+    this._psScroll = () => this._positionPortShiftBar();
+    const pane = $("#schempane"); if (pane) pane.addEventListener("scroll", this._psScroll);
+    window.addEventListener("resize", this._psScroll);
+    cancel.addEventListener("click", () => this._exitPortShift());
+    this._psEsc = e => { if (e.key === "Escape") this._exitPortShift(); };
+    document.addEventListener("keydown", this._psEsc);
+  }
+  async _exitPortShift() {
+    const m = this._portShift; if (!m) return;
+    this._portShift = null;
+    if (m.bar) m.bar.remove();
+    if (this._psEsc) { document.removeEventListener("keydown", this._psEsc); this._psEsc = null; }
+    if (this._psScroll) { const pane = $("#schempane"); if (pane) pane.removeEventListener("scroll", this._psScroll); window.removeEventListener("resize", this._psScroll); this._psScroll = null; }
+    const schema = document.getElementById("schema");
+    if (schema) schema.classList.remove("node-focus");
+    if (m.node) m.node.classList.remove("focus-node");
+    await this.app.tree.reload();
+  }
+  async _shiftCategory(dev, cat, dir) {
+    if (!cat.n) { setStatus("у модели нет портов этой категории", "err"); return; }
+    const EP = { "dcim.interface": "interfaces", "dcim.rearport": "rear-ports", "dcim.frontport": "front-ports",
+      "dcim.powerport": "power-ports", "dcim.poweroutlet": "power-outlets",
+      "dcim.consoleport": "console-ports", "dcim.consoleserverport": "console-server-ports" };
+    setStatus("сдвигаю порты…");
+    try {
+      for (const otype of cat.otypes) {
+        const ep = EP[otype]; if (!ep) continue;
+        const ports = await apiAll(`/dcim/${ep}/?device_id=${dev.id}`);
+        const plan = this._shiftPlan(ports, cat.n, dir);
+        for (const id of plan.deletes) { try { await api(`/dcim/${ep}/${id}/`, "DELETE"); } catch (_) {} }
+        for (const r of plan.renames) { try { await api(`/dcim/${ep}/${r.id}/`, "PATCH", { name: r.name }); } catch (_) {} }
+      }
+      await this._reloadPortShiftNode(dev);
+      setStatus("порты сдвинуты", "ok");
+    } catch (e) { setStatus("не удалось сдвинуть: " + e.message, "err"); }
+  }
+  // Shift FREE ports' numbers by dir*N; occupied stay; a free colliding with an occupied
+  // number is dropped. Renames ordered to avoid transient name clashes. Pure.
+  _shiftPlan(ports, N, dir) {
+    const _pn = name => { const mm = String(name || "").match(/(\d+)(?!.*\d)/); return mm ? mm[1] : null; };
+    const busy = p => !!(p.cable || p.wireless_link);
+    const occ = new Set(ports.filter(busy).map(p => _pn(p.name)).filter(x => x != null));
+    const renames = [], deletes = [];
+    for (const p of ports) {
+      if (busy(p)) continue;
+      const num = _pn(p.name); if (num == null) continue;
+      const nn = +num + dir * N;
+      if (nn < 1) continue;
+      if (occ.has(String(nn))) { deletes.push(p.id); continue; }
+      renames.push({ id: p.id, from: +num, name: String(p.name).replace(/(\d+)(?!.*\d)/, String(nn)) });
+    }
+    renames.sort((a, b) => dir > 0 ? b.from - a.from : a.from - b.from);
+    return { renames, deletes };
+  }
+  async _reloadPortShiftNode(dev) {
+    const node = state.nodeEls[dev.id]; if (!node) return;
+    let g = null;
+    try { g = await this._fetchDeviceGraph(dev); } catch (_) {}
+    if (g) { state._devPorts[dev.id] = g.groups; node._groups = g.groups; }
+    this._layoutNode(dev, node);
+    this._drawNodeWhiskers(dev.id);
+    this._positionPortShiftBar();
   }
 
   // Place one port-dot in the node. leftPx — left coordinate of the cell.

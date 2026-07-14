@@ -48,9 +48,9 @@
   /* Compact topbar: hide secondary items, keep icons. */
   /* Status (#status, e.g. "N devices, M cables") not needed on mobile —
      the popup loader #reqspin gives feedback. */
-  .brand-schem, .sync-txt, #backlink, #status { display: none; }
-  /* Export/Import ride in the "more" popup on phones (full label, room there). */
-  #exportbtn .tb-txt, #importbtn .tb-txt { display: inline; }
+  .brand-schem, .sync-txt, #status { display: none; }
+  /* Import / Export stay icon-only squares here too (base rule hides their label);
+     Catalog / Audit keep labels — see the imp-exp-row block below. */
   /* touch-action:manipulation removes the BROWSER double-tap zoom in the topbar
      (accidentally zoomed on buttons). Schema has its own pinch (#schempane pan-x pan-y). */
   #topbar { gap: 6px; padding: 6px 8px; touch-action: manipulation; flex-wrap: nowrap; }
@@ -80,13 +80,18 @@
     padding: 8px; align-items: center; gap: 6px; flex-wrap: wrap; row-gap: 8px; }
   body.topbar-expanded #topbar-extra { display: flex; }
   #topbar-extra #devsearch { flex: 1 1 90px; min-width: 0; max-width: none; height: 38px; }
-  /* Import + Export share ONE second row (row 1 = search + refresh + theme + user).
-     The wrapper is a full-width flex line ordered last; its two buttons split it. */
+  /* Catalog / Import / Export / Audit share ONE second row (row 1 = search +
+     refresh + theme + user). Catalog & Audit stretch (labels); Import & Export are
+     fixed icon squares. The wrapper is a full-width flex line ordered last. */
   #topbar-extra #imp-exp-row {
     order: 5; display: flex; flex: 1 1 100%; gap: 6px; }
   #topbar-extra #imp-exp-row > button {
-    flex: 1; justify-content: center; height: 38px;
+    justify-content: center; height: 38px;
     border: 1px solid var(--line); border-radius: 8px; }
+  #topbar-extra #imp-exp-row > #catalogbtn,
+  #topbar-extra #imp-exp-row > #auditbtn { flex: 1; }
+  #topbar-extra #imp-exp-row > #importbtn,
+  #topbar-extra #imp-exp-row > #exportbtn { flex: 0 0 auto; width: 42px; padding: 0; }
   /* Сети: Audit hidden (infra-only) → Import/Export flow inline with the icon
      buttons in ONE row instead of taking their own full-width line. */
   body[data-canvas="network"] #topbar-extra #imp-exp-row { flex: 1 1 auto; order: 0; }
@@ -363,7 +368,7 @@ body.tree-moving .multi-sel { opacity: 0.5; }
   #usermenu a:hover, .loc-dev:hover, .exp-node:hover, .ds-item:not(.active):hover,
   #layers .ly-item:hover, #rolefilter .fl-row:hover, #palette .pl-item:hover, #palette .pl-tab:hover,
   #viewswitch .vs-btn:not(.active):hover, .imp-rtab:not(.active):hover, .exp-toolbar button:hover,
-  #syncbtn:hover, #themetoggle:hover, #navtoggle:hover, #userbtn:hover, #backlink:hover,
+  #syncbtn:hover, #themetoggle:hover, #navtoggle:hover, #userbtn:hover,
   #devsearch-clear:hover, .pane-toggle:hover, .net-block:hover {
     background: transparent;
   }
@@ -379,4 +384,23 @@ body.tree-moving .multi-sel { opacity: 0.5; }
   /* The "+" (palette) square shows ONLY in edit mode on touch (like the old FAB). */
   #palette { display: none !important; }
   body.schema-edit #palette { display: block !important; }
+  /* Sticky :hover after a tap makes a port look "held" (its enlarge + "white ring"
+     box-shadow linger). Drop them on touch — but ONLY when the port is not selected;
+     a selected port (.hl) must keep its ring. (.port:hover and .port.hl have equal
+     specificity, so without :not(.hl) this rule — loaded later — would hide the ring
+     of the very port you tapped, showing it only on the far end / after a pan.) */
+  .port:not(.hl):hover { transform: none; box-shadow: none; }
+}
+
+/* ── Schema ports on touch: no text-selection, no double-tap zoom ────────────── */
+@media (pointer: coarse) {
+  /* iOS selects the port digits (blue) on repeated taps — kill text selection on
+     the schema nodes/ports/labels; the desktop-only node text-select is off here. */
+  .node, .port, .edge-label, .node .nm, .node .mdl, .node.text-sel {
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  .node.text-sel { outline: none; }
+  /* A tap acts on release; the 2nd (trace) tap on a port must NOT trigger the
+     browser's double-tap zoom — `manipulation` keeps tap/pan, drops double-tap zoom. */
+  .port { touch-action: manipulation; }
 }

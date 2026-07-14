@@ -32,7 +32,6 @@
 
 <div id="topbar">
   <button id="navtoggle" title="Меню / дерево" aria-label="Открыть меню"><i class="mdi mdi-menu"></i></button>
-  <a id="backlink" href="/"><i class="mdi mdi-arrow-left"></i> На главную</a>
   <span class="brand"><a href="/" class="brand-link" title="Главная NetBox">NetBox</a> <small class="side-head brand-schem">Схематика</small><span class="brand-sep"> · </span><select id="canvas-switch" class="brand-canvas-select" aria-label="Выбор схемы"><option value="{% url 'plugins:netbox_schematic:schematic' %}"{% if canvas == 'infra' %} selected{% endif %}>Инфраструктура</option><option value="{% url 'plugins:netbox_schematic:network' %}"{% if canvas == 'network' %} selected{% endif %}>Сети</option><option value="{% url 'plugins:netbox_schematic:virtualization' %}"{% if canvas == 'virtualization' %} selected{% endif %}>Виртуализация</option><option value="{% url 'plugins:netbox_schematic:vpn' %}"{% if canvas == 'vpn' %} selected{% endif %}>Туннели</option></select></span>
   <span id="status">не подключено</span>
   <span class="topbar-spacer"></span>
@@ -41,6 +40,7 @@
   <button id="topbar-more" title="Ещё: поиск, тема, обновить"><i class="mdi mdi-chevron-down"></i></button>
   <div id="topbar-extra">
   <div id="imp-exp-row">
+    <button id="catalogbtn" class="tb-act" aria-label="Каталог" data-tip="Каталог устройств"><i class="mdi mdi-view-grid-outline"></i> <span class="tb-txt">Каталог</span></button>
     <button id="importbtn" class="tb-act" aria-label="Импорт" data-tip="Импорт из Excel"><i class="mdi mdi-tray-arrow-down"></i> <span class="tb-txt">Импорт</span></button>
     <button id="exportbtn" class="tb-act" aria-label="Экспорт" data-tip="Экспорт в Excel"><i class="mdi mdi-tray-arrow-up"></i> <span class="tb-txt">Экспорт</span></button>
     <button id="auditbtn" class="tb-act" aria-label="Аудит" data-tip="Аудит: чего не хватает"><i class="mdi mdi-clipboard-search-outline"></i> <span class="tb-txt">Аудит</span></button>

@@ -47,6 +47,7 @@ export class SchemaManager {
     // On leaving schema mode — reset any in-progress cable run
     // and close an open type-picker popover.
     Mode.onChange("schema", active => {
+      this._highlightStack(null);   // a stack highlight must not linger across a mode switch (it dims the whole canvas)
       if (!active) { this.setPending(null); if (this._closeCablePop) this._closeCablePop(); }
       // Edit-mode change without a full renderAll: re-lay nodes (in net view —
       // green assignable ports and the wireless "+"), redraw panels ("+ feeder").
@@ -547,6 +548,27 @@ export class SchemaManager {
     path.setAttribute("stroke", `url(#${gid})`);
     path.dataset.port = portKey(p.otype, p.item.id);
     svg.appendChild(path);
+  }
+  // Whiskers for ONE node's busy ports (model-change overlay): clears the wires and
+  // shows just this node's cables as stubs — WITHOUT leaving the area view.
+  _drawNodeWhiskers(devId) {
+    const svg = $("#wires"), canvas = $("#schema");
+    if (!svg || !canvas) return;
+    svg.setAttribute("width", canvas.scrollWidth);
+    svg.setAttribute("height", canvas.scrollHeight);
+    svg.innerHTML = "";
+    const NS = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(NS, "defs"); svg.appendChild(defs);
+    const base = canvas.getBoundingClientRect(), z = state.zoom || 1;
+    const center = el => { const r = el.getBoundingClientRect();
+      return [(r.left - base.left + r.width / 2) / z, (r.top - base.top + r.height / 2) / z]; };
+    let wi = 0;
+    for (const key in state.ports) {
+      const p = state.ports[key];
+      if (!p.dev || p.dev.id !== devId) continue;
+      if (!(p.item.cable || p.item.wireless_link)) continue;
+      this._whisker(svg, defs, p, center, wi++);
+    }
   }
 
   // Far device of this port's cable (to expand in single-view). Taken from the
@@ -1071,29 +1093,53 @@ export class SchemaManager {
     const found = (state.cableTypes || []).find(t => t.value === type);
     return found ? found.label : type;
   }
-  _portTip(dev, kind, item) {
-    let peers = "";
-    if (item.link_peers && item.link_peers.length) {
-      peers = item.link_peers.map(p =>
-        (p.device ? p.device.name + " · " : "") + (p.name || p.display || "?")).join(", ");
+  // Near cable neighbour (device · port) of an occupied port — the connection's
+  // destination shown in the tooltip. From the loaded cables (area + single view),
+  // with a link_peers fallback (single-view items carry it). The FULL far end
+  // through patch panels would need the async /trace/ (see _trace) — not done here.
+  _portDest(kind, item) {
+    if (!item.cable) return "";
+    const cid = item.cable.id || item.cable;
+    const cable = (state.cables || []).find(c => c.id === cid);
+    if (cable) {
+      for (const t of [...(cable.a_terminations || []), ...(cable.b_terminations || [])]) {
+        if (t.object_type === kind.otype && t.object_id === item.id) continue;   // skip the near side
+        const o = t.object || {};
+        const dn = o.device && o.device.name, pn = o.name;
+        if (dn && pn) return `${dn} · ${pn}`;
+        return dn || pn || "вне области";
+      }
     }
+    if (item.link_peers && item.link_peers.length)   // single-view fallback
+      return item.link_peers.map(p => (p.device ? p.device.name + " · " : "") + (p.name || p.display || "?")).join(", ");
+    return "";
+  }
+  _portTip(dev, kind, item) {
+    const touch = matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
+    const badge = this.app.layers ? this.app.layers.portBadge(kind.otype, item.id) : null;
+    // Interface IPs — the SAME green pill as the passport (chip .c-ip), shown to the
+    // RIGHT of the kind label.
+    let ipPill = "";
+    if (kind.otype === "dcim.interface") {
+      const ips = (state.ipsByIface && state.ipsByIface[item.id]) || [];
+      if (ips.length) ipPill = `<span class="t-ip">${ips.map(x => `<span class="chip c-ip">${x.address}</span>`).join("")}</span>`;
+    }
+    // Next port in the connection — right UNDER the device title (not under the IP).
+    const dest = this._portDest(kind, item);
+    const destLine = dest ? `<div class="t-line t-dest">→ ${dest}</div>` : "";
     const action = item.cable
       ? (Mode.on("schema") ? "клик — меню связи (удалить / перевесить)" : "клик — показать путь")
       : (state.pending ? "клик — соединить сюда"
         : (Mode.on("schema") ? "клик — начать связь" : "свободен"));
-    const badge = this.app.layers ? this.app.layers.portBadge(kind.otype, item.id) : null;
-    // Interface IP addresses (wireless/circuit/plain — all dcim.interface).
-    let ipLine = "";
-    if (kind.otype === "dcim.interface") {
-      const ips = (state.ipsByIface && state.ipsByIface[item.id]) || [];
-      if (ips.length) ipLine = `<div class="t-line">IP: ${ips.map(x => x.address).join(", ")}</div>`;
-    }
-    return `<div class="t-title">${dev.name} · ${item.name}</div>
-      <div class="t-line">${KIND_RU[kind.otype] || kind.label}</div>` +
+    return `<div class="t-title">${dev.name} · ${item.name}</div>` +
+      destLine +
+      `<div class="t-line t-kindrow"><span>${KIND_RU[kind.otype] || kind.label}</span>${ipPill}</div>` +
       (badge ? `<div class="t-badge">${badge}</div>` : "") +
-      ipLine +
-      (peers ? `<div class="t-line">соединён с: ${peers}</div>` : "") +
-      `<div class="t-mut">${action}</div>`;
+      // Touch: a 2nd tap on the SAME port traces the whole path (hint below).
+      // Desktop: the click hint.
+      (touch
+        ? (item.cable ? `<div class="t-mut">ещё раз по порту — весь путь</div>` : "")
+        : `<div class="t-mut">${action}</div>`);
   }
 
   // refresh cables without a full redraw
@@ -1263,16 +1309,17 @@ export class SchemaManager {
     });
     // Mobile tooltip's close cross → clear cable/trace highlight.
     document.addEventListener("schematic:tipclose", () => this._clearTrace());
+    // (The «показать весь путь» button is wired directly to its port in _onPortClick.)
     this._enablePanZoom();
     this._enableResize();
   }
   _enablePanZoom() {
     const pane = $("#schempane");
-    let panning = false, moved = false, sx = 0, sy = 0, sl = 0, st = 0;
+    let panning = false, sx = 0, sy = 0, sl = 0, st = 0;
     pane.addEventListener("mousedown", ev => {
       if (ev.button !== 0) return;
       if (ev.target.closest(".node") || ev.target.closest(".port") || ev.target.closest(".rb-edit") || ev.target.tagName === "path") return;
-      panning = true; moved = false;
+      panning = true;
       sx = ev.clientX; sy = ev.clientY; sl = pane.scrollLeft; st = pane.scrollTop;
       pane.classList.add("panning");
     });
@@ -1287,27 +1334,43 @@ export class SchemaManager {
       // Tap on empty space clears the stack highlight/dim (touch has no hover).
       if (!node) this._highlightStack(null);
     });
-    // Touch: tapping EMPTY space (not a port/tooltip) closes the port tooltip (q4).
-    // _armTraceClear clears the trace separately. On desktop the tooltip fades on mouseleave.
+    // Touch: a genuine TAP on empty space (not a port/tooltip) closes the port
+    // tooltip. A PAN (finger drag) or a PINCH (2 fingers) must NOT close it — else
+    // you can't move/zoom the schema while reading the tip or reaching «показать
+    // путь». Tracked over pointer down→up: multi-touch or a >8px move ⇒ not a tap.
+    const _tapPtrs = new Set();
+    let _tapX = 0, _tapY = 0, _tapMulti = false;
     document.addEventListener("pointerdown", ev => {
-      const tip = $("#tip");
-      if (!tip || tip.style.display === "none") return;
-      if (ev.target.closest && ev.target.closest(".port, #tip")) return;
-      tip.style.display = "none";
-      this._tipPort = null;
+      _tapPtrs.add(ev.pointerId);
+      if (_tapPtrs.size > 1) _tapMulti = true;
+      else { _tapX = ev.clientX; _tapY = ev.clientY; _tapMulti = false; }
     }, true);
+    const _tapEnd = ev => {
+      _tapPtrs.delete(ev.pointerId);
+      if (_tapPtrs.size) return;                                   // fingers still down
+      const isTap = !_tapMulti && Math.abs(ev.clientX - _tapX) + Math.abs(ev.clientY - _tapY) < 8;
+      _tapMulti = false;
+      if (!isTap) return;                                          // pan / pinch — keep the tip
+      if (ev.target.closest && ev.target.closest(".port, #tip")) return;
+      const tip = $("#tip");
+      if (tip && tip.style.display !== "none") { tip.style.display = "none"; this._tipPort = null; }
+    };
+    document.addEventListener("pointerup", _tapEnd, true);
+    document.addEventListener("pointercancel", _tapEnd, true);
     window.addEventListener("mousemove", ev => {
       if (!panning) return;
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
-      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-      pane.scrollLeft = sl - dx;
-      pane.scrollTop = st - dy;
+      pane.scrollLeft = sl - (ev.clientX - sx);
+      pane.scrollTop = st - (ev.clientY - sy);
     });
     window.addEventListener("mouseup", ev => {
       if (!panning) return;
       panning = false;
       pane.classList.remove("panning");
-      if (!moved && (ev.target.id === "schema" || ev.target.id === "wires" || ev.target.closest(".rackbox"))) {
+      // TAP vs pan by down→up DISTANCE (not a `moved` flag): a touch one-finger pan
+      // is native scroll and fires no mousemove, so a flag would stay false and a
+      // pan would wrongly clear the trace. Distance works for mouse AND touch.
+      const tap = Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 5;
+      if (tap && (ev.target.id === "schema" || ev.target.id === "wires" || ev.target.closest(".rackbox"))) {
         if (state.pending) { this.setPending(null); setStatus("привязка отменена"); }
         else this._clearTrace();
       }

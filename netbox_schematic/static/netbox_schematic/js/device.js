@@ -1,7 +1,7 @@
 "use strict";
 // DeviceManager: device passport + create modal
 
-import { $, state, mk, modeBtn, slugify } from "./core.js";
+import { $, state, mk, modeBtn, slugify, hideTip } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
 import { MANUFACTURER } from "./solutions.js";
@@ -140,10 +140,15 @@ export class DeviceManager {
       `<h2>${title}</h2><div class="sub">${sub}</div></div>`;
   }
   async show(dev) {
+    hideTip();                                   // close any lingering port tooltip
+    const panel = $("#detail");
+    // Re-render of the SAME device (e.g. after adding an IP) keeps the scroll
+    // position — a full re-render otherwise jumps back to the top. A DIFFERENT
+    // device starts at the top; closing the sheet resets it (see responsive.js).
+    const keepScroll = (this.current && this.current.id === dev.id) ? panel.scrollTop : 0;
     this.currentPanel = null;
     this.currentStack = null;
     if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(null);
-    const panel = $("#detail");
     panel.innerHTML = `<div class="placeholder">загружаю…</div>`;   // instant click feedback
     // Graph node is a «light» object (no status/platform/serial/location); for
     // the passport we fetch the FULL device from NetBox (all default fields).
@@ -166,13 +171,9 @@ export class DeviceManager {
     if (crumb && loc) crumb.addEventListener("click", () => this.app.tree.selectScope("location", loc.id, loc.name));
     Mode.syncButtons("detail");
     const edit = this._editable();
-    // In edit: pull missing components from device type templates
-    // (e.g. after a device-type change — NetBox won't recreate them itself).
-    if (edit) {
-      panel.appendChild(mk("button", { className: "sync-comp-btn",
-        html: `<i class="mdi mdi-sync"></i> Синхронизировать порты с типом`,
-        on: { click: () => this.syncComponents(dev) } }));
-    }
+    // (The manual «Синхронизировать порты с типом» button was removed — ports are
+    // reconciled to the model by the catalog «Применить»/«По роли» and the on-node
+    // «Модель» change; the manual sync was error-prone.)
 
     // Device DB info — as the FIRST section (core NetBox fields).
     const val = x => (x && (x.label || x.name || x.display || x.model)) || (typeof x === "string" ? x : "");
@@ -267,7 +268,7 @@ export class DeviceManager {
           <div class="mid">⇄</div>
           <div class="side">${sideHtml((c.b_terminations || [])[0])}</div>` }));
     }
-
+    panel.scrollTop = keepScroll;   // keep position across a same-device re-render
   }
 
   // Power Panel passport — click the panel name on the schema. Not a device,
@@ -525,6 +526,9 @@ export class DeviceManager {
     const FACE = [["", "— не задана —"], ["front", "Front"], ["rear", "Rear"]];
     const opt = (arr, empty) => [...(empty ? [{ value: "", label: empty }] : []), ...arr];
     const idOf = x => (x && x.id != null) ? String(x.id) : "";
+    // Face may arrive as {value,label} (detail) or a bare string — normalise so
+    // the prefill keeps the real side (else save would silently reset it).
+    const faceVal = (dev.face && (dev.face.value ?? dev.face)) || "";
     this.openModal("Изменить устройство", dev.name,
       [
         { id: "name", label: "Имя", value: dev.name },
@@ -543,7 +547,7 @@ export class DeviceManager {
         { id: "rack", label: "Стойка", type: "select", value: idOf(dev.rack),
           options: opt(racks.map(r => ({ value: r.id, label: r.name })), "— вне стойки —") },
         { id: "position", label: "Юнит (позиция)", value: dev.position ?? "" },
-        { id: "face", label: "Сторона", type: "select", value: (dev.face && dev.face.value) || "",
+        { id: "face", label: "Сторона", type: "select", value: faceVal,
           options: FACE.map(([v, l]) => ({ value: v, label: l })) },
         { id: "serial", label: "Серийный номер", value: dev.serial || "" },
         { id: "asset_tag", label: "Инвентарный номер", value: dev.asset_tag || "" },
@@ -552,6 +556,7 @@ export class DeviceManager {
       async v => {
         if (!v.name) throw new Error("укажи имя");
         const rack = v.rack ? +v.rack : null;
+        const position = rack && v.position !== "" ? +v.position : null;
         const body = {
           name: v.name, status: v.status,
           role: +v.role, device_type: +v.device_type,
@@ -559,9 +564,11 @@ export class DeviceManager {
           site: +v.site,
           location: v.location ? +v.location : null,
           rack,
-          // Unit/face only make sense in a rack.
-          position: rack && v.position !== "" ? +v.position : null,
-          face: rack && v.face ? v.face : null,
+          // Unit/face only make sense in a rack. NetBox rejects a position without
+          // a face ("Must specify rack face…"), so default to "front" when the user
+          // left it empty (matches the importer's placement); no position → both null.
+          position,
+          face: position != null ? (v.face || "front") : null,
           serial: v.serial || "",
           asset_tag: v.asset_tag ? v.asset_tag : null,
           description: v.description || "",
@@ -666,104 +673,10 @@ export class DeviceManager {
     if (!subs.length && !sites.length) el.appendChild(mk("div", { className: "placeholder", text: "пусто" }));
   }
 
-  // Reconcile device components to its device type. NetBox instantiates ports
-  // from templates only on CREATE and won't recreate on a type change — this
-  // ADDS missing and DELETES extra ones (not in the type) so ports match the
-  // type (e.g. a PDU has outlets, not switch interfaces). Deleting extras also
-  // drops their cables → we ask for confirmation. All component kinds; front-
-  // ports/outlets reference rear/power by name.
-  KIND_ENDPOINTS = [
-    ["interface-templates", "interfaces"],
-    ["console-port-templates", "console-ports"],
-    ["console-server-port-templates", "console-server-ports"],
-    ["power-port-templates", "power-ports"],
-    ["power-outlet-templates", "power-outlets"],
-    ["rear-port-templates", "rear-ports"],
-    ["front-port-templates", "front-ports"],
-  ];
-  async syncComponents(dev) {
-    const dtId = dev.device_type.id;
-    setStatus("сверяю компоненты с типом…");
-    try {
-      const plans = [];
-      for (const [tmpl, comp] of this.KIND_ENDPOINTS) {
-        const [tmpls, existing] = await Promise.all([
-          apiAll(`/dcim/${tmpl}/?devicetype_id=${dtId}`),
-          apiAll(`/dcim/${comp}/?device_id=${dev.id}`),
-        ]);
-        const tmplNames = new Set(tmpls.map(t => t.name));
-        const haveNames = new Set(existing.map(c => c.name));
-        plans.push({ tmpl, comp,
-          toDelete: existing.filter(c => !tmplNames.has(c.name)) });
-      }
-      const nDelete = plans.reduce((s, p) => s + p.toDelete.length, 0);
-      // Count of additions = templates minus existing names — but easier to
-      // gather at creation; for the dialog «reconcile to type» is enough.
-      this.openModal("Привести порты к типу?",
-        `Тип: ${dev.device_type.model}. Добавлю недостающие компоненты и удалю ${nDelete} лишних (которых нет в типе). Удаление снимет кабели на этих портах — действие необратимо.`,
-        [], async () => this._applySync(dev, dtId, plans), "Применить");
-    } catch (e) {
-      setStatus("не удалось сверить: " + e.message, "err");
-    }
-  }
-  async _applySync(dev, dtId, plans) {
-    setStatus("привожу порты к типу…");
-    try {
-      // 1) Delete extras. Dependents first (front-ports, outlets), then the
-      //    rest (rear/power-ports etc.) — to avoid FK conflicts.
-      const delOrder = ["front-ports", "power-outlets", "interfaces",
-        "console-ports", "console-server-ports", "rear-ports", "power-ports"];
-      const byComp = {}; plans.forEach(p => byComp[p.comp] = p);
-      // IPs assigned to device interfaces → unassign before deleting a port (an
-      // assigned IP holds the interface: PROTECT → 409). One request per device.
-      const ipsByIface = {};
-      try {
-        for (const ip of await apiAll(`/ipam/ip-addresses/?device_id=${dev.id}`))
-          if (ip.assigned_object_type === "dcim.interface" && ip.assigned_object_id)
-            (ipsByIface[ip.assigned_object_id] = ipsByIface[ip.assigned_object_id] || []).push(ip);
-      } catch (_) {}
-      let removed = 0; const failed = [];
-      for (const comp of delOrder) {
-        const p = byComp[comp];
-        if (!p) continue;
-        for (const c of p.toDelete) {
-          try {
-            // NetBox won't delete a port with dependencies (409, PROTECT). First
-            // remove the cable, and IPs from the interface, then the port itself.
-            const cableId = c.cable && (c.cable.id || c.cable);
-            if (cableId) { try { await api(`/dcim/cables/${cableId}/`, "DELETE"); } catch (_) {} }
-            if (comp === "interfaces") for (const ip of ipsByIface[c.id] || []) {
-              try { await api(`/ipam/ip-addresses/${ip.id}/`, "PATCH",
-                { assigned_object_type: null, assigned_object_id: null }); } catch (_) {}
-            }
-            await api(`/dcim/${comp}/${c.id}/`, "DELETE");
-            removed++;
-          } catch (e) { failed.push(c.name); }
-        }
-      }
-      // 2) Create missing. Order: independents + rear/power-ports before front-
-      //    ports and outlets (which reference them by name; re-fetch inside).
-      let created = 0;
-      created += await this._syncKind(dev, dtId, "interface-templates", "interfaces");
-      created += await this._syncKind(dev, dtId, "console-port-templates", "console-ports");
-      created += await this._syncKind(dev, dtId, "console-server-port-templates", "console-server-ports");
-      created += await this._syncKind(dev, dtId, "power-port-templates", "power-ports");
-      created += await this._syncKind(dev, dtId, "rear-port-templates", "rear-ports");
-      created += await this._syncFrontPorts(dev, dtId);
-      created += await this._syncPowerOutlets(dev, dtId);
-      const tail = failed.length
-        ? ` · не удалось удалить ${failed.length} (${failed.slice(0, 3).join(", ")}${failed.length > 3 ? "…" : ""})`
-        : "";
-      setStatus(`готово: +${created} / −${removed}${tail}`, failed.length ? "err" : "ok");
-      await this.app.tree.reload();
-    } catch (e) {
-      setStatus("сбой синхронизации: " + e.message, "err");
-    }
-  }
   // Simple components (no refs to other ports): create missing by name.
   async _syncKind(dev, dtId, tmplEp, compEp) {
     const [tmpls, existing] = await Promise.all([
-      apiAll(`/dcim/${tmplEp}/?devicetype_id=${dtId}`),
+      apiAll(`/dcim/${tmplEp}/?device_type_id=${dtId}`),
       apiAll(`/dcim/${compEp}/?device_id=${dev.id}`),
     ]);
     const have = new Set(existing.map(c => c.name));
@@ -785,7 +698,7 @@ export class DeviceManager {
   // Front-ports reference a rear-port (by name in the template) — resolve to id.
   async _syncFrontPorts(dev, dtId) {
     const [tmpls, existing, rears] = await Promise.all([
-      apiAll(`/dcim/front-port-templates/?devicetype_id=${dtId}`),
+      apiAll(`/dcim/front-port-templates/?device_type_id=${dtId}`),
       apiAll(`/dcim/front-ports/?device_id=${dev.id}`),
       apiAll(`/dcim/rear-ports/?device_id=${dev.id}`),
     ]);
@@ -794,11 +707,13 @@ export class DeviceManager {
     let n = 0;
     for (const t of tmpls) {
       if (have.has(t.name)) continue;
-      const rearId = t.rear_port && rearByName[t.rear_port.name];
+      // Front pairs with the same-named rear (our types number front/rear alike).
+      // NetBox 4.6: map via the writable `rear_ports` array (PortMapping), not `rear_port`.
+      const rearId = rearByName[t.name];
       if (!rearId) continue;   // no matching rear-port → can't create the front
       await api("/dcim/front-ports/", "POST", {
         device: dev.id, name: t.name, ...(t.type ? { type: t.type.value } : {}),
-        rear_port: rearId, rear_port_position: t.rear_port_position || 1,
+        rear_ports: [{ position: 1, rear_port: rearId, rear_port_position: 1 }],
       });
       n++;
     }
@@ -807,7 +722,7 @@ export class DeviceManager {
   // Power outlets may reference a power-port (by name) — resolve optionally.
   async _syncPowerOutlets(dev, dtId) {
     const [tmpls, existing, pports] = await Promise.all([
-      apiAll(`/dcim/power-outlet-templates/?devicetype_id=${dtId}`),
+      apiAll(`/dcim/power-outlet-templates/?device_type_id=${dtId}`),
       apiAll(`/dcim/power-outlets/?device_id=${dev.id}`),
       apiAll(`/dcim/power-ports/?device_id=${dev.id}`),
     ]);
@@ -825,6 +740,64 @@ export class DeviceManager {
       n++;
     }
     return n;
+  }
+
+  // Step-2 propagation: ADD the type's template ports to EVERY device of the type.
+  // Grow-only — reuses the create-missing helpers WITHOUT the delete pass, so cabled
+  // imported ports (and their IPs) are never touched. Matching by name == by number
+  // for our numeric port names, so it just fills the gaps up to the model's set.
+  // rear/power before front/outlets (FK). Returns {devices, created}.
+  // Grow ONE device to a type's ports (create missing, never delete). Reused by
+  // growDevicesToType and the on-node «Модель» change.
+  async growOneToType(devId, dtId) {
+    const dev = { id: devId };
+    let c = 0;
+    c += await this._syncKind(dev, dtId, "interface-templates", "interfaces");
+    c += await this._syncKind(dev, dtId, "console-port-templates", "console-ports");
+    c += await this._syncKind(dev, dtId, "console-server-port-templates", "console-server-ports");
+    c += await this._syncKind(dev, dtId, "power-port-templates", "power-ports");
+    c += await this._syncKind(dev, dtId, "rear-port-templates", "rear-ports");
+    c += await this._syncFrontPorts(dev, dtId);
+    c += await this._syncPowerOutlets(dev, dtId);
+    return c;
+  }
+  async growDevicesToType(dtId, onProgress) {
+    const devs = await apiAll(`/dcim/devices/?device_type_id=${dtId}`);
+    let created = 0;
+    for (let i = 0; i < devs.length; i++) {
+      if (onProgress) onProgress(i + 1, devs.length);
+      created += await this.growOneToType(devs[i].id, dtId);
+    }
+    return { devices: devs.length, created };
+  }
+  // Per-node model CHANGE: grow to the new type AND delete the device's FREE ports
+  // that aren't in it (occupied ports — with a cable — are always kept). Reconciles
+  // the node to the model, unlike the add-only growOneToType used for bulk apply.
+  async applyModel(devId, dtId) {
+    const added = await this.growOneToType(devId, dtId);
+    const _pn = name => { const mm = String(name || "").match(/(\d+)(?!.*\d)/); return mm ? mm[1] : null; };
+    // dependents (front-ports / outlets) first so a rear/power isn't PROTECTed.
+    const del = [
+      ["front-ports", "front-port-templates"], ["power-outlets", "power-outlet-templates"],
+      ["interfaces", "interface-templates"], ["console-ports", "console-port-templates"],
+      ["console-server-ports", "console-server-port-templates"],
+      ["rear-ports", "rear-port-templates"], ["power-ports", "power-port-templates"],
+    ];
+    let removed = 0;
+    for (const [comp, tmplEp] of del) {
+      const [tmpls, existing] = await Promise.all([
+        apiAll(`/dcim/${tmplEp}/?device_type_id=${dtId}`),
+        apiAll(`/dcim/${comp}/?device_id=${devId}`),
+      ]);
+      const names = new Set(tmpls.map(t => t.name));
+      const nums = new Set(tmpls.map(t => _pn(t.name)).filter(x => x != null));
+      for (const c of existing) {
+        if (c.cable || c.wireless_link) continue;                  // keep occupied
+        if (names.has(c.name) || nums.has(_pn(c.name))) continue;  // in the model → keep
+        try { await api(`/dcim/${comp}/${c.id}/`, "DELETE"); removed++; } catch (_) {}
+      }
+    }
+    return { added, removed };
   }
 
   // ── Stack (VirtualChassis) ────────────────────────────────────────────────

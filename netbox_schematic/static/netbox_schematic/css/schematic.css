@@ -39,12 +39,6 @@
      Give them explicit panel bg + text color. */
   #topbar .brand .brand-canvas-select option { background: var(--panel); color: var(--text); font-weight: 500; }
   .topbar-spacer { flex: 1; }
-  #backlink {
-    display: inline-flex; align-items: center; gap: 5px;
-    color: var(--muted); text-decoration: none; font-size: 15px; padding: 5px 10px; border-radius: 6px;
-  }
-  #backlink:hover { color: var(--text); background: var(--panel-2); }
-  #backlink .mdi { font-size: 17px; }
   #themetoggle { font-size: 16px; line-height: 1; padding: 6px 10px; color: var(--muted); }
   #themetoggle:hover { color: var(--accent); }
   /* Manual data-refresh button from NetBox */
@@ -73,6 +67,15 @@
   /* Export/Import (stubs) — left of search, styled like "Refresh". */
   .tb-act { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
   .tb-act:hover { color: var(--accent); }
+  /* Import / Export — compact icon-only SQUARES (label dropped, tooltip keeps meaning).
+     Catalog / Audit keep their text labels. */
+  #importbtn .tb-txt, #exportbtn .tb-txt { display: none; }
+  #importbtn, #exportbtn {
+    justify-content: center; width: 34px; height: 30px; padding: 0; color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px;
+  }
+  #importbtn:hover, #exportbtn:hover { color: var(--accent); border-color: var(--accent); }
+  #importbtn .mdi, #exportbtn .mdi { font-size: 18px; }
   /* Audit is an Infrastructure tool — hide it on the «Сети» (network) canvas. */
   body[data-canvas="network"] #auditbtn { display: none !important; }
   /* `display` on a class beats the `hidden` attribute — restore it globally so
@@ -812,6 +815,142 @@
   .edge-label.b { bottom: 3px; left: 8px; }
   .edge-label.b.r { left: auto; right: 8px; }
 
+  /* ── Device catalog (catalog.js) ─────────────────────────────────────── */
+  /* Modal */
+  .cat-bg {
+    position: fixed; inset: 0; z-index: 70; display: none;
+    align-items: center; justify-content: center; background: rgba(0,0,0,0.5);
+  }
+  .cat-bg.open { display: flex; }
+  .cat-modal {
+    width: min(880px, 94vw); height: min(680px, 92vh);
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--overlay-shadow);
+  }
+  .cat-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+  }
+  .cat-title { font-weight: 600; color: var(--text); font-size: 14px; display: flex; align-items: center; gap: 7px; }
+  .cat-title .mdi { color: var(--accent); }
+  .cat-close { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; }
+  .cat-close:hover { color: var(--err); }
+  /* Back-to-list arrow — phone only (shown in detail via the mobile block below). */
+  .cat-back { display: none; background: none; border: none; color: var(--text); cursor: pointer;
+    font-size: 20px; line-height: 1; padding: 2px 6px; margin-right: 2px; border-radius: 6px; }
+  .cat-back:hover { background: var(--panel-2); }
+  .cat-body { flex: 1; display: flex; min-height: 0; }
+  .cat-side { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
+  .cat-search {
+    margin: 10px; padding: 7px 10px; font-size: 13px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px;
+  }
+  .cat-search:focus { border-color: var(--accent); outline: none; }
+  .cat-list { flex: 1; overflow-y: auto; padding: 0 6px 10px; }
+  .cat-mfr { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 10px 8px 4px; font-weight: 600; }
+  .cat-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    width: 100%; text-align: left; padding: 6px 10px; border-radius: 6px;
+    background: none; border: 1px solid transparent; color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  .cat-row:hover { background: var(--panel-2); }
+  .cat-row.active { border-color: var(--accent); background: var(--panel-2); color: var(--accent); }
+  .cat-model { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-u { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  .cat-preview { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 14px; position: relative; }
+  .cat-views { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .cat-view { min-width: 0; }
+  .cat-view-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 3px; }
+  .cat-stage {
+    position: relative; height: 104px; overflow: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  }
+  .cat-meta { font-size: 11px; color: var(--muted); font-family: var(--mono); margin: 8px 0; min-height: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .cat-ports { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-used { flex-shrink: 0; color: var(--muted); white-space: nowrap; }
+  .cat-used .cat-nz { color: var(--accent); font-weight: 700; }
+  /* node kebab dropdown (edit mode) */
+  .node-menu { position: fixed; z-index: 60; min-width: 150px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 8px 26px rgba(0,0,0,0.55); }
+  .node-menu .nm-item { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 5px; cursor: pointer; color: var(--text); font-size: 13px; white-space: nowrap; }
+  .node-menu .nm-item:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+  .node-menu .nm-item .mdi { color: var(--muted); font-size: 15px; }
+  /* Model / port-shift action bar — floats like a tooltip pinned near the top of
+     the screen (see _positionBarAboveNode). Wraps on narrow phones. */
+  .model-bar { position: fixed; z-index: 55; display: flex; align-items: center; flex-wrap: wrap;
+    gap: 8px; row-gap: 6px; max-width: calc(100vw - 16px);
+    background: var(--overlay-bg); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; box-shadow: var(--overlay-shadow); }
+  .model-bar .mb-lbl { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .model-bar .mb-sel { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; font-size: 13px; max-width: 320px; }
+  .model-bar .mb-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; cursor: pointer; font-size: 15px; }
+  .model-bar .mb-cancel { background: none; color: var(--err); border: 1px solid var(--err); }
+  .model-bar .mb-cancel:hover { background: color-mix(in srgb, var(--err) 18%, transparent); }
+  .model-bar .mb-ok { background: var(--ok); color: var(--bg); border: 1px solid var(--ok); }
+  .model-bar .mb-ok:hover { filter: brightness(1.1); }
+  .portshift-bar .ps-cat { display: inline-flex; align-items: center; gap: 4px; padding-left: 8px; border-left: 1px solid var(--line); }
+  .portshift-bar .ps-lbl { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .portshift-bar .ps-arrow { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  .portshift-bar .ps-arrow:hover { border-color: var(--accent); color: var(--accent); }
+  .cat-byrole { padding: 5px 10px; font-size: 12px; border-radius: 7px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); white-space: nowrap; }
+  .cat-byrole:hover { border-color: var(--accent); color: var(--accent); }
+  /* model-change overlay — dim everything except the focused node */
+  #schema.node-focus .node:not(.focus-node) { opacity: 0.16; }
+  #schema.node-focus .rackbox, #schema.node-focus .groupbox { opacity: 0.16; }
+  #schema.node-focus .focus-node { z-index: 6; }
+  .focus-node .node-edit { display: none; }
+  .cat-hint { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--muted); font-size: 12px; text-align: center; width: 90%; }
+  /* Catalog on phones: full-screen; list ↔ preview are two full-width panes that
+     slide. Start on the list; tap a type → preview slides in; «←» returns. */
+  @media (max-width: 760px) {
+    .cat-modal { width: 100vw; height: 100vh; height: 100dvh; max-width: none; border-radius: 0; }
+    .cat-head { gap: 8px; }
+    .cat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cat-body { position: relative; overflow: hidden; }
+    .cat-side, .cat-preview { position: absolute; inset: 0; width: 100%; border-right: none;
+      background: var(--panel); transition: transform 0.24s ease; }
+    .cat-side { transform: translateX(0); z-index: 2; }
+    .cat-preview { transform: translateX(100%); z-index: 1; }
+    .cat-bg.detail .cat-side { transform: translateX(-100%); }
+    .cat-bg.detail .cat-preview { transform: translateX(0); }
+    /* «←» shows only in the preview; the list-level actions hide there (declutter). */
+    .cat-bg.detail .cat-back { display: inline-flex; align-items: center; }
+    .cat-bg.detail .cat-add, .cat-bg.detail .cat-byrole { display: none; }
+    /* Footer buttons wrap; status gets its own full-width line above them. */
+    .cat-footer { flex-wrap: wrap; row-gap: 8px; }
+    .cat-footer .ced-status { flex: 1 1 100%; order: -1; }
+  }
+  .cat-hint.cat-err { color: var(--err); }
+  .cat-empty { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); color: var(--muted); font-size: 11px; }
+  /* catalog editor (own types) */
+  /* «+ Модель» — square icon button (plus only). */
+  .cat-add { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; border-radius: 7px; cursor: pointer; background: var(--panel-2); color: var(--accent); border: 1px solid var(--line); }
+  .cat-add:hover { border-color: var(--accent); }
+  .cat-add .mdi { font-size: 18px; }
+  .cat-own { font-size: 9px; color: var(--ok); text-transform: none; letter-spacing: 0; margin-left: 4px; }
+  .cat-editor { flex: 1 1 auto; min-height: 80px; overflow: auto; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .ced-head { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .ced-hint { color: var(--muted); }
+  .ced-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .ced-row select, .ced-row input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+  .ced-kind { flex: 1 1 42%; min-width: 0; }
+  .ced-type { flex: 1 1 42%; min-width: 0; }
+  .ced-count { width: 58px; text-align: center; flex-shrink: 0; }
+  .ced-del-row { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 5px; flex-shrink: 0; }
+  .ced-del-row:hover { color: var(--err); }
+  .ced-addrow { margin-top: 2px; padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px dashed var(--line); }
+  .cat-footer { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .ced-save { padding: 6px 14px; font-size: 12px; border-radius: 7px; cursor: pointer; background: var(--accent); color: var(--bg); border: none; font-weight: 600; }
+  .ced-save:disabled { opacity: 0.5; cursor: default; }
+  .ced-apply { padding: 6px 12px; font-size: 12px; border-radius: 7px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+  .ced-apply:hover { border-color: var(--accent); color: var(--accent); }
+  .ced-apply:disabled { opacity: 0.5; cursor: default; }
+  .ced-del { padding: 5px 9px; font-size: 15px; line-height: 1; border-radius: 7px; cursor: pointer; background: none; color: var(--muted); border: 1px solid var(--line); }
+  .ced-del:hover { color: var(--err); border-color: var(--err); }
+  .ced-status { flex: 1; font-size: 11px; color: var(--muted); min-height: 14px; line-height: 1.3; }
+  .ced-status.ced-ok { color: var(--ok); }
+  .ced-status.ced-err { color: var(--err); }
+
   .port {
     position: absolute; width: 16px; height: 16px; border-radius: 50%;
     border: 2px solid; background: var(--bg);
@@ -1091,6 +1230,10 @@
   #tip .t-type { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); font-family: var(--sans, inherit); white-space: nowrap; }
   #tip .t-type .t-sw { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; box-shadow: 0 0 0 1px var(--line); }
   #tip .t-line { color: var(--text); }
+  #tip .t-dest { color: var(--accent); margin-bottom: 2px; }
+  /* Kind label + IP pill on ONE row, IP pushed to the right. */
+  #tip .t-kindrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  #tip .t-kindrow .chip { margin: 0; }
   #tip .t-mut { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
   /* details: chips */
@@ -1427,26 +1570,35 @@
 .imp-conf-h { color: var(--text); font-weight: 600; font-size: 13px; margin-bottom: 8px;
   display: flex; align-items: center; gap: 6px; }
 .imp-conf-h .mdi { color: var(--err); }
-.imp-conf-scroll { overflow-x: auto; }
-.imp-conf-tbl { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
-.imp-conf-tbl th { text-align: left; color: var(--muted); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-.imp-conf-tbl td { padding: 4px 8px; font-family: var(--mono); color: var(--muted); }
-.imp-conf-dev td { color: var(--text); font-weight: 600; font-family: inherit; padding-top: 9px; }
-.imp-conf-dev .mdi { font-size: 14px; margin-right: 3px; }
-.imp-conf-lbl { color: var(--muted); font-style: italic; }
-.imp-conf-cur td { background: color-mix(in srgb, var(--muted) 6%, transparent); }
-.imp-conf-new td { color: var(--text); }
-.imp-conf-act { vertical-align: middle; text-align: right; }
-.imp-conf-sep td { border-bottom: 1px solid var(--line); padding: 0; height: 0; }
+/* Per-device CARD: vertical spec-compare (field · Сейчас · Из файла) — reads on a
+   phone, and the «Без замены / Заменить» buttons sit in the header, always visible. */
+.imp-conf-cards { display: flex; flex-direction: column; gap: 12px; }
+.imp-conf-card { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px 10px; }
+.imp-conf-dev-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.imp-conf-dev-name { color: var(--text); font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.imp-conf-dev-name .mdi { font-size: 15px; color: var(--muted); flex-shrink: 0; }
+.imp-conf-acts { margin-left: auto; display: flex; gap: 6px; flex-shrink: 0; }
+.imp-conf-pair { margin-top: 6px; }
+.imp-conf-pair + .imp-conf-pair { border-top: 1px dashed var(--line); padding-top: 6px; }
+.imp-conf-pair-cap { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+/* field name | Сейчас | Из файла */
+.imp-conf-frow { display: grid; grid-template-columns: minmax(64px, 34%) 1fr 1fr; gap: 8px;
+  align-items: center; padding: 3px 0; font-size: 12px; }
+.imp-conf-fhead { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.imp-conf-fname { color: var(--muted); overflow-wrap: anywhere; }
+.imp-conf-fcur { color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
+.imp-conf-fnew { color: var(--text); font-family: var(--mono); overflow-wrap: anywhere; }
+/* Changed field → highlight the «из файла» value (this is what will be written). */
+.imp-conf-frow.ch .imp-conf-fname { color: var(--text); }
+.imp-conf-frow.ch .imp-conf-fnew { font-weight: 600; color: var(--text);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent); border-radius: 5px; padding: 1px 6px; }
 .imp-conf-btn { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 7px; cursor: pointer;
   background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .imp-conf-btn:hover { color: var(--text); }
 .imp-conf-btn.on { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--text); }
-/* Outline the cells that differ between «сейчас» and «из файла». */
-.imp-conf-cd { color: var(--text) !important; font-weight: 600;
-  box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: 3px; }
 /* Footnote: added / untouched links that AREN'T conflicts, just for context. */
-.imp-conf-note td { color: var(--muted); font-size: 11px; font-style: italic; padding: 2px 8px 6px; }
+.imp-conf-note2 { color: var(--muted); font-size: 11px; font-style: italic; margin-top: 7px; }
 .imp-sum { font-size: 14px; margin: 8px 0 10px; }
 .imp-mut { color: var(--muted); font-size: 12px; }
 .imp-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }

@@ -208,9 +208,20 @@ export function attachTip(el, htmlFn) {
     // No tooltip in schema edit mode (port click = link action, not info).
     if (document.body.classList.contains("schema-edit")) return;
     tip.innerHTML = htmlFn();
-    if (tipTouch()) {
+    const phone = innerWidth <= 760;                                  // narrow → pin centered
+    const touch = matchMedia("(pointer: coarse)").matches || phone;   // touch → needs a close button
+    if (phone) {
+      // Phone: a finger hides the small port and the screen is narrow → pin centered.
       tip.classList.add("tip-fixed");
       tip.style.left = "50%"; tip.style.top = "60%"; tip.style.transform = "translateX(-50%)";
+    } else {
+      // Tablet AND desktop: spawn NEXT TO the port (a tablet has the room, and a
+      // finger doesn't cover a port on a big screen). Tablet keeps touch sizing.
+      tip.classList.toggle("tip-fixed", touch);
+      tip.style.transform = "";
+      if (ev) move(ev);
+    }
+    if (touch) {   // touch has no mouseleave → explicit close button
       tip.insertAdjacentHTML("afterbegin", `<button class="tip-close" aria-label="Закрыть">&times;</button>`);
       const c = tip.querySelector(".tip-close");
       if (c) c.addEventListener("click", e => {
@@ -219,10 +230,6 @@ export function attachTip(el, htmlFn) {
         // Closing the tooltip also clears the cable/trace highlight (schema.js listens).
         document.dispatchEvent(new Event("schematic:tipclose"));
       });
-    } else {
-      tip.classList.remove("tip-fixed");
-      tip.style.transform = "";
-      if (ev) move(ev);
     }
     tip.style.display = "block";
   };
@@ -230,6 +237,13 @@ export function attachTip(el, htmlFn) {
   el.addEventListener("mousemove", ev => { if (!tipTouch()) move(ev); });
   el.addEventListener("mouseleave", () => { if (!tipTouch()) tip.style.display = "none"; });
   return showTip;
+}
+// Hide the shared tooltip programmatically (e.g. when opening a device passport —
+// a lingering port tip on touch has no mouseleave to dismiss it).
+export function hideTip() {
+  if (!tip) return;
+  tip.style.display = "none";
+  tip.classList.remove("tip-fixed");
 }
 
 // Two-finger pinch-zoom on a scroll pane — SHARED by every canvas (Инфраструктура,

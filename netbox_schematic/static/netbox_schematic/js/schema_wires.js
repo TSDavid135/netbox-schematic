@@ -81,6 +81,11 @@ class _Mixin {
     // Trace (single-view/chain): own render — shared cables + hairs (survives
     // zoom/redraw); the rack router doesn't apply here.
     if (state.single) { this._drawTrace(); return; }
+    // Model-change / port-shift overlay: the focused node's cables show as WHISKERS
+    // over a dimmed area. A full-wire redraw (zoom/resize/filter) would wipe them —
+    // so redraw just the whiskers instead, mirroring the trace branch above.
+    const focus = this._modelMode || this._portShift;
+    if (focus && focus.dev) { this._drawNodeWhiskers(focus.dev.id); return; }
     const canvas = $("#schema");
     svg.setAttribute("width", canvas.scrollWidth);
     svg.setAttribute("height", canvas.scrollHeight);

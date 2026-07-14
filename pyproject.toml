@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-schematic"
-version = "0.68.46"
+version = "0.69.6"
 description = "A visual builder for racks, cable routes, power and IP space in NetBox"
 readme = "README.md"
 requires-python = ">=3.10"

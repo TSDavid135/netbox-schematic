@@ -264,39 +264,43 @@ export class ImportUI {
   _conflictTable() {
     const cols = this.conflictCols.length ? this.conflictCols
       : [["socket", "Розетка"], ["rack", "Шкаф"], ["panel", "Панель"], ["port", "Порт"], ["switch", "Свич"]];
-    const span = cols.length + 2;                          // label + data cols + action
-    // diff — column keys that changed vs the matching «сейчас» link → outlined.
-    const dataCells = (r, diff) => cols.map(([k]) =>
-      `<td class="${diff && diff.indexOf(k) >= 0 ? "imp-conf-cd" : ""}">${r && r[k] ? esc(r[k]) : "<span class='imp-mut'>—</span>"}</td>`).join("");
-    const thead = `<tr><th></th>${cols.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th></th></tr>`;
     const btn = (name, mode, label, on) =>
       `<button type="button" class="imp-conf-btn${on ? " on" : ""}" data-conf="${esc(name)}" data-mode="${mode}">${label}</button>`;
-    const groups = this.conflicts.map(c => {
+    const val = v => v ? esc(v) : "<span class='imp-mut'>—</span>";
+    // One CARD per device: a VERTICAL spec-compare (field · Сейчас · Из файла), like
+    // a tech-shop comparison — fits a phone, and «Без замены / Заменить» stay in view
+    // in the header instead of scrolling off the right of a wide table.
+    const cards = this.conflicts.map(c => {
       const pairs = c.pairs || [];                          // only the runs that CHANGED
-      const n = pairs.length || 1;
       const choice = this.conflictChoices[c.name] || "keep";
-      let h = `<tr class="imp-conf-dev"><td colspan="${span}"><i class="mdi ${this._iconFor(c.kind)}"></i> ${esc(c.name)}</td></tr>`;
-      pairs.forEach((p, i) => {
-        h += `<tr class="imp-conf-cur"><td class="imp-conf-lbl">сейчас</td>${dataCells(p.cur, null)}`;
-        if (i === 0) h += `<td rowspan="${n}" class="imp-conf-act">${btn(c.name, "keep", "Без замены", choice === "keep")}</td>`;
-        h += `</tr>`;
-      });
-      pairs.forEach((p, i) => {
-        h += `<tr class="imp-conf-new"><td class="imp-conf-lbl">из файла</td>${dataCells(p.new, p.diff)}`;
-        if (i === 0) h += `<td rowspan="${n}" class="imp-conf-act">${btn(c.name, "update", "Заменить", choice === "update")}</td>`;
-        h += `</tr>`;
-      });
+      const head = `<div class="imp-conf-dev-head">` +
+        `<span class="imp-conf-dev-name"><i class="mdi ${this._iconFor(c.kind)}"></i> ${esc(c.name)}</span>` +
+        `<span class="imp-conf-acts">${btn(c.name, "keep", "Без замены", choice === "keep")}` +
+        `${btn(c.name, "update", "Заменить", choice === "update")}</span></div>`;
+      const pairsH = pairs.map((p, i) => {
+        const rows = cols.map(([k, label]) => {
+          const changed = p.diff && p.diff.indexOf(k) >= 0;
+          return `<div class="imp-conf-frow${changed ? " ch" : ""}">` +
+            `<span class="imp-conf-fname">${esc(label)}</span>` +
+            `<span class="imp-conf-fcur">${val(p.cur && p.cur[k])}</span>` +
+            `<span class="imp-conf-fnew">${val(p.new && p.new[k])}</span></div>`;
+        }).join("");
+        const cap = pairs.length > 1 ? `<div class="imp-conf-pair-cap">Связь ${i + 1}</div>` : "";
+        return `<div class="imp-conf-pair">${cap}` +
+          `<div class="imp-conf-frow imp-conf-fhead"><span></span><span>Сейчас</span><span>Из файла</span></div>` +
+          rows + `</div>`;
+      }).join("");
       // Additions / untouched links aren't conflicts — just note their count.
       const notes = [];
       if (c.added) notes.push(`${c.added} нов${c.added === 1 ? "ая связь" : "ых связ" + (c.added < 5 ? "и" : "ей")} добав${c.added === 1 ? "ится" : "ятся"}`);
       if (c.untouched) notes.push(`${c.untouched} без изменений`);
-      if (notes.length) h += `<tr class="imp-conf-note"><td></td><td colspan="${span - 1}">файл также: ${notes.join(" · ")} — не конфликтуют</td></tr>`;
-      return h;
-    }).join(`<tr class="imp-conf-sep"><td colspan="${span}"></td></tr>`);
+      const noteH = notes.length ? `<div class="imp-conf-note2">файл также: ${notes.join(" · ")} — не конфликтуют</div>` : "";
+      return `<div class="imp-conf-card">${head}${pairsH}${noteH}</div>`;
+    }).join("");
     return `<div class="imp-conf-panel"><div class="imp-conf-h">` +
       `<i class="mdi mdi-alert-circle-outline"></i> Конфликты (${this.conflicts.length}) — связь изменится; ` +
-      `<span class="imp-mut">обведённое — что именно; выбери «Без замены» или «Заменить»</span></div>` +
-      `<div class="imp-conf-scroll"><table class="imp-conf-tbl"><thead>${thead}</thead><tbody>${groups}</tbody></table></div></div>`;
+      `<span class="imp-mut">подсвеченное — что изменится; выбери «Без замены» или «Заменить»</span></div>` +
+      `<div class="imp-conf-cards">${cards}</div></div>`;
   }
   // Show/hide the full-width table and sync the «Посмотреть/Скрыть» label.
   _syncConfPanel() {

@@ -374,7 +374,7 @@ def apply_plan(plan, site, slugify=None, forced_loc=None, placements=None,
     r_pan, dt_pan = role("Патч-панель", "9e9e9e", "imp-patch")
     r_sw, dt_sw = role("Коммутатор", "8bc34a", "imp-switch")
 
-    st = {"loc": 0, "rack": 0, "dev": 0, "cable": 0, "stack": 0}
+    st = {"loc": 0, "rack": 0, "dev": 0, "cable": 0, "stack": 0, "netz": 0}
 
     def join_stack(device, stack, member):
         """Put the switch into its stack (NetBox VirtualChassis), member at
@@ -558,6 +558,27 @@ def apply_plan(plan, site, slugify=None, forced_loc=None, placements=None,
                 device.save()
                 return
 
+    _RE_NETZ = _re.compile(r"\s*\[Сеть:[^\]]*\]")
+
+    def set_netz(port, netz):
+        # Option-2 storage for the sheet's «Netz» column: keep the value as a
+        # parseable [Сеть: …] marker in the switch-port description (no VLAN objects
+        # yet — see roadmap). Idempotent; never clobbers human text; the exporter
+        # reads it back, and a later VLAN migration can consume it.
+        netz = (netz or "").strip()
+        if not (port and netz):
+            return
+        marker = "[Сеть: %s]" % netz
+        desc = port.description or ""
+        if marker in desc:
+            return
+        base = _RE_NETZ.sub("", desc).strip()          # drop a stale marker if any
+        new = (base + " " + marker).strip() if base else marker
+        if new != (port.description or ""):
+            port.description = new
+            port.save()
+            st["netz"] += 1
+
     for p in plan:
         location = loc(forced_loc or p["location"])   # forced_loc overrides Technikraum
         rk = rack(p["rack"], location)
@@ -585,6 +606,7 @@ def apply_plan(plan, site, slugify=None, forced_loc=None, placements=None,
             place(sw, rk)
             join_stack(sw, p.get("stack"), p.get("member"))
             sw_if = iface(sw, p["sw_port"] or "1")
+            set_netz(sw_if, p.get("netz"))   # «Netz» → switch-port description marker (option 2)
         # «Заменить»: free this row's ports whose device the user chose to replace,
         # so a changed cabling actually swaps instead of being skipped as "occupied".
         pname = ("Панель %s" % p["panel"]) if p["panel"] else None
