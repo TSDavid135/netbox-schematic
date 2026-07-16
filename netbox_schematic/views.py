@@ -128,7 +128,9 @@ class SchematicGraphView(LoginRequiredMixin, View):
         ports = {}
         port_index = {}   # (otype, id) → {id, name, device} — for embedding into cable terminations
         for key, Model, otype in PORTS:
-            has_type = key in ("interface", "frontport", "rearport")
+            # Every port kind has a `type` field (interface speed, console/power
+            # connector) — expose it so the tooltip can show the port type.
+            has_type = True
             arr = []
             for p in Model.objects.filter(device_id__in=dev_ids):
                 dev = {"id": p.device_id, "name": dev_name.get(p.device_id)}

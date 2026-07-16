@@ -27,8 +27,11 @@ class _Mixin {
     for (const g of this._locOrder || []) {
       const panels = (state.powerPanels || []).filter(p => p.location && p.location.id === g.locId);
       if (!panels.length) continue;
-      // Content bottom = max(rack bottom, device pocket bottom) → panels below all.
-      const contentBottom = Math.max(g.rackBottom, g.areaH ? g.devTop + g.areaH : 0);
+      // Content bottom = max(rack bottom, pocket bottom, THIS room's power rows
+      // bottom, global fallback power block) → panels are the LAST row of the
+      // room stack: racks → Питание → Стабилизаторы → Силовые щиты.
+      const contentBottom = Math.max(g.rackBottom, g.areaH ? g.devTop + g.areaH : 0,
+        g.powerBottom || 0, this._powerBottom || 0);
       // Center = middle of the "racks + pocket" span.
       const spanLeft = this._colX(g.minCol);
       const spanRight = g.areaW ? g.devX + g.areaW
@@ -87,7 +90,7 @@ class _Mixin {
         state.feedRowEls[f.id] = row;
         // Feed port on the left edge, vertically at the center of its row.
         const portY = HEAD_H + fi * ROW_H + ROW_H / 2;
-        this._placeFeedPort(box, panel, f, portY);
+        this._placeFeedPort(box, panel, f, portY, fi + 1);
       });
       // Edit mode: a "+ feed" row with a green plus-dot on the left (like a
       // feed) to add feeds straight from the schematic, no tree digging.
@@ -120,10 +123,10 @@ class _Mixin {
   // Power Feed port on the panel's left edge. Registered in state.ports as
   // dcim.powerfeed:<id> so hover/route work and the PDU line attaches to it
   // (_drawFeedWires). dev — synthetic (the panel).
-  _placeFeedPort(box, panel, feed, portY) {
+  _placeFeedPort(box, panel, feed, portY, ord) {
     const dot = mk("div", {
       className: "port p-feed" + (feed.cable ? " used" : ""),
-      text: shortPortName(feed.name, null),
+      text: String(ord),                 // feed PORT is numbered 1..N (the name shows in the row)
       style: { left: "-8px", top: portY + "px" },
     });
     const kind = { otype: "dcim.powerfeed", ep: "power-feeds", label: "фидер", cls: "p-feed" };

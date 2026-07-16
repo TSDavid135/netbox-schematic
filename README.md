@@ -8,7 +8,7 @@ Sites, racks, devices, ports and cables on a single interactive 2D schematic —
 watch a signal travel from a PC through patch panels to the core switch, and build
 your infrastructure with clicks instead of forms and tables.
 
-![version](https://img.shields.io/badge/version-0.69.6-2f81f7)
+![version](https://img.shields.io/badge/version-0.69.18-2f81f7)
 ![NetBox](https://img.shields.io/badge/NetBox-4.6-00d9a6)
 ![build](https://img.shields.io/badge/build_step-none-2ea043)
 ![deps](https://img.shields.io/badge/backend_deps-openpyxl-2ea043)
@@ -38,7 +38,7 @@ Switch canvases from the header (native picker on mobile).
 | **Virtualization** | 🟡 Planned | Clusters, VMs, VM interfaces, a VLAN bus. |
 | **Tunnels / VPN** | 🟡 Planned | Tunnels / L2VPN as an overlay over interfaces. |
 
-## ✨ Current version — `0.69.6`
+## ✨ Current version — `0.69.18`
 
 Everything below works today. The project is pre-1.0 and iterating quickly.
 

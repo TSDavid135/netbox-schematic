@@ -168,8 +168,6 @@
   #status { font-size: 12px; color: var(--muted); position: relative; top: 2px; }
   #status.ok { color: var(--ok); }
   #status.err { color: var(--err); }
-  #cancelconn { display: none; border-color: var(--power); color: var(--power); }
-  #cancelconn.show { display: inline-block; }
 
   /* layout */
   #layout { flex: 1; display: flex; min-height: 0; }
@@ -857,7 +855,14 @@
   .cat-row:hover { background: var(--panel-2); }
   .cat-row.active { border-color: var(--accent); background: var(--panel-2); color: var(--accent); }
   .cat-model { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cat-u { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+  /* ⚠ on a «Схематика» model whose ports aren't saved yet (and on the topbar button). */
+  .cat-warn { margin-left: auto; margin-right: 6px; flex-shrink: 0; color: #e0a23b; font-size: 13px; line-height: 1; }
+  #catalogbtn.cat-btn-warn { position: relative; }
+  #catalogbtn.cat-btn-warn::after { content: "⚠"; position: absolute; top: -3px; right: -3px;
+    font-size: 11px; line-height: 1; color: #e0a23b; text-shadow: 0 0 2px var(--bg); pointer-events: none; }
+  .cat-warnbanner { margin: 8px 8px 4px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.4;
+    color: var(--text); background: color-mix(in srgb, #e0a23b 14%, transparent);
+    border: 1px solid color-mix(in srgb, #e0a23b 45%, transparent); }
   .cat-preview { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 14px; position: relative; }
   .cat-views { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; }
   .cat-view { min-width: 0; }
@@ -929,13 +934,20 @@
   .cat-add .mdi { font-size: 18px; }
   .cat-own { font-size: 9px; color: var(--ok); text-transform: none; letter-spacing: 0; margin-left: 4px; }
   .cat-editor { flex: 1 1 auto; min-height: 80px; overflow: auto; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
-  .ced-head { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
-  .ced-hint { color: var(--muted); }
+  .ced-head { font-size: 11px; color: var(--muted); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .ced-hint { color: var(--muted); flex: 1 1 auto; min-width: 0; }
+  .ced-uh-l { margin-left: auto; display: flex; align-items: center; gap: 6px;
+    color: var(--text); font-size: 11px; flex-shrink: 0; }
+  .ced-uh { width: 58px; text-align: center; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
   .ced-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
   .ced-row select, .ced-row input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
   .ced-kind { flex: 1 1 42%; min-width: 0; }
   .ced-type { flex: 1 1 42%; min-width: 0; }
   .ced-count { width: 58px; text-align: center; flex-shrink: 0; }
+  .ced-side { width: 84px; flex-shrink: 0; }              /* сторона портов: авто/сверху/снизу */
+  .ced-side:disabled { opacity: .45; }                    /* front/rear и wireless — фикс. стороны */
   .ced-del-row { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 5px; flex-shrink: 0; }
   .ced-del-row:hover { color: var(--err); }
   .ced-addrow { margin-top: 2px; padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; background: var(--panel-2); color: var(--text); border: 1px dashed var(--line); }
@@ -997,7 +1009,11 @@
   }
   /* for the bottom row draw the cloud BELOW, to avoid overlapping the node */
   .port[style*="bottom"] .port-cloud { bottom: auto; top: calc(100% + 2px); }
-  .port:hover { transform: scale(1.5); z-index: 30; box-shadow: 0 0 0 3px var(--bg); }
+  /* Hover "lift" ONLY on a plain port — a port already in a state (selected .pending,
+     trace .hl, connect-target .aim-ok) keeps its own ring; else :hover (equal specificity,
+     later in source) would override it — and on touch the sticky :hover would hide the
+     pending/target ring entirely. */
+  .port:not(.hl):not(.pending):not(.aim-ok):hover { transform: scale(1.5); z-index: 30; box-shadow: 0 0 0 3px var(--bg); }
   .port.pending { box-shadow: 0 0 0 3px var(--err); transform: scale(1.3); }
   /* Port at the end of a highlighted/hovered wire: bg-color gap + bright ring
      + glow so the dot shows even on a filled (used) port — else "only the wire
@@ -1507,16 +1523,75 @@
   .wip-card a { color: var(--accent); text-decoration: none; font-size: 13px; }
   .wip-card a:hover { text-decoration: underline; }
 
-/* Plugin version — small, subtle block bottom-right over everything.
-   pointer-events:none — passive label, never intercepts clicks. */
+/* Plugin version — small block bottom-right; a BUTTON now (opens the
+   changelog/features modal — see about.js). */
 #pluginver {
   /* Above the schema, but BELOW every overlay (sheets 46, tree-actions 50, scrim
      40, modals 100/500) so anything sliding in covers it instead of the reverse. */
   position: fixed; right: 8px; bottom: 6px; z-index: 30;
   font-family: var(--mono); font-size: 12.5px; line-height: 1;
-  color: var(--muted); opacity: 0.6; pointer-events: none; user-select: none;
+  color: var(--muted); opacity: 0.6; user-select: none;
   background: var(--overlay-bg); border: 1px solid var(--line);
   padding: 4px 9px; border-radius: 7px;
+}
+#pluginver.clickable { cursor: pointer; }
+#pluginver.clickable:hover { opacity: 1; color: var(--text); border-color: var(--accent); }
+
+/* «Последние изменения / Обучение» modal (about.js) — from the version badge. */
+.abt-bg { position: fixed; inset: 0; z-index: 500; display: none;
+  background: color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter: blur(2px); }
+.abt-bg.open { display: flex; align-items: center; justify-content: center; }
+.abt-modal { width: min(920px, 96vw); height: min(82vh, 760px); display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45); overflow: hidden; }
+.abt-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px;
+  border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.abt-tab { background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  color: var(--muted); font-size: 13px; padding: 6px 10px; }
+.abt-tab.active { color: var(--text); background: var(--panel-2); border-color: var(--line); font-weight: 600; }
+.abt-ver { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.abt-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 15px; padding: 4px 8px; }
+.abt-close:hover { color: var(--text); }
+.abt-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.abt-mut { color: var(--muted); }
+/* Rendered markdown (changelog + learn docs). */
+.abt-md { padding: 12px 18px 18px; font-size: 13.5px; line-height: 1.5; }
+.abt-md h2 { font-size: 16px; margin: 4px 0 10px; }
+.abt-md h3 { font-size: 13.5px; margin: 16px 0 6px; color: var(--accent); }
+.abt-md h4 { font-size: 12.5px; margin: 12px 0 4px; }
+.abt-md p { margin: 6px 0; }
+.abt-md ul, .abt-md ol { margin: 6px 0; padding-left: 20px; }
+.abt-md li { margin: 3px 0; }
+.abt-md code { font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.abt-md hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+.abt-md img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); margin: 6px 0; }
+.abt-log h3 { font-family: var(--mono); }   /* version headings in the changelog */
+/* «Обучение»: topic tree left, doc right (desktop); tree-first on phones. */
+.abt-learn { display: flex; height: 100%; min-height: 0; }
+.abt-topics { flex: 0 0 232px; overflow-y: auto; border-right: 1px solid var(--line);
+  padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.abt-topic { text-align: left; background: none; border: none; border-radius: 8px; cursor: pointer;
+  color: var(--text); font-size: 13px; padding: 8px 10px; }
+.abt-topic:hover { background: var(--panel-2); }
+.abt-topic.active { background: var(--panel-2); color: var(--accent); font-weight: 600; }
+.abt-doc { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.abt-doc-head { display: none; align-items: center; gap: 8px; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.abt-back { background: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  color: var(--text); font-size: 14px; padding: 4px 9px; }
+.abt-doc-title { font-weight: 700; font-size: 13px; }
+.abt-doc-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+@media (max-width: 760px) {
+  .abt-modal { width: 100vw; height: 100dvh; max-height: none; border-radius: 0; border: none; }
+  .abt-tab { font-size: 12px; padding: 6px 8px; }
+  /* Tree fills the modal; a chosen topic replaces it, «←» goes back. */
+  .abt-topics { flex: 1 1 auto; border-right: none; }
+  .abt-topic { padding: 12px 12px; border-bottom: 1px solid var(--line); border-radius: 0; }
+  .abt-learn .abt-doc { display: none; }
+  .abt-learn.doc .abt-topics { display: none; }
+  .abt-learn.doc .abt-doc { display: flex; }
+  .abt-doc-head { display: flex; }
 }
 
 /* Excel import modal */

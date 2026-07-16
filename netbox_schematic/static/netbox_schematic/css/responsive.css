@@ -384,12 +384,10 @@ body.tree-moving .multi-sel { opacity: 0.5; }
   /* The "+" (palette) square shows ONLY in edit mode on touch (like the old FAB). */
   #palette { display: none !important; }
   body.schema-edit #palette { display: block !important; }
-  /* Sticky :hover after a tap makes a port look "held" (its enlarge + "white ring"
-     box-shadow linger). Drop them on touch — but ONLY when the port is not selected;
-     a selected port (.hl) must keep its ring. (.port:hover and .port.hl have equal
-     specificity, so without :not(.hl) this rule — loaded later — would hide the ring
-     of the very port you tapped, showing it only on the far end / after a pan.) */
-  .port:not(.hl):hover { transform: none; box-shadow: none; }
+  /* Sticky :hover after a tap makes a plain port look "held" (its enlarge + "white
+     ring" box-shadow linger). Drop them on touch — but NOT on a port in a state
+     (.hl trace / .pending selected / .aim-ok connect-target), which must keep its ring. */
+  .port:not(.hl):not(.pending):not(.aim-ok):hover { transform: none; box-shadow: none; }
 }
 
 /* ── Schema ports on touch: no text-selection, no double-tap zoom ────────────── */

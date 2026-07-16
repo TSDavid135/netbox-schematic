@@ -344,6 +344,23 @@ export class SchemaManager {
     const rn = (dev.role && (dev.role.name + " " + (dev.role.slug || ""))) || "";
     return /provider|провайдер/i.test(rn) ? "provider" : "periph";
   }
+  // Off-rack POWER equipment (PDU / UPS / stabilizer / power strip) → gathered into
+  // the power ROWS below the racks (not the right pockets). PDUs/strips expose power
+  // OUTLETS; outlet-less gear is caught by its role/model name. A camera (power PORT
+  // only) is NOT power.
+  _isPowerDev(dev, devPorts) {
+    const groups = (devPorts && devPorts[dev.id]) || state._devPorts[dev.id] || [];
+    if (groups.some(g => g.kind && g.kind.otype === "dcim.poweroutlet")) return true;
+    const rn = (((dev.role && dev.role.name) || "") + " " + ((dev.device_type && dev.device_type.model) || "")).toLowerCase();
+    return /pdu|ибп|\bups\b|бесперебой|стабилизатор|stabiliz|инвертор|inverter|power distribution|power strip/.test(rn);
+  }
+  // Voltage stabilizers/inverters — their own row between «Питание» and the
+  // panels (electrical chain reads bottom-up: щит → стабилизатор → ИБП/PDU → стойки).
+  _isStabDev(dev) {
+    const rn = (((dev.role && dev.role.name) || "") + " " +
+      ((dev.device_type && dev.device_type.model) || "")).toLowerCase();
+    return /стабилизатор|stabiliz|инвертор|inverter/.test(rn);
+  }
   // Load a device "graph": cables + IP + grouped ports. Shared by the trace
   // root (showSingleDevice) and chain growth (_growChain).
   async _fetchDeviceGraph(dev) {
@@ -811,10 +828,11 @@ export class SchemaManager {
     };
     let right = 0, bottom = 0;
     // Materialize the pre-pass packing: type contour + nodes in a grid inside.
-    const renderArea = (x, topY, packed, sink) => {
+    // cls overrides the contour style (power rows use the orange "gb-power").
+    const renderArea = (x, topY, packed, sink, cls) => {
       for (const it of packed.items) {
         const bx = x + it.dx, by = topY + it.dy;
-        const box = this._contourEl("gb-type", it.grp.label,
+        const box = this._contourEl(cls || "gb-type", it.grp.label,
           { left: bx, top: by, width: it.cw, height: it.ch });
         canvas.insertBefore(box, canvas.firstChild);
         if (sink) sink.push(box);
@@ -826,11 +844,48 @@ export class SchemaManager {
         bottom = Math.max(bottom, by + it.ch);
       }
     };
-    for (const g of this._locOrder || [])
-      if (g.items.length) renderArea(g.devX, g.devTop, g, state.offContours[g.locId] = []);
+    for (const g of this._locOrder || []) {
+      const sink = state.offContours[g.locId] = [];
+      if (g.items.length) renderArea(g.devX, g.devTop, g, sink);
+      bottom = Math.max(bottom, this._renderPowerRows(canvas, g, renderArea, sink));
+    }
     if (this._orphanArea)
       renderArea(this._orphanArea.x, this._orphanArea.top, this._orphanArea, null);
+    // Fallback power block (gear with no room in this area) — below everything,
+    // wrapped in a "Питание" contour placed BEHIND it (inserted last → firstChild).
+    if (this._powerArea && this._powerArea.items.length) {
+      const pa = this._powerArea, CP = 16, HEAD = 30;
+      renderArea(pa.x, pa.top, pa, null);
+      const wrap = this._contourEl("gb-power", "Питание",
+        { left: pa.x - CP, top: pa.top - HEAD, width: pa.areaW + CP * 2, height: pa.areaH + HEAD + CP });
+      canvas.insertBefore(wrap, canvas.firstChild);
+      bottom = Math.max(bottom, pa.top + pa.areaH + CP);
+    }
     return { right, bottom };
+  }
+  // One room's power rows (pre-pass geometry in g.pw / g.stab): «Питание» —
+  // type contours in a row under an orange wrap; «Стабилизаторы» — its own
+  // orange row. Boxes go into the room's offContours sink so the location
+  // contour grows over them (same mechanism as the panels' powerBoxEls).
+  // Returns the rows' bottom edge (for canvas height).
+  _renderPowerRows(canvas, g, renderArea, sink) {
+    const CP = 16, HEAD = 30;
+    let b = 0;
+    if (g.pw) {
+      const x = Math.max(24, g.pwCenter - g.pw.areaW / 2);
+      renderArea(x, g.pwTop, g.pw, sink);
+      const wrap = this._contourEl("gb-power", "Питание",
+        { left: x - CP, top: g.pwTop - HEAD, width: g.pw.areaW + CP * 2, height: g.pw.areaH + HEAD + CP });
+      canvas.insertBefore(wrap, canvas.firstChild);
+      sink.push(wrap);
+      b = g.pwTop + g.pw.areaH + CP;
+    }
+    if (g.stab) {
+      const x = Math.max(24, g.pwCenter - g.stab.areaW / 2);
+      renderArea(x, g.stabTop, g.stab, sink, "gb-power");   // orange row, label = «Стабилизаторы»
+      b = Math.max(b, g.stabTop + g.stab.areaH);
+    }
+    return b;
   }
 
   // ── Area geometry (pre-pass, pure math) ────────────────────────────────────
@@ -867,12 +922,16 @@ export class SchemaManager {
     });
     // Off-rack devices by server-room; no location (or not in this area) → the
     // sole room if there's only one, else "orphans" to the right of everything.
-    const byLoc = {}, orphans = [];
+    // Power gear is bucketed apart: it forms the per-room power ROWS below the
+    // content (Питание → Стабилизаторы → Силовые щиты), not the right pockets.
+    const byLoc = {}, orphans = [], powerByLoc = {}, powerOrphans = [];
     for (const dev of state.devices.filter(d => d._off)) {
+      const power = this._isPowerDev(dev, devPorts);
       let lid = dev.location && dev.location.id;
       if ((lid == null || !locGeom[lid]) && locOrder.length === 1) lid = locOrder[0].locId;
-      if (lid != null && locGeom[lid]) (byLoc[lid] = byLoc[lid] || []).push(dev);
-      else orphans.push(dev);
+      const bucket = power ? powerByLoc : byLoc;
+      if (lid != null && locGeom[lid]) (bucket[lid] = bucket[lid] || []).push(dev);
+      else (power ? powerOrphans : orphans).push(dev);
     }
     // Pocket packing: type contours in a top-down column; won't fit above the
     // rack bottom → new sub-column to the right. items — relative (dx,dy) positions.
@@ -929,6 +988,40 @@ export class SchemaManager {
     this._orphanArea = orphans.length
       ? { x: schemaRight + 60, top: devTop, ...pack(orphans, Math.max(400, maxRB - devTop)) }
       : null;
+    // Power ROWS per room — stacked UNDER the room's content and centered on its
+    // span, the same anchor math the «Силовые щиты» panels row uses (so all three
+    // stand as rows): «Питание» (PDU/ИБП/… type contours side by side), then
+    // «Стабилизаторы»; the panels row follows below via g.powerBottom
+    // (_renderPowerPanels). Their boxes go into state.offContours[locId], so the
+    // room contour encloses them — exactly like the panels via powerBoxEls.
+    const PGAP = 46;                             // air above each row (wrap head incl.)
+    for (const g of locOrder) {
+      const devs = powerByLoc[g.locId] || [];
+      const stabs = devs.filter(d => this._isStabDev(d));
+      const rest = devs.filter(d => !this._isStabDev(d));
+      g.pw = rest.length ? pack(rest, 1) : null;         // limitH=1 → one horizontal row
+      g.stab = stabs.length ? pack(stabs, 1) : null;
+      const spanLeft = this._colX(g.minCol);
+      const spanRight = g.areaW ? g.devX + g.areaW : this._colX(g.maxCol) + this.SLOT + BOX_PAD;
+      g.pwCenter = (spanLeft + spanRight) / 2;
+      let y = Math.max(g.rackBottom, g.areaH ? g.devTop + g.areaH : 0);
+      if (g.pw) { g.pwTop = y + PGAP; y = g.pwTop + g.pw.areaH; }
+      if (g.stab) { g.stabTop = y + PGAP; y = g.stabTop + g.stab.areaH; }
+      g.powerBottom = (g.pw || g.stab) ? y + 16 : 0;     // + wrap bottom pad
+    }
+    // Fallback: power gear with NO room in this area (multi-room, device without
+    // a location) — one block below ALL content, left-aligned (old behavior).
+    let contentBot = maxRB;
+    for (const g of locOrder) {
+      if (g.areaH) contentBot = Math.max(contentBot, g.devTop + g.areaH);
+      if (g.powerBottom) contentBot = Math.max(contentBot, g.powerBottom);
+    }
+    if (this._orphanArea) contentBot = Math.max(contentBot, this._orphanArea.top + this._orphanArea.areaH);
+    if (powerOrphans.length) {
+      const packed = pack(powerOrphans, 1);
+      this._powerArea = { x: LEFT_PAD, top: contentBot + 46, ...packed };
+      this._powerBottom = this._powerArea.top + packed.areaH;
+    } else { this._powerArea = null; this._powerBottom = 0; }
   }
   // Left edge of column col's slot (accounting for pockets). Before the pre-pass
   // (or out of range) — the old even grid.
@@ -1131,9 +1224,11 @@ export class SchemaManager {
       ? (Mode.on("schema") ? "клик — меню связи (удалить / перевесить)" : "клик — показать путь")
       : (state.pending ? "клик — соединить сюда"
         : (Mode.on("schema") ? "клик — начать связь" : "свободен"));
+    // Port type (interface speed / console-power connector), e.g. «· 1000BASE-T».
+    const typeStr = (item.type && item.type.label) ? ` · ${item.type.label}` : "";
     return `<div class="t-title">${dev.name} · ${item.name}</div>` +
       destLine +
-      `<div class="t-line t-kindrow"><span>${KIND_RU[kind.otype] || kind.label}</span>${ipPill}</div>` +
+      `<div class="t-line t-kindrow"><span>${KIND_RU[kind.otype] || kind.label}${typeStr}</span>${ipPill}</div>` +
       (badge ? `<div class="t-badge">${badge}</div>` : "") +
       // Touch: a 2nd tap on the SAME port traces the whole path (hint below).
       // Desktop: the click hint.
@@ -1247,10 +1342,6 @@ export class SchemaManager {
   // global listeners: pan/zoom, cancel-menu, Cancel button
   _wire() {
     window.addEventListener("resize", () => this.redrawWires());
-    $("#cancelconn").addEventListener("click", () => {
-      this.setPending(null);
-      setStatus("привязка отменена");
-    });
     this.linkmenu.querySelector(".x").addEventListener("click", async () => {
       const ctx = state.linkCtx; this._closeLinkMenu();
       if (!ctx) return;

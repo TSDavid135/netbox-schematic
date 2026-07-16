@@ -4,7 +4,8 @@
 import { $, state, mk, modeBtn, slugify, hideTip } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { MANUFACTURER } from "./solutions.js";
+import { MANUFACTURER, solutionRows } from "./solutions.js";
+import { buildDesired } from "./catalog.js";
 
 const chip = (text, cls) => `<span class="chip ${cls || ""}">${text}</span>`;
 
@@ -334,10 +335,11 @@ export class DeviceManager {
   }
 
   // Add a «ready solution» from the palette/«Add» menu (kind="device"). Device
-  // type NOT asked (it IS the solution); ask name + network/power port counts.
-  // Check the DeviceType catalog by the solution's model; if missing, it's
-  // created (under the shared manufacturer), warned in the modal subtitle. Role
-  // created on demand. ctx: {siteId, locId, locName} — from the drop spot.
+  // type NOT asked (it IS the solution) and port counts NOT asked either: ports
+  // come from the DeviceType TEMPLATES (NetBox instantiates them on device
+  // creation). A brand-new type is seeded with the solution's port spec; edits
+  // go through the catalog («Сохранить в тип»), so the model is the single
+  // source of truth — no per-device counters fighting it with duplicate ports.
   async addSolution(item, ctx = {}) {
     const sites = state.group
       ? [...new Map(state.group.filter(r => r.site).map(r => [r.site.id, r.site])).values()] : [];
@@ -346,83 +348,25 @@ export class DeviceManager {
     const typeExists = Object.values(state.dtypes)
       .some(t => (t.model || "").toLowerCase() === String(item.model || "").toLowerCase());
     const where = (ctx.locName ? "локация: " + ctx.locName : "вне стойки")
-      + (typeExists ? "" : ` · тип «${item.model}» будет добавлен в справочник`);
-    // Modal fields: name + either port GROUPS with types (item.ports — a counter
-    // field per group), or one «Сетевых портов» (net fallback) + «Портов питания».
-    const groups = Array.isArray(item.ports) ? item.ports : null;
-    const fields = [{ id: "name", label: "Имя", value: item.label, placeholder: item.label }];
-    if (groups) groups.forEach((g, i) => fields.push({ id: "g" + i, label: g.label || "Портов", value: String(g.count ?? 1) }));
-    else fields.push({ id: "net", label: "Сетевых портов", value: String(item.net ?? 1) });
-    fields.push({ id: "power", label: "Портов питания", value: String(item.power ?? 0) });
-    this.openModal("Добавить: " + item.label, where, fields,
+      + (typeExists ? " · порты возьмутся из модели типа (правятся в Каталоге)"
+                    : ` · тип «${item.model}» добавится в справочник с портами решения`);
+    this.openModal("Добавить: " + item.label, where,
+      [{ id: "name", label: "Имя", value: item.label, placeholder: item.label }],
       async v => {
         if (!v.name) throw new Error("укажи имя");
-        const power = Math.max(0, parseInt(v.power, 10) || 0);
-        const dt = await this._ensureDeviceType(item.model);
+        const dt = await this._ensureDeviceType(item);
         const role = await this._ensureRole(item.role || item.label, item.roleColor || "607d8b");
         const body = { name: v.name, role: role.id, device_type: dt.id, site: +siteId, status: "active" };
         if (ctx.locId) body.location = +ctx.locId;   // place into the drop's location
+        // NetBox creates the components from the type's templates automatically.
         const dev = await api("/dcim/devices/", "POST", body);
-        // Data ports: typed groups (copper/optic/…) or one eth set by net.
-        let net = 0;
-        if (groups) {
-          for (let i = 0; i < groups.length; i++) {
-            const g = groups[i], cnt = Math.max(0, parseInt(v["g" + i], 10) || 0);
-            net += cnt;
-            await this._createPorts(dev.id, g.kind || "interface", g.type, g.prefix || "eth", cnt);
-          }
-        } else {
-          net = Math.max(0, parseInt(v.net, 10) || 0);
-          await this._createPorts(dev.id, "interface", "1000base-t", "eth", net);
-        }
-        await this._createPorts(dev.id, "power", null, "PSU", power);
-        setStatus(`создано: ${v.name} (портов ${net}, питание ${power})`, "ok");
+        const cnt = ["interface", "power_port", "power_outlet", "console_port",
+          "console_server_port", "front_port", "rear_port"]
+          .reduce((s, k) => s + (+dev[k + "_count"] || 0), 0);
+        setStatus(cnt ? `создано: ${v.name} (портов из модели: ${cnt})`
+          : `создано: ${v.name} · порты — из модели: если их нет, открой Каталог (⚠) и «Применить ко всем»`, "ok");
         await this.app.tree.reload();
       }, "Создать");
-  }
-  // Generic: create count ports of given kind (interface/power/poweroutlet/
-  // console), names prefix+N, type type (interface only). Idempotent — don't
-  // duplicate existing names.
-  async _createPorts(devId, kind, type, prefix, count) {
-    count = Math.max(0, parseInt(count, 10) || 0);
-    if (!count) return;
-    if (kind === "frontrear") { await this._createPatchPorts(devId, type, prefix, count); return; }
-    const EP = { interface: "interfaces", power: "power-ports", poweroutlet: "power-outlets",
-      console: "console-ports", "console-server": "console-server-ports" };
-    const ep = EP[kind] || "interfaces";
-    const have = new Set((await apiAll(`/dcim/${ep}/?device_id=${devId}`)).map(p => p.name));
-    for (let i = 1; i <= count; i++) {
-      const name = (prefix || "") + i;
-      if (have.has(name)) continue;
-      const b = { device: devId, name };
-      if (kind === "interface") b.type = type || "1000base-t";
-      await api(`/dcim/${ep}/`, "POST", b);
-    }
-  }
-  // Real patch panel: count rear+front pairs, 1:1 mapping. Mapping is set via
-  // FrontPort serializer's writable rear_ports field (in NetBox 4.6 FrontPort
-  // has NO rear_port field — the link lives in a separate PortMapping model with
-  // no REST endpoint, so the only path from the front is POST front-ports with
-  // rear_ports). Only a «through» panel (front↔rear) lets NetBox trace sw→sw.
-  // type — CONNECTOR type (8p8c copper / lc optic), not interface.
-  async _createPatchPorts(devId, type, prefix, count) {
-    const ct = type || "8p8c";
-    const px = prefix || "Порт ";
-    const haveF = new Set((await apiAll(`/dcim/front-ports/?device_id=${devId}`)).map(p => p.name));
-    const haveR = new Map((await apiAll(`/dcim/rear-ports/?device_id=${devId}`)).map(p => [p.name, p.id]));
-    for (let i = 1; i <= count; i++) {
-      const fName = px + i, rName = px + i + " (тыл)";
-      if (haveF.has(fName)) continue;                    // idempotent — don't duplicate the pair
-      let rid = haveR.get(rName);
-      if (rid == null) {
-        const rp = await api("/dcim/rear-ports/", "POST", { device: devId, name: rName, type: ct, positions: 1 });
-        rid = rp.id; haveR.set(rName, rid);
-      }
-      await api("/dcim/front-ports/", "POST", {
-        device: devId, name: fName, type: ct, positions: 1,
-        rear_ports: [{ position: 1, rear_port: rid, rear_port_position: 1 }],
-      });
-    }
   }
   // «Add port» modal: name + port type (+ iface type). Creates one port.
   _addPort(dev) {
@@ -489,8 +433,12 @@ export class DeviceManager {
     return await api("/dcim/manufacturers/", "POST", { name, slug: slugify(name) });
   }
   // Catalog: find DeviceType by model (case-insensitive) or create it under the
-  // shared manufacturer (ready solution). Cached in state.dtypes.
-  async _ensureDeviceType(model) {
+  // shared manufacturer (ready solution), seeding its component TEMPLATES from
+  // the solution's port spec — so devices of the type are born WITH ports.
+  // Accepts a solution item ({model, ports/net/power}) or a bare model string.
+  // Cached in state.dtypes.
+  async _ensureDeviceType(sol) {
+    const model = typeof sol === "string" ? sol : sol.model;
     let dt = Object.values(state.dtypes)
       .find(t => (t.model || "").toLowerCase() === String(model).toLowerCase());
     if (dt) return dt;
@@ -498,7 +446,32 @@ export class DeviceManager {
     dt = await api("/dcim/device-types/", "POST",
       { manufacturer: mfr.id, model, slug: slugify(model) });
     state.dtypes[dt.id] = dt;
+    if (typeof sol === "object") {
+      try { await this._seedTypeTemplates(dt.id, sol); }
+      catch (e) { setStatus(`тип создан, но порты модели не записались: ${e.message}`, "err"); }
+    }
     return dt;
+  }
+  // Fresh type ← solution port spec: rows → buildDesired (numeric names, same
+  // convention as the catalog editor) → POST templates. rear before front (FK);
+  // NetBox 4.6 maps a front template to its rear via writable `rear_ports`.
+  async _seedTypeTemplates(dtId, sol) {
+    const desired = buildDesired(solutionRows(sol));
+    const rearId = {};
+    for (const t of desired["rear-port-templates"]) {
+      const c = await api("/dcim/rear-port-templates/", "POST",
+        { device_type: dtId, name: t.name, type: t.type, positions: 1 });
+      rearId[t.name] = c.id;
+    }
+    for (const ep of ["interface-templates", "console-port-templates",
+      "console-server-port-templates", "power-port-templates", "power-outlet-templates"])
+      for (const t of desired[ep])
+        await api(`/dcim/${ep}/`, "POST",
+          { device_type: dtId, name: t.name, ...(t.type ? { type: t.type } : {}) });
+    for (const t of desired["front-port-templates"])
+      await api("/dcim/front-port-templates/", "POST",
+        { device_type: dtId, name: t.name, type: t.type,
+          rear_ports: [{ position: 1, rear_port: rearId[t.rearName], rear_port_position: 1 }] });
   }
   // Catalog: find role by name or create (solution color).
   async _ensureRole(name, color) {
@@ -770,10 +743,65 @@ export class DeviceManager {
     }
     return { devices: devs.length, created };
   }
-  // Per-node model CHANGE: grow to the new type AND delete the device's FREE ports
-  // that aren't in it (occupied ports — with a cable — are always kept). Reconciles
-  // the node to the model, unlike the add-only growOneToType used for bulk apply.
+  // Reconcile a device's existing ports to the model's names/types BY NUMBER, so an
+  // imported port (e.g. a cabled `eth1`) BECOMES the model's `1` — keeping its cable —
+  // instead of a duplicate `1` being grown beside it. Prefers the OCCUPIED port for a
+  // number and drops FREE same-number duplicates (also cleans up devices already left
+  // with `eth1` + `1`). Standalone kinds only (front/outlet reference others). Used by
+  // applyModel; NOT by the add-only grow («Применить ко всем» must not rename ports).
+  async _reconcileToModel(devId, dtId) {
+    const KINDS = [
+      ["interface-templates", "interfaces"],
+      ["console-port-templates", "console-ports"],
+      ["console-server-port-templates", "console-server-ports"],
+      ["power-port-templates", "power-ports"],
+      ["rear-port-templates", "rear-ports"],
+    ];
+    const _pn = name => { const m = String(name || "").match(/(\d+)(?!.*\d)/); return m ? m[1] : null; };
+    const busy = c => !!(c.cable || c.wireless_link);
+    const warnings = [];
+    for (const [tmplEp, compEp] of KINDS) {
+      const [tmpls, existing] = await Promise.all([
+        apiAll(`/dcim/${tmplEp}/?device_type_id=${dtId}`),
+        apiAll(`/dcim/${compEp}/?device_id=${devId}`),
+      ]);
+      if (!tmpls.length) continue;
+      const byNum = {};
+      for (const c of existing) { const nn = _pn(c.name); if (nn != null) (byNum[nn] = byNum[nn] || []).push(c); }
+      for (const t of tmpls) {
+        const num = _pn(t.name);
+        let cands = num != null && byNum[num] ? byNum[num].slice() : [];
+        if (!cands.length) { const ex = existing.find(c => c.name === t.name); if (ex) cands = [ex]; }
+        if (!cands.length) continue;                       // nothing with this number → grow creates it
+        const keep = cands.find(busy) || cands.find(c => c.name === t.name) || cands[0];
+        // drop FREE same-number duplicates (incl. a free port already holding t.name),
+        // BEFORE renaming `keep` into that name — so there's no unique-name clash.
+        for (const other of cands) {
+          if (other.id === keep.id || busy(other)) continue;
+          try { await api(`/dcim/${compEp}/${other.id}/`, "DELETE"); } catch (_) {}
+        }
+        // Rename `keep` to the model name (cable stays — it's by id). The TYPE: change
+        // it only when the port is FREE. If the port is OCCUPIED and its type differs
+        // from the model's, DON'T touch the type — a cable of the old type hangs on it —
+        // just WARN, so the user decides whether to re-cable.
+        const tv = t.type && (t.type.value || t.type);
+        const kv = keep.type && (keep.type.value || keep.type);
+        const patch = {};
+        if (keep.name !== t.name) patch.name = t.name;
+        if (tv && tv !== kv) {
+          if (busy(keep)) warnings.push({ port: keep.name, from: (keep.type && keep.type.label) || kv, to: (t.type && t.type.label) || tv });
+          else patch.type = tv;
+        }
+        if (Object.keys(patch).length) { try { await api(`/dcim/${compEp}/${keep.id}/`, "PATCH", patch); } catch (_) {} }
+      }
+    }
+    return warnings;
+  }
+  // Per-node model CHANGE: reconcile occupied ports to the model (by number), grow the
+  // truly-missing ones, then delete the device's FREE ports that aren't in the model
+  // (occupied ports — with a cable — are always kept).
   async applyModel(devId, dtId) {
+    const warnings = await this._reconcileToModel(devId, dtId);
     const added = await this.growOneToType(devId, dtId);
     const _pn = name => { const mm = String(name || "").match(/(\d+)(?!.*\d)/); return mm ? mm[1] : null; };
     // dependents (front-ports / outlets) first so a rear/power isn't PROTECTed.
@@ -797,7 +825,7 @@ export class DeviceManager {
         try { await api(`/dcim/${comp}/${c.id}/`, "DELETE"); removed++; } catch (_) {}
       }
     }
-    return { added, removed };
+    return { added, removed, warnings };
   }
 
   // ── Stack (VirtualChassis) ────────────────────────────────────────────────

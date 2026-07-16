@@ -1,8 +1,9 @@
 "use strict";
 // Catalog of «ready-made solutions» — single source for the «+» palette, the
 // right-click «Добавить» menu, node icons and logical contours by type. We
-// DON'T ask for the device type (the solution IS the type); on add we ask for a
-// name + the number of network and power ports.
+// DON'T ask for the device type (the solution IS the type); on add we ask ONLY
+// for a name — ports come from the DeviceType templates (seeded from this spec
+// when the type is first created; edited later in the catalog).
 //
 // Solution fields:
 //   key        — id within the category
@@ -15,15 +16,14 @@
 //   group      — logical-contour caption on the schema (devices in one group
 //                merge into a single contour «<group> · <локация>»)
 //   net        — default number of network interfaces (fallback when no ports)
-//   power      — default number of power ports
+//   power      — default number of power INPUTS (power-port; consumers have 1)
 //   ports      — (opt., INSTEAD of net) port groups with TYPES for a device:
-//                [{ kind, type, count, prefix, label }]
-//                  kind   — "interface" | "power" | "poweroutlet" | "console"
+//                [{ kind, type, count }]
+//                  kind   — "interface" | "power" (ввод) | "poweroutlet" (розетка,
+//                           GIVES power — PDU/UPS outputs) | "console"
 //                  type   — NetBox type for interface (e.g. "1000base-t" copper /
-//                           "1000base-x-sfp" fiber); not needed for the rest
-//                  count  — default count (editable in the modal)
-//                  prefix — port-name prefix ("eth"→eth1, "Розетка "→«Розетка 1»)
-//                  label  — counter-field caption in the add modal
+//                           "1000base-x-sfp" fiber) or connector type for the rest
+//                  count  — how many to seed into the type's templates
 //
 // The file sits next to the plugin — edit without touching logic.
 export const MANUFACTURER = "Схематика";
@@ -93,10 +93,26 @@ export const SOLUTIONS = {
   power: {
     label: "Силовое оборудование", icon: "mdi-flash",
     items: [
-      { key: "pdu", label: "PDU", icon: "mdi-power-socket", model: "PDU", role: "PDU", roleColor: "ff9800", group: "PDU", net: 0, power: 8 },
-      { key: "ups", label: "ИБП", icon: "mdi-battery-charging", model: "ИБП", role: "ИБП", roleColor: "ff5722", group: "ИБП", net: 1, power: 2 },
-      { key: "avr", label: "Стабилизатор", icon: "mdi-sine-wave", model: "Стабилизатор напряжения", role: "Стабилизатор", roleColor: "ff9800", group: "Стабилизаторы", net: 0, power: 2 },
-      { key: "panel", label: "Распредщиток", icon: "mdi-electric-switch", kind: "panel" },
+      // Power gear GIVES power through «Розетки» (power outlets) and TAKES it
+      // through one round «Ввод» (power-port) — so a consumer's power-port plugs
+      // into a PDU/UPS outlet, and the PDU's own input plugs into a feed/UPS.
+      { key: "pdu", label: "PDU", icon: "mdi-power-socket", model: "PDU", role: "PDU", roleColor: "ff9800", group: "PDU",
+        ports: [
+          { kind: "power", type: "iec-60320-c14", count: 1 },        // ввод (от щита/ИБП)
+          { kind: "poweroutlet", type: "iec-60320-c13", count: 8 },  // розетки (к устройствам)
+        ] },
+      { key: "ups", label: "ИБП", icon: "mdi-battery-charging", model: "ИБП", role: "ИБП", roleColor: "ff5722", group: "ИБП",
+        ports: [
+          { kind: "interface", type: "1000base-t", count: 1 },       // управление
+          { kind: "power", type: "iec-60320-c14", count: 1 },
+          { kind: "poweroutlet", type: "iec-60320-c13", count: 2 },
+        ] },
+      { key: "avr", label: "Стабилизатор", icon: "mdi-sine-wave", model: "Стабилизатор напряжения", role: "Стабилизатор", roleColor: "ff9800", group: "Стабилизаторы",
+        ports: [
+          { kind: "power", type: "iec-60320-c14", count: 1 },
+          { kind: "poweroutlet", type: "iec-60320-c13", count: 2 },
+        ] },
+      { key: "panel", label: "Щиток", icon: "mdi-electric-switch", kind: "panel" },
     ],
   },
   rack: {
@@ -109,6 +125,21 @@ export const SOLUTIONS = {
 
 // Order of palette tabs / «Добавить» menu categories.
 export const SOLUTION_CATS = ["periph", "switch", "controller", "power", "rack"];
+
+// Solution port spec → catalog-editor rows ({kind, type, count} in PORT_PALETTE
+// kinds). Shared by the catalog editor seed (unsaved custom types) and the
+// type-template seeding on first device creation (device.js).
+export function solutionRows(sol) {
+  if (!sol) return [];
+  const KMAP = { poweroutlet: "outlet" };
+  const rows = [];
+  if (Array.isArray(sol.ports))
+    for (const g of sol.ports)
+      rows.push({ kind: KMAP[g.kind] || g.kind || "interface", type: g.type || "", count: g.count ?? 1 });
+  else if (sol.net) rows.push({ kind: "interface", type: "1000base-t", count: sol.net });
+  if (sol.power) rows.push({ kind: "power", type: "iec-60320-c14", count: sol.power });
+  return rows.filter(r => (r.count || 0) > 0);
+}
 
 // Category order when packing off-rack contours (network closer to the racks,
 // peripherals further right; small_fix: «ПК поодаль от роутеров»).

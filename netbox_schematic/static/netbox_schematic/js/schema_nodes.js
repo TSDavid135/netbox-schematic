@@ -8,7 +8,7 @@ import {
 } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
+import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox, parseTypeSides } from "./schema_util.js";
 import { iconForDevice } from "./solutions.js";
 
 class _Mixin {
@@ -83,18 +83,37 @@ class _Mixin {
     // otherwise flips it per node index, so two panels faced opposite ways.
     const kinds = new Set(groups.map(g => g.kind.otype));
     const panelDown = !dev._off && kinds.has("dcim.frontport") && kinds.has("dcim.rearport");
+    // Per-type side overrides (catalog «Сторона» per port row): dev._sides —
+    // live editor preview; else the type's comments marker. Front/rear keep
+    // their paired panel logic (an override would break "port N under port N").
+    const sides = this._typeSides(dev);
+    const ovr = (key, def) =>
+      sides[key] === "top" ? true : sides[key] === "bottom" ? false : def;
     const top = [], bottom = [];
     for (const g of groups) {
       const o = g.kind.otype;
       let up;
       if (o === "dcim.frontport" || o === "dcim.rearport")
         up = panelDown ? (o === "dcim.rearport") : ((o === trunkType) === trunkUp);
-      else if (o === "dcim.interface") up = true;
-      else if (o === "dcim.poweroutlet") up = true;
-      else up = false;   // power (power-port) and console — down
+      else if (o === "dcim.interface") up = ovr("interface", true);
+      else if (o === "dcim.poweroutlet") up = ovr("outlet", true);
+      else if (o === "dcim.powerport") up = ovr("power", false);
+      else if (o === "dcim.consoleport") up = ovr("console", false);
+      else if (o === "dcim.consoleserverport") up = ovr("console-server", false);
+      else up = false;
       (up ? top : bottom).push(g);
     }
     return { top, bottom };
+  }
+  // Side-override map for a device: preview override (dev._sides, set by the
+  // catalog editor) or the DeviceType's comments marker (cached per type).
+  _typeSides(dev) {
+    if (dev._sides) return dev._sides;
+    const dtId = dev.device_type && dev.device_type.id;
+    const t = dtId != null ? (state.dtypes || {})[dtId] : null;
+    if (!t) return {};
+    if (!t._sides) t._sides = parseTypeSides(t.comments);
+    return t._sides;
   }
 
   _computePads(pane) {
@@ -168,29 +187,53 @@ class _Mixin {
 
     const slots = [];
     const push = (g, item, ordinal, isTop, leftPx) => slots.push({ g, item, ordinal, isTop, leftPx });
+    // ВВОДЫ (power-port) and РОЗЕТКИ (power-outlet) standing in ONE row get an
+    // extra STEP between the clusters, so a PDU's input doesn't blend into its
+    // outlet strip. runPx — strip width incl. those gaps; runL — left→right
+    // pusher inserting them (ordinal stays continuous per run, as before).
+    const pwBoundary = (a, b) => (a === "dcim.powerport" && b === "dcim.poweroutlet") ||
+      (a === "dcim.poweroutlet" && b === "dcim.powerport");
+    const runPx = arr => {
+      let w = 0, prev = null;
+      for (const { g, items } of arr) {
+        if (!items.length) continue;
+        if (prev && pwBoundary(prev, g.kind.otype)) w += STEP;
+        w += items.length * STEP; prev = g.kind.otype;
+      }
+      return w;
+    };
+    const runL = (arr, isTop, x0) => {
+      let x = x0, ord = 0, prev = null;
+      for (const { g, items } of arr) {
+        if (!items.length) continue;
+        if (prev && pwBoundary(prev, g.kind.otype)) x += STEP;
+        for (const it of items) { push(g, it, ++ord, isTop, x); x += STEP; }
+        prev = g.kind.otype;
+      }
+    };
     let width;
     if (centered) {
-      const GAP = STEP, midCols = Math.max(nMidTop, nMidBot);
+      const GAP = STEP, midPx = Math.max(runPx(midTop), runPx(midBot));
       // Width fits: trunk (left) + mid + console (right) with gaps; mid is CENTRED
       // between the trunk and the console, console sits at the bottom-RIGHT edge.
-      const cols = nTrunk + (nTrunk && (midCols || nBotR) ? 1 : 0) + midCols + (midCols && nBotR ? 1 : 0) + nBotR;
-      width = Math.max(MIN_W, EDGE * 2 + cols * STEP);
+      width = Math.max(MIN_W, EDGE * 2 + nTrunk * STEP + (nTrunk && (midPx || nBotR) ? GAP : 0)
+        + midPx + (midPx && nBotR ? GAP : 0) + nBotR * STEP);
       let i = 0; for (const { g, items } of trunkTop) for (const it of items) push(g, it, i + 1, true, EDGE + (i++) * STEP);
       let f = 0; for (const { g, items } of trunkBot) for (const it of items) push(g, it, f + 1, false, EDGE + (f++) * STEP);
       let c = 0; for (const { g, items } of botRightV) for (const it of items) { push(g, it, c + 1, false, width - EDGE - DOT - (nBotR - c - 1) * STEP); c++; }
       const trunkEnd = EDGE + nTrunk * STEP + (nTrunk ? GAP : 0);
       const consoleLeft = nBotR ? width - EDGE - DOT - (nBotR - 1) * STEP - GAP : width - EDGE;
       const midMid = (trunkEnd + consoleLeft) / 2;
-      const tS = midMid - nMidTop * STEP / 2, bS = midMid - nMidBot * STEP / 2;
-      let m = 0; for (const { g, items } of midTop) for (const it of items) push(g, it, m + 1, true, tS + (m++) * STEP);
-      let p = 0; for (const { g, items } of midBot) for (const it of items) push(g, it, p + 1, false, bS + (p++) * STEP);
+      runL(midTop, true, midMid - runPx(midTop) / 2);
+      runL(midBot, false, midMid - runPx(midBot) / 2);
     } else {
       const GAP_MID = (nBotL + addWl) && nBotR ? STEP : 0;
-      const topNeed = nTop ? EDGE * 2 + nTop * STEP : 0;
-      const botNeed = (nBotL + addWl + nBotR) ? EDGE * 2 + (nBotL + addWl + nBotR) * STEP + GAP_MID : 0;
+      const topNeed = nTop ? EDGE * 2 + runPx(topV) : 0;
+      const botNeed = (nBotL + addWl + nBotR)
+        ? EDGE * 2 + runPx(botLeftV) + addWl * STEP + nBotR * STEP + GAP_MID : 0;
       width = Math.max(MIN_W, topNeed, botNeed);
-      let i = 0; for (const { g, items } of topV) for (const it of items) push(g, it, i + 1, true, EDGE + (i++) * STEP);
-      let l = 0; for (const { g, items } of botLeftV) for (const it of items) push(g, it, l + 1, false, EDGE + (l++) * STEP);
+      runL(topV, true, EDGE);
+      runL(botLeftV, false, EDGE);
       let j = 0; for (const { g, items } of botRightV) for (const it of items) { push(g, it, j + 1, false, width - EDGE - DOT - (nBotR - j - 1) * STEP); j++; }
     }
     return { net, edit, EDGE, top, topV, botLeftV, botRightV, nBotL, nBotR, width, slots };
@@ -237,7 +280,8 @@ class _Mixin {
       if (addBtn && this.app.ipform && firstIface)
         addBtn.addEventListener("click", ev => { ev.stopPropagation(); this.app.ipform.open(dev, firstIface, ev); });
     } else {
-      node.innerHTML = `<span class="nm">${this._stackName(dev)}</span><span class="mdl">${dev.device_type.model} · U${dev.position}</span>`;
+      // No unit tag on the node (the unit lives in the details panel / rack view).
+      node.innerHTML = `<span class="nm">${this._stackName(dev)}</span><span class="mdl">${dev.device_type.model}</span>`;
     }
     node.querySelector(".nm").addEventListener("click", () => this.app.device.show(dev));
     // Stack badge (VirtualChassis member) — click highlights members + opens the
@@ -384,7 +428,9 @@ class _Mixin {
         setStatus("меняю модель…");
         await api("/dcim/devices/" + m.dev.id + "/", "PATCH", { device_type: m.chosen });
         const r = await this.app.device.applyModel(m.dev.id, m.chosen);
-        setStatus(`модель изменена: +${r.added} / −${r.removed} портов`, "ok");
+        const w = r.warnings || [];
+        const wtail = w.length ? ` · ⚠ тип не менял (порт занят): ${w.map(x => `${x.port} ${x.from || "?"}→${x.to}`).join(", ")}` : "";
+        setStatus(`модель изменена: +${r.added} / −${r.removed} портов${wtail}`, w.length ? "err" : "ok");
       } catch (e) { setStatus("не удалось сменить модель: " + e.message, "err"); }
       await this.app.tree.reload();   // ports changed → re-render the area
       return;

@@ -3,12 +3,157 @@
 Running record of changes. Newest first. Deploy = bump `pyproject.toml` +
 `gen_deploy.py`, `pip wheel . --no-deps -w dist`, regenerate `deploy_paste.sh`
 (SHA256 round-trip must MATCH), paste into the server SSH session.
+ALSO add a user-facing entry to `static/netbox_schematic/docs/ru/CHANGELOG.md`
+AND `docs/en/CHANGELOG.md` (the version badge renders them in the UI, per user
+language).
 
 Verified locally each version: `py_compile`, `node --check`, CSS brace balance,
 and the DB regression scripts in the scratchpad (`test_stack` round-trip,
 `test_del_stack`, `test_cascade`, `test_place`, `test_modelports`, etc.) using
 the real-rollback harness `_tx` (NOT `savepoint()`, which is a no-op outside an
 atomic block and silently commits — see the netbox-test-harness memory).
+
+## 0.69.18
+- **Learning docs polish (docs-only).** «Схема» is strictly about the canvas now: the «double-click
+  the NetBox title» line moved out (it lives in «Шапка страницы») and a «Ноды» section landed —
+  node anatomy: role stripe, name→details, port dots (color/fill semantics), row edge-labels,
+  stack badge, and the edit-mode ⋮ menu. «Модель устройства» gained the per-node scenario:
+  ⋮ → «Модель» (retype this one device), «Порты» (shift free-port numbers), «Изменить» (full form).
+
+## 0.69.17
+- **Height lives on the MODEL; the rack multi-shelf selection is gone.** Devices of one model
+  CANNOT differ in height (u_height is a type property — the user's 400 «Device 34234 … does not
+  have sufficient space» is NetBox validating exactly that), so the plugin now has ONE lever:
+  the «Высота, U» field in the catalog editor (kept, live «· NU» preview; PATCH on save applies
+  to all devices of the model, collisions surface with the offending device named). The rack's
+  contiguous unit-range selection + «Блок NU» on-demand types are REMOVED: in rack edit mode a
+  click selects that single shelf → «Занять место?» → create; the footprint comes from the
+  chosen model's height (labels show «(NU)»). `_ensureBlockType` deleted; «NU» tag removed from
+  the catalog list (`.cat-u`). Docs (model/racks/device topics + both user changelogs) rewritten.
+
+## 0.69.16
+- **«Последние изменения» reads a real markdown changelog, language-aware.** The about modal
+  fetches `static/netbox_schematic/docs/<lang>/CHANGELOG.md` (ru + en shipped) via
+  `import.meta.url`-relative URLs and renders it with a tiny built-in markdown renderer
+  (h1–h4 shifted one level, lists, bold/italic/code, images, links, hr). Language:
+  localStorage `schematic.lang` (the planned language setting) → page/browser lang; a missing
+  translation falls back to ru. `CHANGELOG_RU`/`FEATURES_RU` arrays removed from about.js.
+- **«Возможности» → «Обучение»: a topic tree with game-style, case-driven docs.** 11 topics
+  (Модель устройства, Каталог моделей, Характеристики устройства, Кабели, Иерархия, Схема,
+  Детали, Режим редактирования, Стойки, Импорт/Экспорт, Шапка) live as markdown in
+  `docs/ru/learn/<key>.md` — scenarios («Сценарий: …») instead of button descriptions.
+  Desktop: tree left / doc right (first topic opens automatically). Phone: the tree fills the
+  modal, a chosen topic slides in full-screen with a «←» back arrow. Images supported
+  (`![…](../img/…)` — drop files into `docs/img/`).
+- **The «· U1» unit tag removed from schema nodes** (the unit lives in device details and the
+  rack view; the node subtitle is just the model now).
+- **Model height is editable in the catalog («Высота, U», live preview).** Height is a TYPE
+  property in NetBox — this is the missing piece that made «one device across several rack
+  shelves» impossible to set up by hand: raise the model to 2U and its devices occupy two
+  shelves in the rack view (`_saveHeight` PATCH on save/apply; NetBox itself rejects heights
+  that would collide with racked neighbors). Rack-side span selection («Занять место», Блок NU)
+  already existed.
+- Harness `test_about_v16.mjs` (33 checks: renderer, resolveLang, all docs present & render).
+
+## 0.69.15
+- **Ввод and розетки standing in ONE row get a gap between the clusters.** When power-ports and
+  power-outlets land on the same node edge (e.g. «Сторона: снизу» for both on a PDU), an extra
+  STEP separates the input cluster from the outlet strip; width/centering math accounts for it.
+  Rule is strictly powerport↔poweroutlet — interfaces next to розетки stay as before.
+  (`runPx`/`runL` in `_nodeParts`; harness `test_gap_v15.mjs` — real `_nodeParts`, 12 checks.)
+- **The version badge (bottom-right) is a button now** — opens a modal with two tabs:
+  «Последние изменения» (user-facing RU changelog, `CHANGELOG_RU`) and «Возможности» (what the
+  plugin can do, grouped). New `about.js` (AboutUI + both lists), `.abt-*` styles, Esc/backdrop
+  close, mobile-sized. Maintenance: add an RU entry per release (header note above).
+
+## 0.69.14
+- **«Сторона» per port row in the catalog editor — put ports on TOP or BOTTOM of the node.**
+  Each row gets a select «авто / сверху / снизу» (авто keeps the old heuristic: interfaces and
+  розетки up, вводы and консоли down). Applies live in the preview and — after «Сохранить в тип» —
+  to every device of the type on the schema (redraw). Stored per kind in an INVISIBLE
+  HTML-comment marker inside `DeviceType.comments` (`<!-- schematic:sides {"outlet":"bottom"} -->`),
+  so NetBox's rendered view shows nothing and no backend changes are needed (device-types are
+  already loaded in full at boot). Front/rear pairs and wireless keep their fixed sides (the
+  select is disabled — an override would break «port N under port N» pairing / the radio row).
+  (`parseTypeSides`/`writeTypeSides` in schema_util, `_typeSides` + overrides in `_assignSides`,
+  `.ced-side` select; harness `test_sides_v14.mjs` — 18 checks on the real `_assignSides`.)
+
+## 0.69.13
+- **Power gear now GIVES power through «Розетки» (power outlets).** The PDU / ИБП / стабилизатор
+  solutions get a proper port spec: one round «Ввод» (power-port, C14) + N «Розеток» (power-outlet,
+  C13) instead of N power-ports. A power-port can only connect to an outlet/feed (never to another
+  power-port) — this is WHY device power ports «couldn't connect to anything but feeders»: both
+  sides were inputs. Existing PDUs are fixed by applying the model in the catalog (retype needs
+  free ports; occupied ones warn). Harness: `test_power_v13.mjs`.
+- **Device creation asks ONLY for a name — ports come from the model (type templates).** The
+  port-count fields in the «Добавить» modal are gone: they fought the catalog model and produced
+  duplicate ports. On first use of a solution its DeviceType is created WITH template ports seeded
+  from the spec (NetBox instantiates them on device creation); edits go through the catalog. If the
+  type has no templates (pre-existing installs), the status + catalog ⚠ point to «Сохранить в тип» /
+  «Применить ко всем». (`addSolution`, `_ensureDeviceType` + `_seedTypeTemplates`, shared
+  `solutionRows`; `_createPorts`/`_createPatchPorts` removed.)
+- **Power rows live INSIDE their server room now (layout).** Per location, under the racks+pocket
+  and centered on the same span the panels row uses: «Питание» (PDU/ИБП type contours in a row,
+  orange wrap) → «Стабилизаторы» (own orange row; stabilizers/inverters are now classified as
+  power gear, not right-pocket) → «Силовые щиты» below. Their boxes register in
+  `state.offContours[locId]`, so the LOCATION CONTOUR encloses them — same mechanism as the panels'
+  `powerBoxEls`. Power devices without a room (multi-room area) fall back to one global block
+  below everything. Harness: `test_powerlayout_v13.mjs` (real `_computeLocGeometry`, 20 checks).
+- Palette label «Распредщиток» → «Щиток» (ships with this build).
+
+## 0.69.12
+- **Feed (фидер) port is numbered 1..N** on the panel's left edge (was showing the feed's name);
+  the feed name still shows in its row.
+- **«Models without ports» warning is a visible block now, not a hover title.** The catalog shows
+  an amber banner at the top — how many «Схематика» models lack ports and what to do — so it reads
+  on touch too; the topbar «Каталог» button keeps its ⚠ badge.
+
+## 0.69.11
+- **⚠ on «Схематика» models that have no ports yet.** A model created in the catalog («+ Модель»)
+  has no port templates until you «Сохранить в тип» — applying it to a device then adds nothing.
+  Now such models show a ⚠ in the catalog list, and the topbar «Каталог» button gets a ⚠ badge when
+  ANY of your models is portless (checked on page load, only «Схематика» types). The ⚠ clears the
+  moment you save ports / apply to all. (`_emptyOwnTypes` — one bulk request per template endpoint.)
+
+## 0.69.10
+- **Power equipment in ONE block below the racks (layout).** Off-rack POWER devices (PDU, UPS/
+  ИБП — detected by power outlets, or role/model name) no longer sit in the right-side pockets
+  with cameras; they're gathered into a single «Питание» block UNDER the racks (a wide row of
+  type contours), with the «Силовые щиты» (power-panels) block below it. Cameras and other
+  peripherals stay in the right pockets; an in-rack PDU stays in its rack. (`_isPowerDev` +
+  `_powerArea` in the layout pre-pass; classification/packing harness-verified — the visual
+  placement is best eyeballed live.)
+
+## 0.69.9
+- **Selected / target port rings show on touch again.** `.port:hover` (base + the touch override)
+  had EQUAL specificity to `.port.pending` / `.port.aim-ok` / `.port.hl`, so the sticky `:hover`
+  after a tap hid the ring of the SELECTED port (red `.pending`) and of compatible connect-targets
+  (green `.aim-ok`) — making them look dim while wiring. Scoped `.port:hover` to
+  `:not(.hl):not(.pending):not(.aim-ok)`, so a port in a state always keeps its own ring.
+- **Removed the «Отмена привязки» (`#cancelconn`) button.** Cancel a pending connection by tapping
+  the port again or tapping empty space (both already work).
+
+## 0.69.8
+- **Port type in the tooltip.** The port tooltip now shows the port's type (interface speed,
+  console / power connector) next to the kind — e.g. «сетевой интерфейс · 1000BASE-T». The
+  graph endpoint now exposes `type` for ALL port kinds (was interface/front/rear only).
+- **Reconcile warns on a type mismatch instead of forcing it.** When applying a model, an
+  OCCUPIED port whose type differs from the model's is renamed to the model but its TYPE is
+  NOT changed (a cable of the old type is attached) — «↦ По роли» and the on-node «Модель»
+  now show a ⚠ warning listing those ports, so you decide whether to re-cable. Free ports are
+  retyped as before.
+
+## 0.69.7
+- **Applying a model reconciles occupied ports BY NUMBER — no more duplicate ports.** A device
+  imported with a cabled interface named `eth1` then got a SECOND free port `1` grown beside it
+  when you applied its model («↦ По роли» / on-node «Модель») — grow matched by name only, and
+  the delete pass kept `eth1` by number. Now `applyModel` first **reconciles**: for each model
+  port it renames the existing same-NUMBER port to the model's name + type (preferring the
+  OCCUPIED one, keeping its cable) instead of creating a duplicate, and drops free same-number
+  duplicates. So a cabled `eth1` **becomes** the model's `1` (RJ45), keeping its connection — and
+  re-applying also cleans up devices already left with `eth1` + `1`. Standalone kinds
+  (interfaces / console / power / rear); the add-only «Применить ко всем» is unchanged.
+  Verified via a Node harness (import / already-broken / both-free / extra-occupied cases).
 
 ## 0.69.6
 - **Fix the port/cable-selection regressions — back to main's behaviour + the peripheral
