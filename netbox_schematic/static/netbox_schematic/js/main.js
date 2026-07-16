@@ -20,6 +20,7 @@ import { ImportUI } from "./importui.js";
 import { ExportUI } from "./exportui.js";
 import { AuditUI } from "./auditui.js";
 import { CatalogUI } from "./catalog.js";
+import { AboutUI } from "./about.js";
 
 const app = {};
 app.device = new DeviceManager(app);
@@ -57,6 +58,8 @@ app.renderAll = group => renderAll(group);
   app.auditui = new AuditUI(app);
   app.auditui.bind();
   app.catalog.bind();
+  app.about = new AboutUI(app);   // version badge → changelog / features modal
+  app.about.bind();
 }
 
 // Header user menu (click the name → dropdown; click outside → close).

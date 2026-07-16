@@ -5,12 +5,11 @@
 // a device by clicking a free unit.
 
 import {
-  $, state, mk, px, softColor, attachTip, modeBtn, currentLocationName, slugify,
+  $, state, mk, px, softColor, attachTip, modeBtn, currentLocationName,
   UNIT_H, GAP_MIN, GAP_H,
 } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { MANUFACTURER } from "./solutions.js";
 
 export class RackManager {
   constructor(app) {
@@ -209,10 +208,10 @@ export class RackManager {
     if (rd) rd.classList.toggle("hl", on);
   }
 
-  // Rack edit mode: clicking a free unit doesn't open the modal at once — it
-  // builds a CONTIGUOUS selection (multi-unit gear occupies several cells). Each
-  // click extends/starts the green range; a "Занять место?" dialog with a pointer
-  // sits beside the rack. "Да" opens the create modal for that span.
+  // Rack edit mode: clicking a free unit selects THAT unit (green) and shows the
+  // "Занять место?" dialog beside the rack; "Да" opens the create modal. How many
+  // shelves the device takes is decided by its MODEL's height (u_height is a type
+  // property — one model, one height), so there is no multi-unit range selection.
   _onFrameClick(ev, rack) {
     if (!Mode.on("rack")) return;
     if (ev.target.closest(".dev")) return;
@@ -226,22 +225,11 @@ export class RackManager {
     }
     this._occToggle(rack, frame, unit);
   }
-  // Extend/start/clear the contiguous free-unit selection for `rack`.
+  // Select the clicked unit (click the selected one again → cancel).
   _occToggle(rack, frame, unit) {
-    const free = u => u >= 1 && u <= rack.u_height &&
-      !(state.rackOcc[rack.id] && state.rackOcc[rack.id].has(u));
     const s = this._occSel;
-    if (!s || s.rackId !== rack.id) {
-      this._occSel = { rackId: rack.id, lo: unit, hi: unit, frame, rack };
-    } else if (unit === s.lo - 1 && free(unit)) {
-      s.lo = unit;                                   // extend downward
-    } else if (unit === s.hi + 1 && free(unit)) {
-      s.hi = unit;                                   // extend upward
-    } else if (unit >= s.lo && unit <= s.hi) {
-      this._occClear(); return;                      // click inside → cancel
-    } else {
-      this._occSel = { rackId: rack.id, lo: unit, hi: unit, frame, rack };  // jump → new selection
-    }
+    if (s && s.rackId === rack.id && s.lo === unit) { this._occClear(); return; }
+    this._occSel = { rackId: rack.id, lo: unit, hi: unit, frame, rack };
     this._occRender();
   }
   // Green overlays over the selected units + the "Занять место?" dialog (fixed on
@@ -259,15 +247,13 @@ export class RackManager {
       s.frame.appendChild(ov);
       this._occEls.push(ov);
     }
-    const n = s.hi - s.lo + 1;
     const fr = s.frame.getBoundingClientRect();
     const midY = fr.top + (yOf(s.hi) + yOf(s.lo) + UNIT_H) / 2;
     const W = 140;
     let left = fr.right + 14, side = "left";     // dialog right of rack, pointer aims left
     if (left + W > innerWidth - 8) { left = fr.left - W - 14; side = "right"; }
     const dlg = mk("div", { className: "occ-dialog pt-" + side,
-      html: `<div class="occ-q">Занять ${n > 1 ? n + " юнита" : "место"}?` +
-        `<div class="occ-u">U${s.lo}${n > 1 ? "–U" + s.hi : ""}</div></div>` +
+      html: `<div class="occ-q">Занять место?<div class="occ-u">U${s.lo}</div></div>` +
         `<div class="occ-btns"><button type="button" class="occ-no">Нет</button>` +
         `<button type="button" class="occ-yes">Да</button></div>` });
     dlg.style.left = Math.max(8, left) + "px";
@@ -276,9 +262,9 @@ export class RackManager {
     this._occDlg = dlg;
     dlg.querySelector(".occ-no").addEventListener("click", () => this._occClear());
     dlg.querySelector(".occ-yes").addEventListener("click", () => {
-      const rack = s.rack, lo = s.lo, span = n;
+      const rack = s.rack, lo = s.lo;
       this._occClear();
-      this._openAddDevice(rack, lo, span);
+      this._openAddDevice(rack, lo);
     });
   }
   _occClearEls() {
@@ -287,31 +273,25 @@ export class RackManager {
     if (this._occDlg) { this._occDlg.remove(); this._occDlg = null; }
   }
   _occClear() { this._occClearEls(); this._occSel = null; }
-  _openAddDevice(rack, unit, span = 1) {
+  _openAddDevice(rack, unit) {
     // Chosen stack from the side list (below). Empty → the device isn't stacked.
     const sel = { vcId: null, pos: null, name: null };
-    // NetBox derives a device's height from its TYPE. So the selected span only
-    // becomes the footprint via a type of that height: when span>1 offer a
-    // "Блок NU" type (created on demand) and default to it — or to a real N-U
-    // type if one exists. Position is always the bottom selected cell.
-    const fit = span > 1 ? Object.values(state.dtypes).find(t => (+t.u_height || 1) === span) : null;
+    // The device's FOOTPRINT comes from its model: a 2U model fills U<unit> and
+    // the shelf above (NetBox validates the space). Height is edited in the
+    // catalog («Высота, U») — the type labels here show it.
     const typeOpts = Object.values(state.dtypes).map(t => ({ value: String(t.id), label: `${t.model} (${t.u_height}U)` }));
-    if (span > 1) typeOpts.unshift({ value: "__block__", label: `▭ Блок ${span}U (без модели)` });
-    const typeDefault = span > 1 ? (fit ? String(fit.id) : "__block__") : null;
-    const where = `Стойка ${rack.name}, юнит U${unit}` + (span > 1 ? `–U${unit + span - 1} (${span}U)` : "");
+    const where = `Стойка ${rack.name}, юнит U${unit}`;
     this.app.openModal("Новое устройство", where,
       [
         { id: "name", label: "Имя", placeholder: "srv-web-01" },
-        { id: "type", label: "Тип (модель)", type: "select", options: typeOpts,
-          ...(typeDefault != null ? { value: typeDefault } : {}) },
+        { id: "type", label: "Тип (модель)", type: "select", options: typeOpts },
         { id: "role", label: "Роль", type: "select",
           options: Object.values(state.roles).map(r => ({ value: r.id, label: r.name })) },
       ],
       async v => {
         if (!v.name) throw new Error("имя обязательно");
-        const typeId = v.type === "__block__" ? await this._ensureBlockType(span) : +v.type;
         const dev = await api("/dcim/devices/", "POST", {
-          name: v.name, device_type: typeId, role: +v.role,
+          name: v.name, device_type: +v.type, role: +v.role,
           site: rack.site.id, rack: rack.id, position: unit,
           face: "front", status: "active",
         });
@@ -330,20 +310,6 @@ export class RackManager {
       },
       "Создать",
       { side: el => this._stackSide(el, sel) });
-  }
-
-  // Create/reuse a generic device type of exactly `span` U (no port templates)
-  // so a multi-unit selection can be filled even without a matching real model.
-  async _ensureBlockType(span) {
-    const model = "Блок " + span + "U";
-    const ex = Object.values(state.dtypes)
-      .find(t => (t.model || "").toLowerCase() === model.toLowerCase() && (+t.u_height || 1) === span);
-    if (ex) return ex.id;
-    const mfr = await this.app.device._ensureManufacturer(MANUFACTURER);
-    const dt = await api("/dcim/device-types/", "POST",
-      { manufacturer: mfr.id, model, slug: slugify(model), u_height: span });
-    state.dtypes[dt.id] = dt;
-    return dt.id;
   }
 
   // Right column of the create-device modal: the VirtualChassis (stack) list.

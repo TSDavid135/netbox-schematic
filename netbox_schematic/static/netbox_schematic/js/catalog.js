@@ -9,8 +9,8 @@
 
 import { state, PORT_KINDS, DOT, STEP, attachTip } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
-import { shortPortName } from "./schema_util.js";
-import { SOLUTIONS, SOLUTION_CATS } from "./solutions.js";
+import { shortPortName, parseTypeSides, writeTypeSides } from "./schema_util.js";
+import { SOLUTIONS, SOLUTION_CATS, solutionRows } from "./solutions.js";
 
 const OWN_MFR = "Схематика";
 
@@ -104,6 +104,7 @@ export class CatalogUI {
   bind() {
     const btn = document.getElementById("catalogbtn");
     if (btn) btn.addEventListener("click", () => this.open());
+    this._checkOwnWarn();   // ⚠ on the button if a «Схематика» model has no ports yet
   }
 
   async open() {
@@ -124,7 +125,48 @@ export class CatalogUI {
       const key = x => ((x.manufacturer && x.manufacturer.name) || "") + " " + (x.model || "");
       t.sort((a, b) => key(a).localeCompare(key(b)));
       this.types = t;
+      // «Схематика» models with NO port templates yet (created but ports not saved)
+      // → ⚠ on the row + button. Computed in the background so the list shows at once.
+      this._emptyOwnTypes(t.filter(x => this._isEditable(x))).then(s => {
+        this.emptyOwn = s; this._updateBtnWarn();
+        if (this.el && this.el.classList.contains("open")) this._renderList();
+      });
     } catch (e) { this.types = []; this._listHtml(`<div class="cat-hint cat-err">не загрузить типы: ${e.message}</div>`); }
+  }
+  // Ids of OUR (editable) types that have no component templates at all — one bulk
+  // request per template endpoint (device_type_id accepts repeated values).
+  async _emptyOwnTypes(ownTypes) {
+    const ids = ownTypes.map(t => t.id);
+    if (!ids.length) return new Set();
+    const q = ids.map(id => `device_type_id=${id}`).join("&");
+    const lists = await Promise.all(Object.values(TEMPLATE_EP).map(ep =>
+      apiAll(`/dcim/${ep}/?${q}`).catch(() => [])));
+    const withPorts = new Set();
+    for (const list of lists) for (const t of list) if (t.device_type) withPorts.add(t.device_type.id);
+    return new Set(ids.filter(id => !withPorts.has(id)));
+  }
+  // ⚠ on the topbar «Каталог» button when a «Схематика» model still has no ports.
+  _updateBtnWarn() {
+    const btn = document.getElementById("catalogbtn");
+    if (btn) btn.classList.toggle("cat-btn-warn", !!(this.emptyOwn && this.emptyOwn.size));
+  }
+  // Mark a model as having ports (or not) → refresh the ⚠ on the row + button.
+  _markPorts(dtId, hasPorts) {
+    if (!this.emptyOwn) this.emptyOwn = new Set();
+    if (hasPorts) this.emptyOwn.delete(dtId); else this.emptyOwn.add(dtId);
+    this._updateBtnWarn();
+    if (this.el && this.el.classList.contains("open")) this._renderList();
+  }
+  // Background check on page load (only OUR types) — so the ⚠ shows before the catalog
+  // is even opened.
+  async _checkOwnWarn() {
+    try {
+      const mfr = await apiAll(`/dcim/manufacturers/?name=${encodeURIComponent(OWN_MFR)}`);
+      if (!mfr.length) return;
+      const own = await apiAll(`/dcim/device-types/?manufacturer_id=${mfr[0].id}`);
+      this.emptyOwn = await this._emptyOwnTypes(own);
+      this._updateBtnWarn();
+    } catch (_) {}
   }
 
   // Device-type templates → {kind, items} groups. NB: filter is device_type_id
@@ -168,7 +210,9 @@ export class CatalogUI {
     const editable = this._isEditable(type);
     this._toggleEdit(editable);
     if (editable) {
-      let rows = this._typeToRows(groups);
+      const uhInp = this.el.querySelector(".ced-uh");
+      if (uhInp) uhInp.value = String(type.u_height ?? 1);
+      let rows = this._typeToRows(groups, parseTypeSides(type.comments));
       if (!rows.length) rows = this._solutionRows(type.model);   // seed unsaved custom types
       const box = this.el.querySelector(".ced-rows"); box.innerHTML = "";
       for (const r of rows) box.appendChild(this._rowEl(r));
@@ -188,15 +232,48 @@ export class CatalogUI {
   }
 
   // Re-render both views from the CURRENT editor rows (called on every edit).
+  // The height field previews live too (node subtitle "· NU").
   _refresh() {
-    const groups = rowsToGroups(this._collectRows());
-    this._renderViews(this._type(this.curId), groups);
+    const rows = this._collectRows();
+    const groups = rowsToGroups(rows);
+    const type = this._type(this.curId);
+    const uh = this._editorHeight();
+    this._renderViews(uh != null ? { ...type, u_height: uh } : type, groups, this._rowsSides(rows));
     this._setMeta(groups);
   }
+  // Current «Высота, U» from the editor (null when hidden/absent/invalid).
+  _editorHeight() {
+    const inp = this.el && this.el.querySelector(".ced-uh");
+    if (!inp || inp.closest(".cat-editor").hidden) return null;
+    const v = parseFloat(inp.value);
+    return isNaN(v) || v < 0 ? null : v;
+  }
+  // Persist the model height when it changed. u_height is a TYPE property —
+  // it applies to ALL devices of the model at once, and NetBox rejects the
+  // change if any racked device lacks room (the 400 surfaces in _stat with the
+  // offending device named). That's the intended lever: one model = one height.
+  async _saveHeight(dtId) {
+    const uh = this._editorHeight();
+    const type = this._type(dtId);
+    if (uh == null || +type.u_height === uh) return;
+    const upd = await api(`/dcim/device-types/${dtId}/`, "PATCH", { u_height: uh });
+    type.u_height = upd.u_height;
+    const st = (state.dtypes || {})[dtId];
+    if (st) st.u_height = upd.u_height;
+  }
 
-  _renderViews(type, groups) {
-    this._renderNode(this.el.querySelector(".cat-stage.phys"), type, groups, false);
-    this._renderNode(this.el.querySelector(".cat-stage.wl"), type, groups, true);
+  // Editor rows → per-kind side map {kind: "top"|"bottom"} for _assignSides.
+  // Front/rear pairs and wireless keep their fixed logic — no override.
+  _rowsSides(rows) {
+    const sides = {};
+    for (const r of rows || [])
+      if (r.side && r.kind !== "frontrear" && r.kind !== "wireless") sides[r.kind] = r.side;
+    return sides;
+  }
+
+  _renderViews(type, groups, sides) {
+    this._renderNode(this.el.querySelector(".cat-stage.phys"), type, groups, false, sides);
+    this._renderNode(this.el.querySelector(".cat-stage.wl"), type, groups, true, sides);
   }
 
   _setMeta(groups) {
@@ -217,10 +294,13 @@ export class CatalogUI {
   }
 
   // One static node into a stage. net=false → physical view, net=true → wireless.
-  _renderNode(stage, type, groups, net) {
+  // sides — live per-kind side overrides from the editor (dev._sides beats the
+  // type's saved marker in _typeSides); omitted for real (non-editable) types.
+  _renderNode(stage, type, groups, net, sides) {
     const dev = {
       id: -1, name: type.model || "—", _off: false, position: null, virtual_chassis: null,
       role: null, device_type: { id: type.id || -1, model: type.model || "", u_height: type.u_height || 1 },
+      ...(sides ? { _sides: sides } : {}),
     };
     state.cables = state.cables || []; state.devNodeIdx = state.devNodeIdx || {};
     state.devRack = state.devRack || {}; state.ipsByIface = state.ipsByIface || {};
@@ -266,9 +346,12 @@ export class CatalogUI {
 
   // ---- rows ---------------------------------------------------------------
   // Current templates → editor rows. Interfaces split into interface vs wireless.
-  _typeToRows(groups) {
+  // sides — the type's saved side map ({kind: "top"|"bottom"}) to prefill the
+  // per-row «Сторона» select.
+  _typeToRows(groups, sides) {
     const KIND = { "dcim.consoleport": "console", "dcim.consoleserverport": "console-server",
       "dcim.powerport": "power", "dcim.poweroutlet": "outlet" };
+    const s = sides || {};
     const rows = [];
     for (const g of groups) {
       const o = g.kind.otype;
@@ -277,7 +360,7 @@ export class CatalogUI {
         const ph = {}, wl = {};
         for (const it of g.items) { const t = (it.type && it.type.value) || "";
           const m = isWlType(t) ? wl : ph; m[t] = (m[t] || 0) + 1; }
-        for (const [type, count] of Object.entries(ph)) rows.push({ kind: "interface", type, count });
+        for (const [type, count] of Object.entries(ph)) rows.push({ kind: "interface", type, count, side: s.interface || "" });
         for (const [type, count] of Object.entries(wl)) rows.push({ kind: "wireless", type, count });
         continue;
       }
@@ -285,29 +368,20 @@ export class CatalogUI {
       if (!kind) continue;
       const by = {};
       for (const it of g.items) { const t = (it.type && it.type.value) || ""; by[t] = (by[t] || 0) + 1; }
-      for (const [type, count] of Object.entries(by)) rows.push({ kind, type, count });
+      for (const [type, count] of Object.entries(by)) rows.push({ kind, type, count, side: s[kind] || "" });
     }
     return rows;
   }
 
   // Seed for an unsaved custom type — the ports the model IS meant to have, from
-  // solutions.js (matches how a device gets its ports on creation).
+  // solutions.js (same spec that seeds the type templates on device creation).
   _solutionRows(model) {
     if (!model) return [];
     let sol = null;
     for (const cat of SOLUTION_CATS)
       for (const it of (SOLUTIONS[cat].items || []))
         if (it.model && it.model.toLowerCase() === model.toLowerCase()) sol = it;
-    if (!sol) return [];
-    const KMAP = { poweroutlet: "outlet" };
-    const rows = [];
-    if (Array.isArray(sol.ports)) {
-      for (const g of sol.ports) rows.push({ kind: KMAP[g.kind] || g.kind || "interface", type: g.type || "", count: g.count ?? 1 });
-    } else if (sol.net) {
-      rows.push({ kind: "interface", type: "1000base-t", count: sol.net });
-    }
-    if (sol.power) rows.push({ kind: "power", type: "iec-60320-c14", count: sol.power });
-    return rows.filter(r => (r.count || 0) > 0);
+    return solutionRows(sol);
   }
 
   _rowEl(row) {
@@ -331,12 +405,23 @@ export class CatalogUI {
       }
     };
     fill(row.kind, row.type);
-    kindSel.addEventListener("change", () => fill(kindSel.value, null));
     const cnt = document.createElement("input");
     cnt.className = "ced-count"; cnt.type = "number"; cnt.min = "0"; cnt.value = String(row.count ?? 1);
+    // «Сторона» — where this row's ports sit on the node (авто = old heuristic:
+    // interfaces/розетки top, вводы/консоли bottom). Front/rear pairs and
+    // wireless have fixed sides → the select is disabled for them.
+    const sideSel = document.createElement("select");
+    sideSel.className = "ced-side"; sideSel.title = "Сторона портов на ноде";
+    for (const [v, lbl] of [["", "авто"], ["top", "сверху"], ["bottom", "снизу"]]) {
+      const o = document.createElement("option"); o.value = v; o.textContent = lbl;
+      if (v === (row.side || "")) o.selected = true; sideSel.appendChild(o);
+    }
+    const syncSide = () => { sideSel.disabled = kindSel.value === "frontrear" || kindSel.value === "wireless"; };
+    syncSide();
+    kindSel.addEventListener("change", () => { fill(kindSel.value, null); syncSide(); });
     const del = document.createElement("button"); del.className = "ced-del-row"; del.textContent = "✕"; del.title = "Убрать ряд";
     del.addEventListener("click", () => { el.remove(); this._refresh(); });
-    el.append(kindSel, typeSel, cnt, del);
+    el.append(kindSel, typeSel, cnt, sideSel, del);
     return el;
   }
 
@@ -345,6 +430,7 @@ export class CatalogUI {
       kind: el.querySelector(".ced-kind").value,
       type: el.querySelector(".ced-type").value,
       count: Math.max(0, parseInt(el.querySelector(".ced-count").value) || 0),
+      side: el.querySelector(".ced-side").value,
     })).filter(r => r.count > 0);
   }
 
@@ -374,6 +460,20 @@ export class CatalogUI {
     delete this.groupsCache[dtId];
   }
 
+  // Persist the per-kind «Сторона» overrides into the type's comments marker
+  // (invisible in NetBox's rendered view). Updates both caches (this.types +
+  // state.dtypes) and drops the parsed-side cache so the schema re-reads it.
+  async _saveSides(dtId) {
+    const type = this._type(dtId);
+    const sides = this._rowsSides(this._collectRows());
+    const comments = writeTypeSides(type.comments, sides);
+    if (comments === (type.comments || "")) return;
+    const upd = await api(`/dcim/device-types/${dtId}/`, "PATCH", { comments });
+    type.comments = upd.comments; type._sides = null;
+    const st = (state.dtypes || {})[dtId];
+    if (st) { st.comments = upd.comments; st._sides = null; }
+  }
+
   async _saveToType(dtId) {
     if (dtId == null) return;
     const type = this._type(dtId);
@@ -382,7 +482,10 @@ export class CatalogUI {
     saveBtn.disabled = true; this._stat("сохраняю порты в тип…");
     try {
       await this._writeTemplates(dtId, buildDesired(this._collectRows()));
-      this._stat("сохранено в тип (устройства не тронуты). «Применить ко всем» — дозавести порты на устройствах.", "ok");
+      await this._saveSides(dtId);
+      await this._saveHeight(dtId);
+      this._markPorts(dtId, this._collectRows().length > 0);   // clear/keep the ⚠
+      this._stat("сохранено в тип (устройства не тронуты). «Применить ко всем» — дозавести порты; сторона портов обновится при перерисовке схемы.", "ok");
     } catch (e) {
       this._stat("ошибка сохранения: " + e.message, "err");
     } finally { saveBtn.disabled = false; }
@@ -404,6 +507,9 @@ export class CatalogUI {
         this._stat("сохраняю тип…");
         try {
           await this._writeTemplates(dtId, buildDesired(this._collectRows()));
+          await this._saveSides(dtId);
+          await this._saveHeight(dtId);
+          this._markPorts(dtId, this._collectRows().length > 0);   // clear/keep the ⚠
           const res = await this.app.device.growDevicesToType(dtId,
             (i, tot) => this._stat(`добавляю порты: устройство ${i}/${tot}…`));
           this._stat(`готово: устройств ${res.devices}, добавлено портов ${res.created}. Обнови схему.`, "ok");
@@ -440,19 +546,23 @@ export class CatalogUI {
         if (!roleId || !dtId) throw new Error("выбери роль и модель");
         setStatus("применяю модель по роли…");
         const devs = await apiAll(`/dcim/devices/?role_id=${roleId}`);
-        let added = 0, removed = 0, changed = 0;
+        let added = 0, removed = 0, changed = 0; const warns = [];
         for (const d of devs) {
           if (!d.device_type || d.device_type.id !== dtId) {
             await api("/dcim/devices/" + d.id + "/", "PATCH", { device_type: dtId }); changed++;
           }
-          // Reconcile (not grow-only): add missing + delete FREE ports not in the
-          // model. So returning a device to its own model actually fixes wrong ports
-          // (e.g. a camera left with a patch panel's 24 rear ports).
+          // Reconcile (not grow-only): rename occupied ports to the model by number,
+          // add missing, delete FREE ports not in the model. So returning a device to
+          // its own model fixes wrong ports (e.g. a camera left with 24 rear ports).
           const r = await this.app.device.applyModel(d.id, dtId);
           added += r.added; removed += r.removed;
+          for (const w of (r.warnings || [])) warns.push(`${d.name}/${w.port}: ${w.from || "?"} → ${w.to}`);
         }
         this.groupsCache = {};
-        setStatus(`по роли применено: устройств ${devs.length}, сменили тип ${changed}, +${added} / −${removed} портов`, "ok");
+        // An occupied port whose type differs from the model is renamed but NOT retyped
+        // (a cable of the old type hangs on it) — warn instead of silently changing.
+        const wtail = warns.length ? ` · ⚠ тип не менял у ${warns.length} занятых: ${warns.slice(0, 3).join("; ")}${warns.length > 3 ? "…" : ""}` : "";
+        setStatus(`по роли применено: устройств ${devs.length}, сменили тип ${changed}, +${added} / −${removed} портов${wtail}`, warns.length ? "err" : "ok");
         await this.app.tree.reload();
       }, "Применить");
   }
@@ -468,6 +578,7 @@ export class CatalogUI {
         const slug = model.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || ("model-" + Date.now());
         const dt = await api("/dcim/device-types/", "POST", { manufacturer: mfrId, model, slug, u_height: parseInt(v.u) || 1 });
         this.types = null; await this._loadTypes();
+        this._markPorts(dt.id, false);   // new model — no ports yet → ⚠ until saved
         this.curId = dt.id; this._renderList(); await this._select(dt.id);
         setStatus("создана модель: " + model, "ok");
       }, "Создать");
@@ -511,13 +622,22 @@ export class CatalogUI {
     for (const mfr of Object.keys(byMfr).sort((a, b) => a.localeCompare(b))) {
       const own = mfr === OWN_MFR;
       H.push(`<div class="cat-mfr">${mfr}${own ? ' <span class="cat-own">правится</span>' : ""}</div>`);
-      for (const t of byMfr[mfr])
-        H.push(`<button class="cat-row${t.id === this.curId ? " active" : ""}" data-id="${t.id}">` +
-          `<span class="cat-model">${t.display || t.model}</span>` +
-          `<span class="cat-u">${t.u_height ? t.u_height + "U" : ""}</span></button>`);
+      for (const t of byMfr[mfr]) {
+        const warn = (this.emptyOwn && this.emptyOwn.has(t.id))
+          ? `<span class="cat-warn" title="Порты модели не заданы — открой её и «Сохранить в тип»">⚠</span>` : "";
+        // No u_height tag on the rows (user request) — height lives in the
+        // editor's «Высота, U» field and in the create-device model picker.
+        H.push(`<button class="cat-row${t.id === this.curId ? " active" : ""}${warn ? " cat-row-warn" : ""}" data-id="${t.id}">` +
+          `<span class="cat-model">${t.display || t.model}</span>${warn}</button>`);
+      }
     }
-    list.innerHTML = H.join("") ||
-      `<div class="cat-hint">${(this.types && this.types.length) ? "ничего не найдено" : "типов пока нет — создай «+ Модель»"}</div>`;
+    // Explanation block (not a hover title) when some models have no ports — so it's
+    // visible on touch too. The topbar «Каталог» button also carries a ⚠ badge.
+    const warn = (this.emptyOwn && this.emptyOwn.size)
+      ? `<div class="cat-warnbanner">⚠ Модели без портов: <b>${this.emptyOwn.size}</b>. Открой такую (⚠ в списке) и нажми «Сохранить в тип» — иначе применение модели к устройству ничего не добавит.</div>`
+      : "";
+    list.innerHTML = warn + (H.join("") ||
+      `<div class="cat-hint">${(this.types && this.types.length) ? "ничего не найдено" : "типов пока нет — создай «+ Модель»"}</div>`);
     list.querySelectorAll(".cat-row").forEach(b => b.addEventListener("click", () => this._select(+b.dataset.id)));
   }
 
@@ -548,7 +668,9 @@ export class CatalogUI {
             </div>
             <div class="cat-meta"></div>
             <div class="cat-editor" hidden>
-              <div class="ced-head">Порты модели <span class="ced-hint">— количество на вид/тип; «Сохранить в тип» пишет шаблоны (устройства не трогаются)</span></div>
+              <div class="ced-head">Порты модели <span class="ced-hint">— количество на вид/тип; «Сохранить в тип» пишет шаблоны (устройства не трогаются)</span>
+                <label class="ced-uh-l" title="Высота модели в юнитах — общая для ВСЕХ её устройств; в стойке устройство займёт столько полок">Высота, U
+                  <input class="ced-uh" type="number" min="0" step="0.5" value="1"></label></div>
               <div class="ced-rows"></div>
               <button class="ced-addrow">+ ряд</button>
             </div>
@@ -573,6 +695,8 @@ export class CatalogUI {
     const rows = el.querySelector(".ced-rows");
     rows.addEventListener("input", () => this._refresh());
     rows.addEventListener("change", () => this._refresh());
+    const uh = el.querySelector(".ced-uh");   // height previews live (node "· NU")
+    if (uh) uh.addEventListener("input", () => this._refresh());
     el.querySelector(".ced-addrow").addEventListener("click", () => {
       rows.appendChild(this._rowEl({ kind: "interface", type: "1000base-t", count: 1 })); this._refresh();
     });

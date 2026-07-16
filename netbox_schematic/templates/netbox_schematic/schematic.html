@@ -51,7 +51,6 @@
     <button id="devsearch-clear" title="Очистить" tabindex="-1"><i class="mdi mdi-close"></i></button>
     <div id="devsearch-results"></div>
   </div>
-  <button id="cancelconn"><i class="mdi mdi-close"></i> Отмена привязки</button>
   <button id="syncbtn" aria-label="Обновить" data-tip="Обновить данные из NetBox"><i class="mdi mdi-refresh"></i> <span class="sync-txt">Обновить</span></button>
   <button id="themetoggle" aria-label="Сменить тему" data-tip="Светлая / тёмная тема"><i class="mdi mdi-lightbulb-outline"></i></button>
   <div id="userbox" title="{{ user_login }}">
@@ -293,7 +292,7 @@
   </div>
 </div></div>
 
-{% if plugin_version %}<div id="pluginver" title="Версия плагина Схематика">v{{ plugin_version }}</div>{% endif %}
+{% if plugin_version %}<div id="pluginver" title="Что нового и возможности плагина">v{{ plugin_version }}</div>{% endif %}
 
 <script type="module" src="{% static 'netbox_schematic/js/main.js' %}"></script>
 <script type="module" src="{% static 'netbox_schematic/js/responsive.js' %}"></script>

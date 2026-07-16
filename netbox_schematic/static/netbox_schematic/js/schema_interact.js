@@ -113,7 +113,6 @@ class _Mixin {
   setPending(port) {
     if (state.pending) state.pending.el.classList.remove("pending");
     state.pending = port;
-    $("#cancelconn").classList.toggle("show", !!port);
     if (port) {
       port.el.classList.add("pending");
       this._enterAim(port.otype);

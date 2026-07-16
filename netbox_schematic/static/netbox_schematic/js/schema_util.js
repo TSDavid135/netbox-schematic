@@ -157,3 +157,23 @@ export function unionBox(boxes, padX = 0, padTop = 0, padBot = 0) {
   return { left: x0 - padX, top: y0 - padTop,
     width: (x1 - x0) + padX * 2, height: (y1 - y0) + padTop + padBot };
 }
+
+// Per-type PORT-SIDE overrides (catalog editor «Сторона: авто/сверху/снизу»).
+// Stored INVISIBLY in DeviceType.comments as an HTML-comment marker (NetBox's
+// markdown render shows nothing):  <!-- schematic:sides {"outlet":"bottom"} -->
+// Keys — editor row kinds (interface / power / outlet / console /
+// console-server), values — "top" | "bottom"; a missing key = automatic side.
+const SIDES_RE = /<!--\s*schematic:sides\s*(\{[^]*?\})\s*-->/;
+export function parseTypeSides(comments) {
+  const m = SIDES_RE.exec(comments || "");
+  if (!m) return {};
+  try { return JSON.parse(m[1]) || {}; } catch (_) { return {}; }
+}
+// Rewrite comments with the sides map (or strip the marker when map is empty),
+// preserving whatever the user keeps in the field around it.
+export function writeTypeSides(comments, sides) {
+  const base = (comments || "").replace(SIDES_RE, "").trim();
+  if (!sides || !Object.keys(sides).length) return base;
+  const marker = `<!-- schematic:sides ${JSON.stringify(sides)} -->`;
+  return base ? base + "\n\n" + marker : marker;
+}
