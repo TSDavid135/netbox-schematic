@@ -4,14 +4,13 @@
    Loaded AFTER schematic.css. */
 
 /* Overlay panels (Fl / UI / Layers) stacked in a column, top-right, so
-   Fl sits ABOVE UI and UI above Layers (DOM order). Mode button stays
-   small at the very top. */
+   Fl sits ABOVE UI and UI above Layers (DOM order). The mode toggle is NOT
+   here — it sits centered over the canvas (.modeswitch.schem-mid). */
 #schem-topright {
   position: absolute; right: 14px; top: 14px; z-index: 9;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   max-width: calc(100% - 28px);
 }
-.st-topbar { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
 .st-squares {
   display: flex; 
   flex-direction: column; 
@@ -36,23 +35,29 @@
 .collapsed .short-name { display: block; }
 .collapsed .full-name { display: none; }
 
-/* ── Physical/network view switch ──
-   Segmented toggle in the schema overlay. Active half filled with accent.
-   Sets body.view-net/view-phys → CSS hides ports/cables of the opposite
-   mode (see schematic.css). */
+/* ── View switch (physical / wireless / VLAN) ──
+   Segmented radio at the TOP of the «Отображение» panel, above the layer list:
+   a view swaps the node's ports and relayouts, a layer only highlights on top of
+   it. Sets body.view-phys/view-net/view-vlan → CSS steps back what the current
+   cut doesn't concern (see schematic.css).
+   Three labels don't fit one row in the panel, so the buttons wrap into a grid
+   instead of the old inline strip in the topbar. */
 #viewswitch {
-  display: inline-flex; flex-shrink: 0; align-self: flex-start;
-  background: var(--overlay-bg); border: 1px solid var(--line);
-  border-radius: 8px; box-shadow: var(--overlay-shadow); overflow: hidden;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  margin-bottom: 8px;
 }
+/* Odd count → the last one spans the full width. */
+#viewswitch .vs-btn:last-child:nth-child(odd) { grid-column: 1 / -1; border-top: 1px solid var(--line); }
 #viewswitch .vs-btn {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   background: transparent; border: none; border-radius: 0;
   color: var(--muted); font-size: 12px; font-weight: 600;
-  padding: 7px 11px; cursor: pointer; white-space: nowrap;
+  padding: 7px 9px; cursor: pointer; white-space: nowrap;
 }
 #viewswitch .vs-btn .mdi { font-size: 14px; }
 #viewswitch .vs-btn + .vs-btn { border-left: 1px solid var(--line); }
+#viewswitch .vs-btn:last-child:nth-child(odd) { border-left: none; }
 #viewswitch .vs-btn:hover { color: var(--text); background: var(--panel-2); }
 #viewswitch .vs-btn.active { color: #fff; background: var(--accent); }
 

@@ -49,6 +49,21 @@ def _far_port(port):
     return None
 
 
+def _far_ref(far):
+    """«владелец/порт» for a cable's far end. Usually a device port, but a power
+    port may land on a PowerFeed, which belongs to a PowerPanel — NOT a device.
+    Both render in the same shape so the import reads them back uniformly."""
+    if far is None:
+        return ""
+    dev = getattr(far, "device", None)
+    if dev is not None:
+        return "%s/%s" % (dev.name, far.name)
+    panel = getattr(far, "power_panel", None)      # PowerFeed → щит/фидер
+    if panel is not None:
+        return "%s/%s" % (panel.name, far.name)
+    return ""
+
+
 def _mapped_rear(front_port):
     """RearPort mapped to the front port (PortMapping)."""
     from dcim.models import PortMapping
@@ -298,7 +313,7 @@ def collect_rows(location_ids=None, rack_ids=None, site_ids=None, device_ids=Non
 # device leaves it blank. Export-only; column captions are Ru or En.
 def collect_universal(location_ids=None, rack_ids=None, site_ids=None, device_ids=None):
     from django.db.models import Q
-    from dcim.models import Device, Interface, FrontPort, RearPort
+    from dcim.models import Device, Interface, FrontPort, RearPort, PowerPort, PowerOutlet
 
     q = Q()
     if site_ids:
@@ -317,13 +332,18 @@ def collect_universal(location_ids=None, rack_ids=None, site_ids=None, device_id
     rows = []
     for d in devs.order_by("site__name", "location__name", "rack__name", "name"):
         links = []
+        # Power ports/outlets are included: a device's «Ввод 1 → PDU5/Розетка 3»
+        # and a PDU's «Ввод 1 → Щит A/Фидер 2» round-trip in the same column as
+        # data links (no separate power sheet).
         ports = (list(Interface.objects.filter(device=d))
                  + list(FrontPort.objects.filter(device=d))
-                 + list(RearPort.objects.filter(device=d)))
+                 + list(RearPort.objects.filter(device=d))
+                 + list(PowerPort.objects.filter(device=d))
+                 + list(PowerOutlet.objects.filter(device=d)))
         for port in ports:
-            far = _far_port(port)
-            if far is not None and getattr(far, "device", None):
-                links.append("%s → %s/%s" % (port.name, far.device.name, far.name))
+            ref = _far_ref(_far_port(port))
+            if ref:
+                links.append("%s → %s" % (port.name, ref))
         rows.append({
             "name": d.name,
             "role": d.role.name if d.role_id else "",
@@ -334,6 +354,63 @@ def collect_universal(location_ids=None, rack_ids=None, site_ids=None, device_id
             "unit": ("U%d" % int(d.position)) if d.position is not None else "",
             "links": "; ".join(links),
         })
+    return rows
+
+
+# ── Power export: one row per POWER cable ──────────────────────────────────
+# A dedicated sheet (not mixed into the patch-panel one): every power cable
+# ends at a consumer's power PORT (inlet), while the source is either a panel
+# FEED or another device's OUTLET — so iterating inlets yields exactly one row
+# per cable, no duplicates. Round-trips through power.build_plan/apply_plan.
+SRC_PANEL = "щит"
+SRC_DEVICE = "устройство"
+
+
+def collect_power(location_ids=None, rack_ids=None, site_ids=None, device_ids=None):
+    from django.db.models import Q
+    from dcim.models import Device, PowerPort, PowerFeed, PowerOutlet
+
+    q = Q()
+    if site_ids:
+        q |= Q(site_id__in=list(site_ids))
+    if location_ids:
+        q |= Q(location_id__in=list(location_ids))
+    if rack_ids:
+        q |= Q(rack_id__in=list(rack_ids))
+    if device_ids:
+        q |= Q(pk__in=list(device_ids))
+    if not q:
+        return []
+    devs = (Device.objects.filter(q)
+            .select_related("location", "rack", "site", "role", "device_type").distinct())
+
+    rows = []
+    for d in devs.order_by("site__name", "location__name", "name"):
+        for port in PowerPort.objects.filter(device=d).order_by("name"):
+            far = _far_port(port)
+            if far is None:
+                continue
+            row = {
+                "site": d.site.name if d.site_id else "",
+                "location": d.location.name if d.location_id else "",
+                "rack": d.rack.name if d.rack_id else "",
+                "dst": d.name, "dst_port": port.name,
+                "dst_role": d.role.name if d.role_id else "",
+                "voltage": "", "amperage": "",
+            }
+            if isinstance(far, PowerFeed):
+                panel = far.power_panel
+                row.update({"src_kind": SRC_PANEL, "src": panel.name if panel else "",
+                            "src_port": far.name,
+                            "voltage": far.voltage or "", "amperage": far.amperage or ""})
+            elif isinstance(far, PowerOutlet):
+                row.update({"src_kind": SRC_DEVICE,
+                            "src": far.device.name if far.device_id else "",
+                            "src_port": far.name})
+            else:
+                continue          # power port cabled to something exotic — skip
+            if row["src"]:
+                rows.append(row)
     return rows
 
 

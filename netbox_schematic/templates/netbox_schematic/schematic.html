@@ -10,11 +10,11 @@
 <title>NetBox Схематика — {{ canvas_title }}</title>
 <!-- Material Design Icons: the same font NetBox itself uses (local, no CDN) -->
 <link rel="stylesheet" href="{% static 'netbox-external.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/css/theme.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/css/schematic.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/css/panels.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/css/ipam.css' %}">
-<link rel="stylesheet" href="{% static 'netbox_schematic/css/responsive.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/theme.css' %}?v={{ plugin_version }}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/schematic.css' %}?v={{ plugin_version }}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/panels.css' %}?v={{ plugin_version }}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/ipam.css' %}?v={{ plugin_version }}">
+<link rel="stylesheet" href="{% static 'netbox_schematic/css/responsive.css' %}?v={{ plugin_version }}">
 <script>
   // Применяем сохранённую тему до отрисовки, чтобы не мигало. Дефолт — тёмная.
   if (localStorage.getItem("schematic-theme") === "light")
@@ -132,9 +132,17 @@
   <div id="reqlist" hidden></div>
 </div>
 <div id="tip"></div>
-<div id="linkmenu">
-  <button class="x" title="Удалить связь"><i class="mdi mdi-close"></i></button>
+<div id="linkmenu" class="portmenu">
+  <button class="x" title="Закрыть"><i class="mdi mdi-close"></i></button>
   <button class="up" title="Удалить и перевесить на другой порт"><i class="mdi mdi-subdirectory-arrow-right"></i> перевесить</button>
+  <button class="rm" title="Удалить связь"><i class="mdi mdi-trash-can-outline"></i></button>
+</div>
+
+<!-- Trace view: tap a node's body → hide it (and everything opened through it).
+     The corner ✕ is a mouse-sized target; this is the one a finger can hit. -->
+<div id="nodemenu" class="portmenu">
+  <button class="x" title="Закрыть"><i class="mdi mdi-close"></i></button>
+  <button class="hide" title="Убрать эту ноду из трассы"><i class="mdi mdi-eye-off-outline"></i> скрыть</button>
 </div>
 
 <div id="cablepop">
@@ -174,6 +182,40 @@
   <div class="if-list"></div>
 </div>
 
+<div id="vlanform">
+  <div class="vf-main">
+    <div class="vf-head">VLAN на порту</div>
+    <div class="vf-where">Порт: <span class="vf-port"></span> · <span class="vf-dev"></span></div>
+    <label class="vf-lbl">Режим порта</label>
+    <select class="vf-mode"></select>
+    <div class="vf-untag-row">
+      <label class="vf-lbl">Нетегированный VLAN</label>
+      <select class="vf-untag"></select>
+    </div>
+    <div class="vf-tag-row">
+      <label class="vf-lbl">Тегированные VLAN</label>
+      <input class="vf-search" placeholder="поиск по номеру или имени">
+      <div class="vf-taglist"></div>
+    </div>
+    <div class="vf-new">
+      <button class="vf-newbtn"><i class="mdi mdi-plus"></i> Создать VLAN</button>
+      <div class="vf-newrow">
+        <input class="vf-nvid" inputmode="numeric" maxlength="4" placeholder="VID">
+        <input class="vf-nname" placeholder="имя">
+        <label class="vf-nglobal" title="Общий VLAN виден на всех площадках — нужен для транка между сайтами">
+          <input type="checkbox" class="vf-nglob"> общий
+        </label>
+        <button class="vf-nok" title="Создать"><i class="mdi mdi-check"></i></button>
+      </div>
+    </div>
+    <div class="vf-warn"></div>
+    <div class="vf-btns">
+      <button class="vf-cancel">Отмена</button>
+      <button class="vf-ok primary"><i class="mdi mdi-check"></i> Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-bg"><div id="modal">
   <div id="modal-main">
     <h3 id="modal-title"></h3>
@@ -204,6 +246,11 @@
       <div><label class="imp-lab">Площадка (site)</label>
         <select id="imp-site" autocomplete="off"></select>
         <input id="imp-site-new" class="imp-newin" placeholder="Название новой площадки" hidden></div>
+      <div><label class="imp-lab">Формат файла</label><select id="imp-form" autocomplete="off">
+        <option value="">определить автоматически</option>
+        <option value="patchen">Patchen / Unpatchen (розетки → свичи)</option>
+        <option value="power">Питание (щиты, PDU, вводы)</option>
+      </select></div>
       <div><label class="imp-lab">Свич брать из</label><select id="imp-mode" autocomplete="off">
         <option value="neu_else_alt">нового, иначе старого</option>
         <option value="neu">только нового (Anschluss neu)</option>
@@ -251,6 +298,7 @@
     <div class="imp-row imp-row2">
       <div><label class="imp-lab">Формат</label><select id="exp-form" autocomplete="off">
         <option value="patchen">Patchen / Unpatchen (розетки → свичи)</option>
+        <option value="power">Питание (щиты, PDU, вводы)</option>
         <option value="universal">Универсальный список устройств</option>
       </select></div>
       <div><label class="imp-lab">Язык колонок</label><select id="exp-lang" autocomplete="off">
@@ -294,7 +342,7 @@
 
 {% if plugin_version %}<div id="pluginver" title="Что нового и возможности плагина">v{{ plugin_version }}</div>{% endif %}
 
-<script type="module" src="{% static 'netbox_schematic/js/main.js' %}"></script>
-<script type="module" src="{% static 'netbox_schematic/js/responsive.js' %}"></script>
+<script type="module" src="{% static 'netbox_schematic/js/main.js' %}?v={{ plugin_version }}"></script>
+<script type="module" src="{% static 'netbox_schematic/js/responsive.js' %}?v={{ plugin_version }}"></script>
 </body>
 </html>

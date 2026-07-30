@@ -13,6 +13,7 @@ import { SchemaManager } from "./schema.js";
 import { DeviceManager } from "./device.js";
 import { LayerManager } from "./layers.js";
 import { IpForm } from "./ipform.js";
+import { VlanForm } from "./vlanform.js";
 import { SearchManager } from "./search.js";
 import { RoleFilter } from "./filter.js";
 import { initTheme } from "./theme.js";
@@ -27,6 +28,7 @@ app.device = new DeviceManager(app);
 app.schema = new SchemaManager(app);
 app.layers = new LayerManager(app);
 app.ipform = new IpForm(app);
+app.vlanform = new VlanForm(app);   // L2: VLAN membership of a physical port
 app.rack = new RackManager(app);
 app.tree = new TreeManager(app);
 app.search = new SearchManager(app);

@@ -75,6 +75,10 @@ class PatchenForm(ExcelForm):
         from .. import importer
         return importer.import_conflicts(plan, site)
 
+    def warnings(self, plan):
+        from .. import importer
+        return importer.plan_warnings(plan)
+
     def collect(self, **scope):
         from .. import exporter
         return exporter.collect_rows(**scope)

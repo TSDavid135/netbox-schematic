@@ -8,6 +8,27 @@
 // loaded as its own <script> (not via main.js), works on all canvases.
 
 const body = document.body;
+
+// The bottom sheet needs a real HEADER, not a strip drawn over the content: with a
+// sticky ::before the content still scrolls behind it and shows through the rounded
+// corners. So each detail panel is wrapped ONCE, at startup, into
+//   .sheet-wrap > .sheet-grip + #detail
+// and the panel itself becomes the scrolling body inside a non-scrolling frame.
+// Once, at startup, because every panel writer replaces #detail.innerHTML wholesale
+// — a grip inside it would not survive the first render. On desktop the wrapper is
+// `display: contents`, so it vanishes from layout and #detail stays the flex column
+// it has always been.
+for (const id of ["detail", "ipam-detail"]) {
+  const el = document.getElementById(id);
+  if (!el || !el.parentElement || el.parentElement.classList.contains("sheet-wrap")) continue;
+  const wrap = document.createElement("div");
+  wrap.className = "sheet-wrap";
+  wrap.id = id + "-sheet";
+  el.parentElement.insertBefore(wrap, el);
+  const grip = document.createElement("div");
+  grip.className = "sheet-grip";
+  wrap.append(grip, el);
+}
 // Closing the detail sheet resets its scroll — so the NEXT open starts at the top
 // (an in-place edit keeps the position; see device.show / keepScroll).
 const resetDetailScroll = () => {
@@ -83,7 +104,7 @@ if (sidebar) sidebar.addEventListener("click", e => {
 // the detail (device.show / _showNet); we only raise the sheet after their
 // microtask. On desktop the class is a no-op (sheet only in a media query).
 document.addEventListener("click", e => {
-  if (e.target.closest(".node .nm, .it-net, .net-block, .nb-cap, .nc-corner, .net-chip"))
+  if (e.target.closest(".node .nm, .it-net, .net-block, .nb-cap, .nc-corner, .net-chip, .vbus, .stack-badge"))
     setTimeout(() => body.classList.add("sheet-open"), 0);
 });
 
@@ -137,8 +158,10 @@ const swipeClose = (id, scrollerSel, onClose, sideAware) => {
   el.addEventListener("touchend", end, { passive: true });
   el.addEventListener("touchcancel", end, { passive: true });
 };
-swipeClose("detail", null, dropSheet, true);
-swipeClose("ipam-detail", null, dropSheet, true);
+// The swipe now moves the WRAPPER (it is the sheet); the scroll it must not fight
+// belongs to #detail inside it, passed as the scroller.
+swipeClose("detail-sheet", "#detail", dropSheet, true);
+swipeClose("ipam-detail-sheet", "#ipam-detail", dropSheet, true);
 swipeClose("rackpane", "#racks", () => { body.classList.add("rack-collapsed"); body.classList.remove("rack-edit"); }, false);
 
 // Esc — close overlays.

@@ -1,5 +1,14 @@
   /* Theme tokens moved to theme.css (loaded before this file). */
   * { box-sizing: border-box; }
+  /* Chrome is not text. A stray drag that highlights «Vw», a panel caption or a
+     port number looks like something broke, and none of it is worth copying. What
+     IS text keeps its selection: the detail panel, tooltips, inputs, and a node's
+     body (which has a deliberate click-to-select — see .node.text-sel). */
+  #layers, #rolefilter, #schemtools, #legend, #viewswitch, #zoomhint, #palette,
+  .pane-title, .portmenu, .stack-badge, .vbus, .trace-x, .edge-label,
+  .ly-toggle, .fl-toggle, .st-toggle, .gb-label, .modebtn, .pane-toggle, .vs-btn {
+    -webkit-user-select: none; user-select: none;
+  }
   html { scrollbar-color: var(--scroll-thumb) transparent; }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -121,10 +130,10 @@
      The toggle sits on the same horizontal level as the block title. */
   .modeswitch.ms-corner { top: 9px; right: 12px; }
   .modeswitch.ms-intitle { top: 50%; right: 14px; transform: translateY(-50%); }
+  /* Schema toggle — centered over the canvas, a direct child of #schemoverlay so
+     50% is the pane's centre. `top` matches .pane-title's padding-top, which puts
+     it on the title's line, in the empty space right of the (left-aligned) title. */
   .modeswitch.schem-mid { top: 16px; left: 50%; transform: translateX(-50%); }
-  /* Schema toggle — INLINE next to the view switch (Физический / Беспроводной)
-     in the top-right overlay bar (not absolute). Flex gap handles spacing. */
-  .modeswitch.schem-topbtn { position: static; transform: none; }
   .modeswitch .mdi { font-size: 13px; }
   /* which label shows — by aria-pressed (true = edit). In narrow blocks
      (.compact: tree, racks) edit shrinks to the short form (.ms-edit-short). */
@@ -292,6 +301,11 @@
     content: "+"; position: absolute; inset: 0; display: flex; align-items: center;
     justify-content: center; font-size: 72px; font-weight: 300; color: #fff; opacity: 0.9;
   }
+  /* On desktop the sheet wrapper must not exist as a box: `display: contents` drops
+     it out of layout so #detail stays the flex item it has always been. It becomes a
+     real frame only inside the mobile/tablet media queries. */
+  .sheet-wrap { display: contents; }
+  .sheet-grip { display: none; }
   #detail {
     width: 330px; flex-shrink: 0; overflow-y: auto;
     background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px;
@@ -716,6 +730,16 @@
      make them less prominent (not fully hidden). */
   body.view-net .node.powerbox { opacity: 0.32; }
   body.view-net #wires path.feedwire { opacity: 0.15; }
+  /* VLAN view is an L2 cut — power boxes and feeders are not part of it. */
+  /* The link to a bus BELOW its port has to cross the node body, and #wires sits
+     UNDER the nodes (z-index 1 vs 3) — so it vanished halfway down and the port
+     looked unconnected. This cut draws no cables at all, so lifting the whole
+     layer is safe here and nowhere else; the paths are pointer-events:none, so
+     nothing underneath becomes unclickable. 25 is what .above-ports already uses,
+     and the bus block at 30 still wins. */
+  body.view-vlan #wires { z-index: 25; }
+  body.view-vlan .node.powerbox { opacity: 0.32; }
+  body.view-vlan #wires path.feedwire { opacity: 0.15; }
 
   .node {
     position: absolute; background: var(--panel);
@@ -738,13 +762,17 @@
   .node .mdl { font-size: 9px; color: var(--muted); margin-top: 1px; }
   /* Off-rack node — more compact, with a solution icon on the left. Shorter
      than usual (power/interfaces still stick out on the edges), in a row. */
+  /* Icon + text CENTRED, like an in-rack node's name. Left-aligning it meant the
+     single-device (trace) view — where every device is drawn as this card — put the
+     name off to one side, so the same switch looked different depending on how you
+     opened it. */
   .node.offrack {
-    height: 62px; flex-direction: row; align-items: center; justify-content: flex-start;
+    height: 62px; flex-direction: row; align-items: center; justify-content: center;
     gap: 9px; padding: 0 12px;
   }
   .node.offrack .node-ic { font-size: 24px; line-height: 1; color: var(--accent); flex-shrink: 0; }
-  .node.offrack .node-tt { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-  .node.offrack .node-nmrow { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+  .node.offrack .node-tt { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+  .node.offrack .node-nmrow { display: flex; align-items: baseline; justify-content: center; gap: 6px; white-space: nowrap; }
   .node.offrack .nm { font-size: 12px; }
   .node.offrack .mdl { margin-top: 0; white-space: nowrap; }
   /* First interface's IP next to the name (or "+ address" button if no IP). */
@@ -758,8 +786,12 @@
      the top-right corner; shown only once the chain grows past the root
      (#schema.trace-multi) and never on the root itself. */
   .trace-x {
+    /* z-index 27, not 7: in the VLAN cut the wire layer is lifted to 25 (it has to
+       be — a link to a bus below its port crosses the node body), and at 7 the ✕ was
+       drawn UNDER it. Clickable, since the lines are pointer-events:none, but not
+       findable, which is the same thing as missing. */
     position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%;
-    display: none; align-items: center; justify-content: center; padding: 0; cursor: pointer; z-index: 7;
+    display: none; align-items: center; justify-content: center; padding: 0; cursor: pointer; z-index: 27;
     background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); box-shadow: 0 2px 6px rgba(0,0,0,.4);
   }
   .trace-x .mdi { font-size: 14px; line-height: 1; }
@@ -808,9 +840,12 @@
   .edge-label {
     position: absolute; font-size: 8px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.07em; pointer-events: none;
+    user-select: none;
   }
-  .edge-label.t { top: 3px; left: 8px; }
-  .edge-label.b { bottom: 3px; left: 8px; }
+  /* 5px, not 3: the caption sits directly under the port row, and the dots grew
+     (DOT 19) — two more pixels keep a gap instead of a graze. */
+  .edge-label.t { top: 5px; left: 8px; }
+  .edge-label.b { bottom: 5px; left: 8px; }
   .edge-label.b.r { left: auto; right: 8px; }
 
   /* ── Device catalog (catalog.js) ─────────────────────────────────────── */
@@ -964,9 +999,10 @@
   .ced-status.ced-err { color: var(--err); }
 
   .port {
-    position: absolute; width: 16px; height: 16px; border-radius: 50%;
+    /* Diameter must match core.js DOT — the row pitch is computed from it. */
+    position: absolute; width: 19px; height: 19px; border-radius: 50%;
     border: 2px solid; background: var(--bg);
-    font-size: 9.5px; font-family: var(--mono); color: var(--text);
+    font-size: 10.5px; font-family: var(--mono); color: var(--text);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; user-select: none; z-index: 20;
     transition: box-shadow 0.12s, opacity 0.12s;
@@ -994,6 +1030,91 @@
      used or view mode) — visible but muted, so they don't clash with the network. */
   .port.net-dim { opacity: 0.28; }
   .port.net-dim:hover { opacity: 1; }
+  /* VLAN view. Fading is by CAPABILITY, not by content: only panel transit ports
+     step back, every switch port stays fully readable — those are the ones you
+     came here to assign. Membership is shown by a ring instead of by opacity. */
+  .port.vlan-dim { opacity: 0.3; }
+  .port.vlan-dim:hover { opacity: 1; }
+  /* Carries a VLAN → BORDER colour only. The fill is already taken: for every
+     port kind it means "a cable is attached" (.port.used.*), so filling here
+     would say two different things with one mark. Border and fill now compose —
+     a cabled port in a VLAN shows both at once. */
+  .port.has-vlan { border-color: var(--vlan); }
+  /* ── VLAN bus block (VLAN view) ────────────────────────────────────────────
+     There is no bus object in NetBox — membership lives on the interface — so the
+     bus is drawn only where it answers something: over the port you clicked. One
+     rectangle per VLAN of that port, joined to it by whiskers. Colour per bus from
+     the VID (--bus, set in JS); --vlan gold keeps its own job on the port dot
+     ("carries some VLAN"), a different question from "which one". */
+  /* Zero-size anchor: the bars inside are absolutely positioned, so the same code
+     places them either centred on the port or stretched across their members. The
+     scale lives here, so a bar's canvas width is its css width × that scale. */
+  #vlanbus {
+    position: absolute; z-index: 30; display: none;
+    width: 0; height: 0; transform-origin: 0 0;
+  }
+  .vbus {
+    position: absolute; padding: 3px 9px; border-radius: 5px; cursor: pointer;
+    white-space: nowrap; box-sizing: border-box;
+    /* A short VID must not shrink to a stub; a long name must not stretch the
+       block wider than the node it hangs over — until it goes wide, where the
+       width IS the message (how far the VLAN reaches) and the cap comes off. */
+    min-width: 104px; max-width: 240px; min-height: 22px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    /* The name sits ON the rectangle — never a tooltip, never hover-gated — so it
+       reads the same on a phone as on a desktop, like site and location labels.
+       Its colour is the THEME's, not the bus's: white on dark, black on light. The
+       rectangle already carries the VLAN colour; the text only has to be read. */
+    color: var(--vbus-fg); background: var(--bus, var(--vlan));
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    transition: opacity 0.18s, filter 0.12s;
+  }
+  /* The name is its own element so a wide bar can SLIDE it along the part of
+     itself you can actually see (JS: _stickVlanCaps). Collapsed it just sits in
+     the flex centre and may ellipsis; wide it leaves the flow — the bar's width
+     comes from the ports it spans, not from the text — and nothing is clipped. */
+  /* The name is ALWAYS light. The bar underneath is a different hue for every VLAN
+     and a different lightness in each theme, so inheriting the page's text colour
+     made it black on one bus and white on the next. One colour plus a shadow reads
+     on all of them, and the shadow is what carries the pale ones. */
+  .vbus .vb-cap {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+  .vbus.wide { max-width: none; overflow: visible; }
+  .vbus.wide .vb-cap {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    max-width: none; overflow: visible; text-overflow: clip;
+  }
+  .vbus:hover { filter: brightness(1.15); }
+  /* A tagged membership is the dashed one — a tag is added on top, and a port may
+     hold several at once, so solid stays the single untagged VLAN. */
+  /* 55%, not 30%: the caption is white now, and a bar that pale could not hold it.
+     The dashed border still carries the "tagged" distinction. */
+  .vbus.tagged {
+    background: color-mix(in srgb, var(--bus) 55%, var(--panel));
+    border: 1px dashed var(--bus, var(--vlan));
+  }
+  path.vlanwhisk { fill: none; stroke-width: 1.8; pointer-events: none; }
+  path.vlanwhisk.tagged { stroke-dasharray: 5 4; }
+  /* Layer pick dims the other buses, matching what it does to wires. */
+  .vbus.layer-dim, path.vlanwhisk.layer-dim { opacity: 0.12; }
+  .vbus.layer-hl { box-shadow: 0 0 0 2px var(--bus, var(--vlan)), 0 2px 10px rgba(0, 0, 0, 0.45); }
+  /* Picked for assignment — deliberately loud: it is a pending WRITE across
+     possibly many ports, and it must not be mistaken for a hover or a trace. */
+  .port.vlan-pick {
+    box-shadow: 0 0 0 2px var(--err), 0 0 8px var(--err);
+    z-index: 22;
+  }
+  /* VLAN pick block: the shared .portmenu look, only positioned differently —
+     absolute inside the zoomed canvas (glued to the ports), and counter-scaled
+     from JS so it reads the same size as the link menu at any zoom. */
+  #vlanbar {
+    position: absolute; z-index: 40; align-items: center; white-space: nowrap;
+    transform-origin: center center;
+  }
+  #vlanbar .vb-n { color: var(--muted); font-size: 11px; padding: 0 2px; }
   /* Wireless port: wireless color (border + fill when used). */
   .port.p-wl { border-color: var(--wireless); }
   .port.used.p-wl { background: var(--wireless); }
@@ -1013,12 +1134,20 @@
      trace .hl, connect-target .aim-ok) keeps its own ring; else :hover (equal specificity,
      later in source) would override it — and on touch the sticky :hover would hide the
      pending/target ring entirely. */
-  .port:not(.hl):not(.pending):not(.aim-ok):hover { transform: scale(1.5); z-index: 30; box-shadow: 0 0 0 3px var(--bg); }
+  .port:not(.hl):not(.pending):not(.aim-ok):not(.tap-hl):hover { transform: scale(1.5); z-index: 30; box-shadow: 0 0 0 3px var(--bg); }
   .port.pending { box-shadow: 0 0 0 3px var(--err); transform: scale(1.3); }
   /* Port at the end of a highlighted/hovered wire: bg-color gap + bright ring
      + glow so the dot shows even on a filled (used) port — else "only the wire
      glows". z-index above neighboring ports. */
-  .port.hl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ok), 0 0 9px 2px var(--hl-glow); transform: scale(1.4); z-index: 26; }
+  /* .hl — hover/trace highlight (added and removed in pairs, both ends of a link).
+     .tap-hl — "you tapped this port", one at a time, any port, cable or not. Same
+     look on purpose: it means the same thing to the eye, it just has a different
+     owner, and sharing one class had the two clearing each other. */
+  .port.hl, .port.tap-hl { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ok), 0 0 9px 2px var(--hl-glow); transform: scale(1.4); z-index: 26; }
+  /* A node answers a tap the same way a port does — same green, so "this is the one
+     the menu is about" is one visual idea, not two. No scale: a node is a card, and
+     nudging its size would shift everything anchored to it (ports, wires, the menu). */
+  .node.tap-hl { outline: 2px solid var(--ok); outline-offset: 2px; box-shadow: 0 0 12px 2px var(--hl-glow); }
   .port.aim-dim { opacity: 0.12; pointer-events: none; }
   .port.aim-ok { box-shadow: 0 0 0 2px var(--ok); }
 
@@ -1135,15 +1264,25 @@
   #legend .lg-sub:first-child { margin-top: 0; }
   #zoomhint { display: none; }
 
-  /* link mini-menu */
-  #linkmenu {
-    position: fixed; z-index: 55; display: none; gap: 4px;
+  /* Floating action strip near a port — ONE look for every "what do you want to
+     do here?" popup on the canvas (link menu, VLAN pick). Only positioning differs
+     per use: the link menu is fixed at the cursor, the VLAN one is absolute inside
+     the zoomed canvas so it stays glued to its ports. */
+  .portmenu {
+    display: none; gap: 4px;
     background: var(--panel-2); border: 1px solid var(--line);
     border-radius: 8px; padding: 4px; box-shadow: 0 6px 22px rgba(0,0,0,0.5);
   }
-  #linkmenu button { padding: 4px 9px; font-size: 13px; border-radius: 6px; }
-  #linkmenu .x:hover { border-color: var(--err); color: var(--err); }
-  #linkmenu .up:hover { border-color: var(--accent); color: var(--accent); }
+  .portmenu button { padding: 4px 9px; font-size: 13px; border-radius: 6px; }
+  /* ✕ is DISMISS now, so it stops wearing the destructive colour — the red belongs
+     to the trash button, which is the one that deletes. */
+  .portmenu .x:hover { border-color: var(--accent); color: var(--accent); }
+  .portmenu .up:hover { border-color: var(--accent); color: var(--accent); }
+  .portmenu .go:hover { border-color: var(--accent); color: var(--accent); }
+  .portmenu .rm { color: var(--muted); }
+  .portmenu .rm:hover { border-color: var(--err); color: var(--err); }
+  #linkmenu, #nodemenu { position: fixed; z-index: 55; }
+  .portmenu .hide:hover { border-color: var(--err); color: var(--err); }
 
   /* tree context menu (RMB) */
   .treectx {
@@ -1234,6 +1373,53 @@
   #ipform .if-addr.busy .if-adot { background: var(--err); }
   #ipform .if-addr.busy { color: var(--muted); }
 
+  /* VLAN on a port — same popover language as #ipform */
+  #vlanform {
+    position: fixed; z-index: 58; display: none;
+    background: var(--overlay-bg); border: 1px solid var(--line);
+    border-radius: 9px; box-shadow: var(--overlay-shadow);
+  }
+  #vlanform.open { display: block; }
+  #vlanform .vf-main { padding: 10px; width: 288px; }
+  #vlanform .vf-head { font-weight: 600; font-size: 13px; color: var(--accent); margin-bottom: 2px; }
+  #vlanform .vf-where { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-bottom: 8px; }
+  #vlanform .vf-where .vf-port { color: var(--text); display: inline-flex; align-items: center; gap: 4px; }
+  #vlanform .vf-where .vf-port .c-portdot { width: 18px; height: 18px; font-size: 9px; margin-right: 0; }
+  #vlanform .vf-lbl { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 6px 0 3px; }
+  #vlanform select, #vlanform input[type=text], #vlanform .vf-search {
+    width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 9px; font-size: 13px;
+  }
+  #vlanform .vf-search { margin-bottom: 4px; }
+  #vlanform .vf-search:focus, #vlanform select:focus { border-color: var(--accent); outline: none; }
+  #vlanform .vf-taglist { max-height: 168px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+  #vlanform .vf-tagrow {
+    display: flex; align-items: center; gap: 7px; padding: 3px 5px; border-radius: 5px;
+    font-family: var(--mono); font-size: 12px; color: var(--text); cursor: pointer;
+  }
+  #vlanform .vf-tagrow:hover { background: var(--panel-2); }
+  #vlanform .vf-empty { color: var(--muted); font-size: 12px; padding: 3px 5px; }
+  #vlanform .vf-new { margin-top: 8px; }
+  #vlanform .vf-newbtn { padding: 3px 9px; font-size: 12px; border-radius: 6px; }
+  #vlanform .vf-newrow { display: none; align-items: center; gap: 4px; margin-top: 6px; }
+  #vlanform .vf-newrow .vf-nvid { width: 54px; flex-shrink: 0; }
+  #vlanform .vf-newrow .vf-nname { flex: 1 1 auto; min-width: 0; }
+  #vlanform .vf-newrow input[type=text], #vlanform .vf-newrow .vf-nvid, #vlanform .vf-newrow .vf-nname {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 7px; font-size: 12px;
+  }
+  #vlanform .vf-nglobal { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+  #vlanform .vf-nok { padding: 4px 7px; border-radius: 6px; flex-shrink: 0; }
+  /* What NetBox will silently drop on save — see vlanform.js header. */
+  #vlanform .vf-warn {
+    display: none; margin-top: 8px; padding: 6px 8px; border-radius: 6px;
+    background: var(--panel-2); border: 1px solid var(--power);
+    color: var(--text); font-size: 11.5px; line-height: 1.45;
+  }
+  #vlanform .vf-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 12px; }
+  #vlanform .vf-btns button { padding: 4px 11px; font-size: 13px; border-radius: 6px; }
+  #vlanform .vf-cancel:hover { border-color: var(--err); color: var(--err); }
+
   /* custom tooltip */
   #tip {
     position: fixed; z-index: 60; display: none; pointer-events: none;
@@ -1280,6 +1466,12 @@
     margin: 16px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line); padding-bottom: 4px;
   }
+  /* VLAN panel (opened from a bus bar): a chip summary, then the member interfaces
+     under a clickable device heading — the device name is the natural next question,
+     so it opens that device's own passport. */
+  #detail .vlan-sum { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 0 2px; }
+  #detail h4.vlan-dev { cursor: pointer; text-transform: none; letter-spacing: 0.02em; font-size: 12px; }
+  #detail h4.vlan-dev:hover { color: var(--accent); border-bottom-color: var(--accent); }
   /* Device info (key→value) below "Connections". */
   #detail .dev-info { display: flex; flex-direction: column; gap: 4px; }
   #detail .di-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
@@ -1294,6 +1486,12 @@
   .chip.c-dev  { border-color: rgba(79,195,232,0.45); }
   .chip.c-ip   { border-color: rgba(111,191,138,0.5); color: var(--ok); }
   .chip.c-port { border-color: rgba(184,196,208,0.35); }
+  /* A VLAN chip takes ITS OWN VLAN's colour (--bus, set inline from the VID), the
+     same one the bus and the port ring use — one VLAN, one colour, everywhere it
+     is named. The "+N тег." chip stays muted on purpose: it stands for several
+     VLANs at once, and any single colour there would be a lie. */
+  .chip.c-vlan { color: var(--bus, var(--accent)); border-color: color-mix(in srgb, var(--bus, var(--accent)) 45%, transparent); }
+  .chip.c-vlan.tagged { color: var(--muted); border-color: rgba(184,196,208,0.35); }
   /* Port name: single rounded badge {type + number port-dot}. The dot is
      INSCRIBED inside (not clipped). */
   .port-badge {
@@ -1338,6 +1536,10 @@
   .iface-row.linked:hover { background: rgba(147,161,175,0.08); }
   .iface-row button { padding: 1px 9px; font-size: 11px; border-radius: 999px; margin-left: auto; }
   /* Delete a free port (× in the row) + "Add port" button below the list. */
+  /* Second+ button in the row: the generic rule gives every button margin-left:
+     auto, which would split the free space between them instead of grouping. */
+  .iface-row .iface-vlan { margin-left: 4px; padding: 1px 6px; color: var(--muted); }
+  .iface-row .iface-vlan:hover { color: var(--accent); }
   .iface-row .iface-del { margin-left: 4px; padding: 1px 6px; color: var(--muted); }
   .iface-row .iface-del:hover { color: #e5644d; }
   .addport-btn { display: inline-flex; align-items: center; gap: 6px; margin: 6px 0 10px; font-size: 12px; }

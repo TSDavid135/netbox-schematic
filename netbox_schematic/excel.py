@@ -149,6 +149,23 @@ class ExcelForm:
         devices). Default — nothing to arrange."""
         return {"racks": [], "standalone": []}
 
+    def warnings(self, plan):
+        """Optional: inconsistencies to show in the preview — [{"row", "msg"}].
+        They don't block the import; they tell the user what WON'T be created.
+        Form-specific (the patch sheet and the power sheet check different
+        things), so it must never be hardwired to one form's checker."""
+        return []
+
+    def conflicts(self, plan, site):
+        """Optional: what the plan collides with in `site` (rendered as the
+        keep/overwrite table). Default — no collisions to report."""
+        return {"devices": [], "occupancy": {}, "columns": []}
+
+    @classmethod
+    def importable(cls):
+        """False for export-only layouts (they never implemented build_plan)."""
+        return cls.build_plan is not ExcelForm.build_plan
+
 
 # ── registry ────────────────────────────────────────────────────────────────
 
@@ -245,6 +262,40 @@ def _find_header(ws, form, max_col):
         if col.key not in mapping and col.after and col.after in mapping:
             mapping[col.key] = mapping[col.after] + 1
     return header_end, mapping
+
+
+def detect_form(file_or_path, default="patchen"):
+    """Guess which registered form a workbook is laid out in — so the import can
+    take a Патчен sheet or a «Питание» sheet without asking. Scores every form by
+    how many of ITS columns the header actually matches (key columns must be
+    among them, else the form can't drive an import); ties go to the form with
+    more matched columns, then to `default`.
+    Read-only: the caller re-opens the file to parse it."""
+    best, best_score = None, 0
+    for cls in all_forms().values():         # registry holds CLASSES (get_form instantiates)
+        # Export-only layouts (e.g. «universal») can't drive an import.
+        if not cls.importable():
+            continue
+        form = cls()
+        try:
+            records, meta = read_records(file_or_path, form)
+        except Exception:
+            continue
+        finally:
+            try:
+                file_or_path.seek(0)      # rewind the upload for the next probe
+            except Exception:
+                pass
+        keys = form.key_columns or ()
+        mapping = meta.get("columns") or {}
+        if keys and not all(k in mapping for k in keys):
+            continue
+        if not records:
+            continue
+        score_ = len(mapping) + (2 if keys else 0)
+        if score_ > best_score:
+            best, best_score = form, score_
+    return best or get_form(default)
 
 
 def read_records(file_or_path, form):

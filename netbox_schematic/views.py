@@ -127,12 +127,24 @@ class SchematicGraphView(LoginRequiredMixin, View):
         ]
         ports = {}
         port_index = {}   # (otype, id) → {id, name, device} — for embedding into cable terminations
+
+        def vlan_json(v):
+            # Compact VLAN stub: layers.js (panel + port badge), the VLAN form and
+            # ipform's "prefixes of this port's VLAN" branch need only id/vid/name.
+            return {"id": v.id, "vid": v.vid, "name": v.name} if v else None
+
         for key, Model, otype in PORTS:
             # Every port kind has a `type` field (interface speed, console/power
             # connector) — expose it so the tooltip can show the port type.
             has_type = True
+            qs = Model.objects.filter(device_id__in=dev_ids)
+            if key == "interface":
+                # VLAN fields are read per interface — without these two the graph
+                # would fire 3 extra queries PER PORT (untagged, svlan, tagged).
+                qs = qs.select_related("untagged_vlan", "qinq_svlan") \
+                       .prefetch_related("tagged_vlans")
             arr = []
-            for p in Model.objects.filter(device_id__in=dev_ids):
+            for p in qs:
                 dev = {"id": p.device_id, "name": dev_name.get(p.device_id)}
                 o = {
                     "id": p.id, "name": p.name, "device": dev,
@@ -143,6 +155,13 @@ class SchematicGraphView(LoginRequiredMixin, View):
                                  if p.type else None)
                 if key == "interface":
                     o["wireless_link"] = {"id": p.wireless_link_id} if p.wireless_link_id else None
+                    # L2 membership. Shapes match the NetBox REST serializer, so the
+                    # frontend treats a graph port and a REST interface the same way.
+                    o["mode"] = ({"value": p.mode, "label": p.get_mode_display()}
+                                 if p.mode else None)
+                    o["untagged_vlan"] = vlan_json(p.untagged_vlan)
+                    o["tagged_vlans"] = [vlan_json(v) for v in p.tagged_vlans.all()]
+                    o["qinq_svlan"] = vlan_json(p.qinq_svlan)
                 arr.append(o)
                 port_index[(otype, p.id)] = {"id": p.id, "name": p.name, "device": dev}
             ports[key] = arr
@@ -211,15 +230,27 @@ class SchematicImportView(LoginRequiredMixin, View):
         from django.db import transaction
         from dcim.models import Site
         from . import importer
-        from .excel import get_form
+        from .excel import get_form, detect_form
 
         f = request.FILES.get("file")
         if not f:
             return JsonResponse({"error": "файл не получен"}, status=400)
+        picked = (request.POST.get("form") or "").strip()
         try:
-            form = get_form(request.POST.get("form") or "patchen")
+            # Empty → sniff the layout from the header (Патчен / Питание / …), so
+            # a power sheet imports without the user picking a format by hand.
+            form = get_form(picked) if picked else detect_form(f)
         except KeyError as e:
             return JsonResponse({"error": str(e)}, status=400)
+        if not type(form).importable():
+            # Export-only layout (no build_plan) — say so instead of blowing up
+            # with NotImplementedError deeper in.
+            return JsonResponse({"error": "форма «%s» только для экспорта — импортировать её нельзя"
+                                          % (form.label or form.id)}, status=400)
+        try:
+            f.seek(0)
+        except Exception:
+            pass
         sw_mode = request.POST.get("sw_mode", "neu_else_alt")
         try:
             rows, meta = importer.parse_workbook(f, form)
@@ -269,7 +300,7 @@ class SchematicImportView(LoginRequiredMixin, View):
         conflicts = form.conflicts(plan, prev_site)
         return JsonResponse({"ok": True, "summary": summary, "total": len(plan),
                              "plan": plan[:60], "meta": meta, "placement": form.placement(plan),
-                             "warnings": importer.plan_warnings(plan),
+                             "warnings": form.warnings(plan),   # per-form checks (patch ≠ power)
                              "conflicts": conflicts.get("devices", []),
                              "occupancy": conflicts.get("occupancy", {}),
                              "conflict_cols": conflicts.get("columns", [])})

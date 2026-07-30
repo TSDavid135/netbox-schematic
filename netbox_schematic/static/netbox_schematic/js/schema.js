@@ -10,12 +10,13 @@ import {
 } from "./core.js";
 import { api, apiAll, apiAllByIds, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
+import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox, portAnchor } from "./schema_util.js";
 import { NodeMethods } from "./schema_nodes.js";
 import { ContourMethods } from "./schema_contours.js";
 import { PowerMethods } from "./schema_power.js";
 import { iconForDevice } from "./solutions.js";
 import { WireMethods } from "./schema_wires.js";
+import { VlanBusMethods } from "./schema_vlanbus.js";
 import { InteractMethods } from "./schema_interact.js";
 import { SOLUTIONS, SOLUTION_CATS, catalogGroup } from "./solutions.js";
 
@@ -35,6 +36,12 @@ function _mixin(target, ...protos) {
 // next server room (AREA_SEP — with margin for contour clamp bounds, see clampX).
 const OFFGEO = { HEAD_H: 40, PAD: 14, ROW_H: 108, HGAP: 20, VGAP: 24, SUBCOL_GAP: 44, AREA_SEP: 140 };
 
+// Row pitch inside off-rack type contours. ROW_H is the tuned default; the «промежуток
+// нод» slider must move OFF-RACK rows too (it used to affect racks only), so it shifts
+// this pitch by the same delta as in a rack — at the default gap the layout is unchanged.
+// Floor 84 = node body (64) + a minimal breath, matching the tightest in-rack pitch.
+const offRowH = () => Math.max(84, OFFGEO.ROW_H + ((state.nodeGap ?? NODE_GAP) - NODE_GAP));
+
 export class SchemaManager {
   constructor(app) {
     this.app = app;
@@ -48,7 +55,13 @@ export class SchemaManager {
     // and close an open type-picker popover.
     Mode.onChange("schema", active => {
       this._highlightStack(null);   // a stack highlight must not linger across a mode switch (it dims the whole canvas)
-      if (!active) { this.setPending(null); if (this._closeCablePop) this._closeCablePop(); }
+      if (!active) {
+        this.setPending(null);
+        if (this._closeCablePop) this._closeCablePop();
+        // …and the VLAN pick: assigning is an edit-mode action, so its block must
+        // not survive into view mode, where a click means "show me this group".
+        if (this._clearVlanPick) this._clearVlanPick();
+      }
       // Edit-mode change without a full renderAll: re-lay nodes (in net view —
       // green assignable ports and the wireless "+"), redraw panels ("+ feeder").
       if (Object.keys(state.nodeEls).length) {
@@ -77,19 +90,13 @@ export class SchemaManager {
       <div id="schema"><svg id="wires" class="${state.wiresAbovePorts ? "above-ports" : ""}"></svg></div>
       <div id="zoomhint">масштаб 100% · Ctrl+колесо или колесо</div>`;
     $("#schemoverlay").innerHTML = `
+      ${modeBtn("schema", "schem-mid")}
       <div id="schem-topright">
-        <div class="st-topbar">
-          ${modeBtn("schema", "schem-topbtn")}
-          <div id="viewswitch" title="Режим отображения схемы" data-view="${state.viewMode}">
-            <button class="vs-btn" data-view="phys"><i class="mdi mdi-lan"></i> Физический</button>
-            <button class="vs-btn" data-view="net"><i class="mdi mdi-access-point-network"></i> Беспроводной</button>
-          </div>
-        </div>
         <div class="st-squares">
           <div id="layers">
             <div class="ly-toggle" id="ly-toggle">
-              <span class="short-name">Lr</span>
-              <span class="full-name"><i class="mdi mdi-layers-outline"></i> Слои</span>
+              <span class="short-name">Vw</span>
+              <span class="full-name"><i class="mdi mdi-layers-outline"></i> Отображение</span>
               <span class="arrow"><i class="mdi mdi-chevron-down"></i></span>
             </div>
             <div class="ly-body"></div>
@@ -190,7 +197,16 @@ export class SchemaManager {
     ngRange.addEventListener("input", () => { ngVal.textContent = ngRange.value + "px"; });
     ngRange.addEventListener("change", () => {
       state.nodeGap = parseInt(ngRange.value, 10);
-      if (this._lastRender) this.render(this._lastRender.group, this._lastRender.byRack, this._lastRender.devPorts);
+      if (!this._lastRender) return;
+      const r = this._lastRender;
+      this.render(r.group, r.byRack, r.devPorts);
+      // render() rebuilds the WHOLE overlay markup — «Слои» and «Фильтры» come
+      // back as empty shells, and the wires need redrawing over the new
+      // geometry. renderAll does these three after every render; this direct
+      // re-render must too (else the layers panel just goes blank).
+      if (this.app.layers) this.app.layers.renderPanel();
+      this.redrawWires();
+      if (this.app.filter) this.app.filter.render();
     });
     $("#st-liftwires").addEventListener("click", e => {
       state.wiresAbovePorts = !state.wiresAbovePorts;
@@ -323,6 +339,8 @@ export class SchemaManager {
     const lastRight = group.length ? this._colX(group.length - 1) + this.SLOT : 300;
     canvas.style.width = (Math.max(lastRight, off.right || 0) + rightPad) + "px";
     canvas.style.height = (Math.max(maxBottom, off.bottom || 0) + botPad) + "px";
+    // VLAN rings on the freshly built dots (VLAN view only).
+    this._paintVlanPorts();
     // Same area — restore the previous position (don't jerk the view when
     // nodes appear); new area / first render — center.
     if (sameScope) {
@@ -406,6 +424,11 @@ export class SchemaManager {
   // neighbor's other links as whiskers; nodes stay (you can walk the trace).
   async showSingleDevice(dev) {
     setStatus("получаю " + dev.name + "…");
+    // Drop out of «Правка» on the way in. Edit mode is a property of the AREA you
+    // were building, and it survives the switch to one device — where the same
+    // clicks mean something else entirely (a port picks a VLAN instead of opening
+    // its bus, and nothing on screen says why). Coming here is a read.
+    if (Mode.on("schema")) Mode.toggle("schema");
     try {
       const g = await this._fetchDeviceGraph(dev);
       dev._off = this._offKind(dev);
@@ -422,7 +445,27 @@ export class SchemaManager {
       pane.innerHTML = `<p class="pane-title"><span class="pt-label">${dev.name}</span></p>` +
         `<div id="schema"><svg id="wires"></svg></div>`;
       const canvas = $("#schema");
-      const overlay = $("#schemoverlay"); if (overlay) overlay.innerHTML = "";   // no area controls in a trace
+      // A trace drops the area controls — role filter, palette, legend are all
+      // scope-wide — but KEEPS «Отображение»: the physical/VLAN/wireless switch is
+      // the only way to look at this device's L2, and on a phone the trace view is
+      // the schema. Same markup as the area overlay, minus everything scope-wide.
+      const overlay = $("#schemoverlay");
+      if (overlay) {
+        overlay.innerHTML = `
+          <div id="schem-topright">
+            <div class="st-squares">
+              <div id="layers">
+                <div class="ly-toggle" id="ly-toggle">
+                  <span class="short-name">Vw</span>
+                  <span class="full-name"><i class="mdi mdi-layers-outline"></i> Отображение</span>
+                  <span class="arrow"><i class="mdi mdi-chevron-down"></i></span>
+                </div>
+                <div class="ly-body"></div>
+              </div>
+            </div>
+          </div>`;
+        collapsible($("#layers"), $("#ly-toggle"), "layersCollapsed");
+      }
       const node = this._buildTraceNode(dev, g.groups);
       canvas.appendChild(node);
       state.nodeEls[dev.id] = node;
@@ -437,6 +480,9 @@ export class SchemaManager {
       node.style.top = Math.round((ch - nh) / 2) + "px";
       this.applyZoom();
       this._drawTrace();
+      // Ports exist now, so the panel can list what this device actually carries
+      // (VLANs, wireless, console) instead of rendering empty.
+      if (this.app.layers) this.app.layers.renderPanel();
       pane.scrollLeft = (cw - pw) / 2;
       pane.scrollTop = (ch - ph) / 2;
       setStatus("");
@@ -486,13 +532,17 @@ export class SchemaManager {
   // under nodes) and look "dissolved" → route orthogonally AROUND that node.
   _traceCablePath(a, b, center) {
     const [ax, ay] = center(a.el), [bx, by] = center(b.el);
+    // Facing tests, control points and the lane all stay measured from the CENTRES:
+    // moving them would re-shape the curve. Only the two drawn endpoints move out to
+    // the rim (portAnchor), which shortens the line without bending it.
+    const [aax, aay] = portAnchor(a, ax, ay), [bax, bay] = portAnchor(b, bx, by);
     const dA = a.side === "t" ? -1 : 1, dB = b.side === "t" ? -1 : 1;
     const aFacesB = (dA < 0 && by < ay) || (dA > 0 && by > ay);
     const bFacesA = (dB < 0 && ay < by) || (dB > 0 && ay > by);
     if (aFacesB && bFacesA) {
       const K = 46, ay2 = ay + dA * K, by2 = by + dB * K;
-      return `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${ax.toFixed(1)} ${ay2.toFixed(1)}, ` +
-        `${bx.toFixed(1)} ${by2.toFixed(1)}, ${bx.toFixed(1)} ${by.toFixed(1)}`;
+      return `M ${aax.toFixed(1)} ${aay.toFixed(1)} C ${ax.toFixed(1)} ${ay2.toFixed(1)}, ` +
+        `${bx.toFixed(1)} ${by2.toFixed(1)}, ${bax.toFixed(1)} ${bay.toFixed(1)}`;
     }
     // Detour: exit along both port normals and skirt the SIDE of the node whose
     // port faces outward (its body would block a straight cable).
@@ -506,7 +556,7 @@ export class SchemaManager {
       const nl = parseFloat(nEl.style.left) || 0, nw = nEl.offsetWidth;
       laneX = otherX >= nl + nw / 2 ? nl + nw + 26 : nl - 26;  // lane on the far-end side
     } else laneX = Math.min(ax, bx) - 30;
-    return smoothPath([[ax, ay], aS, [laneX, aS[1]], [laneX, bS[1]], bS, [bx, by]]);
+    return smoothPath([[aax, aay], aS, [laneX, aS[1]], [laneX, bS[1]], bS, [bax, bay]]);
   }
   // Remove a node from the trace and everything opened THROUGH it (its subtree),
   // then redraw. The removed nodes' ports vanish from state.ports, so the port
@@ -550,6 +600,9 @@ export class SchemaManager {
     const [cx, cy] = center(p.el);
     const dir = p.side === "t" ? -1 : 1;   // t — up, b — down
     const ey = cy + dir * 36;
+    // Start at the rim (portAnchor); the END and the fade stay measured from the
+    // centre, so the whisker keeps its length-to-fade proportions.
+    const [, sy] = portAnchor(p, cx, cy);
     const gid = "wh" + i;
     const grad = document.createElementNS(NS, "linearGradient");
     grad.id = gid;
@@ -560,7 +613,7 @@ export class SchemaManager {
       `<stop offset="1" style="stop-color:var(--accent);stop-opacity:0"/>`;
     defs.appendChild(grad);
     const path = document.createElementNS(NS, "path");
-    path.setAttribute("d", `M ${cx.toFixed(1)} ${cy.toFixed(1)} L ${cx.toFixed(1)} ${ey.toFixed(1)}`);
+    path.setAttribute("d", `M ${cx.toFixed(1)} ${sy.toFixed(1)} L ${cx.toFixed(1)} ${ey.toFixed(1)}`);
     path.setAttribute("class", "whisker");
     path.setAttribute("stroke", `url(#${gid})`);
     path.dataset.port = portKey(p.otype, p.item.id);
@@ -583,6 +636,10 @@ export class SchemaManager {
     for (const key in state.ports) {
       const p = state.ports[key];
       if (!p.dev || p.dev.id !== devId) continue;
+      // Same detached-element guard as _wireEnds: a port hidden by the current
+      // view keeps its state.ports entry, and a detached el measures as 0,0 —
+      // the whisker would shoot to the canvas corner.
+      if (!p.el.isConnected) continue;
       if (!(p.item.cable || p.item.wireless_link)) continue;
       this._whisker(svg, defs, p, center, wi++);
     }
@@ -810,7 +867,8 @@ export class SchemaManager {
     // Off-rack type contours by location — so the server-room contour encloses
     // them (see _fitContoursToWires). Reset BEFORE the early exit (no off-rack).
     state.offContours = {};
-    const { HEAD_H, PAD, ROW_H, HGAP } = OFFGEO;
+    const { HEAD_H, PAD, HGAP } = OFFGEO;
+    const ROW_H = offRowH();          // follows the «промежуток нод» slider
     const place = (dev, x, y) => {
       const node = document.createElement("div");
       node.className = "node offrack off-" + dev._off;
@@ -935,7 +993,8 @@ export class SchemaManager {
     }
     // Pocket packing: type contours in a top-down column; won't fit above the
     // rack bottom → new sub-column to the right. items — relative (dx,dy) positions.
-    const { HEAD_H, PAD, ROW_H, HGAP, VGAP, SUBCOL_GAP } = OFFGEO;
+    const { HEAD_H, PAD, HGAP, VGAP, SUBCOL_GAP } = OFFGEO;
+    const ROW_H = offRowH();          // same pitch the renderer uses (slider-aware)
     const nodeW = devs => Math.max(...devs.map(d => this._nodeParts(d, devPorts[d.id] || []).width));
     const typeList = devs => {
       const m = new Map();
@@ -1290,39 +1349,52 @@ export class SchemaManager {
     if (canvas) canvas.style.transform = "scale(" + state.zoom + ")";
     const hint = $("#zoomhint");
     if (hint) hint.textContent = "масштаб " + Math.round(state.zoom * 100) + "% · колесо = масштаб";
+    // Zoom moves a wide VLAN bar under the viewport → its sliding caption has to
+    // catch up (the bar itself follows the transform for free).
+    if (this._scheduleStickCaps) this._scheduleStickCaps();
   }
 
-  // physical/wireless view switch
-  // The Wireless view shows radio ports ONLY, replacing the node's groups; the
-  // Physical view shows physical ports (incl. circuit uplinks as a cloud). Port
-  // and node-width relayout is in _layoutNode/relayoutNodes; invisible ports
-  // aren't in the DOM, so cables to them just aren't drawn (redrawWires).
+  // physical / wireless / VLAN view switch
+  // Each view swaps the node's port set and relayouts: Wireless shows radio ports
+  // only, VLAN shows wired interfaces only (panels, sockets, power and console
+  // carry no L2), Physical shows everything physical incl. circuit uplinks.
+  // Relayout is in _layoutNode/relayoutNodes; invisible ports aren't in the DOM,
+  // so cables to them just aren't drawn (redrawWires).
+  //
+  // The switch itself lives INSIDE the «Отображение» panel and is rendered by
+  // LayerManager.renderPanel (it rebuilds .ly-body, so handlers are attached
+  // there, not once here). Views and layers answer the same question — «что я
+  // вижу» — and used to sit in two places, with a layer silently changing the
+  // view; now the segment above the list moves visibly instead.
   _wireViewSwitch() {
-    const sw = $("#viewswitch");
-    if (!sw) return;
-    sw.querySelectorAll(".vs-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const v = btn.dataset.view;
-        if (v === state.viewMode) return;
-        state.viewMode = v;
-        this.applyViewMode();
-      });
-    });
     this.applyViewMode(true);   // initial setup, no relayout (nodes still in render)
   }
   // init=true — only set classes/button (render lays out nodes itself);
   // otherwise — full node relayout for the new mode.
   applyViewMode(init) {
-    const net = state.viewMode === "net";
-    document.body.classList.toggle("view-net", net);
-    document.body.classList.toggle("view-phys", !net);
+    const v = state.viewMode;
+    document.body.classList.toggle("view-net", v === "net");
+    document.body.classList.toggle("view-phys", v === "phys");
+    document.body.classList.toggle("view-vlan", v === "vlan");
+    // The segment may not exist yet (panel not rendered) — renderPanel then draws
+    // it already active, so nothing to sync.
     const sw = $("#viewswitch");
     if (sw) {
-      sw.dataset.view = state.viewMode;
+      sw.dataset.view = v;
       sw.querySelectorAll(".vs-btn").forEach(b =>
-        b.classList.toggle("active", b.dataset.view === state.viewMode));
+        b.classList.toggle("active", b.dataset.view === v));
     }
-    if (!init) this.relayoutNodes();   // relayout ports/width + redrawWires
+    // Leaving the VLAN cut drops the port pick: its block would otherwise hang
+    // over a view where picking means nothing. Cleared BEFORE the relayout, so
+    // the repaint at the end of it finds an empty selection and hides the block.
+    if (v !== "vlan" && this._clearVlanPick) this._clearVlanPick();
+    if (!init) {
+      this.relayoutNodes();   // relayout ports/width + redrawWires
+      // The layer list is per-view (layers.js LAYER_VIEWS), so it has to be rebuilt
+      // for the new one — AFTER the relayout, since the counts come from state.ports.
+      // renderPanel also drops a highlight the new view can no longer offer.
+      if (this.app.layers) this.app.layers.renderPanel();
+    }
   }
   focusDevice(dev) {
     const node = state.nodeEls[dev.id];
@@ -1342,7 +1414,20 @@ export class SchemaManager {
   // global listeners: pan/zoom, cancel-menu, Cancel button
   _wire() {
     window.addEventListener("resize", () => this.redrawWires());
-    this.linkmenu.querySelector(".x").addEventListener("click", async () => {
+    // ✕ closes, and only closes. It used to DELETE the link — a destructive action
+    // behind the one glyph every other panel on this canvas uses to dismiss itself,
+    // with no undo. Deleting moved to its own trash button beside «перевесить».
+    const nodemenu = $("#nodemenu");
+    if (nodemenu) {
+      nodemenu.querySelector(".x").addEventListener("click", () => this._closeTraceNodeMenu());
+      nodemenu.querySelector(".hide").addEventListener("click", () => {
+        const id = this._traceMenuDev;
+        this._closeTraceNodeMenu();
+        if (id != null) this.removeTraceNode(id);
+      });
+    }
+    this.linkmenu.querySelector(".x").addEventListener("click", () => this._closeLinkMenu());
+    this.linkmenu.querySelector(".rm").addEventListener("click", async () => {
       const ctx = state.linkCtx; this._closeLinkMenu();
       if (!ctx) return;
       try {
@@ -1397,6 +1482,7 @@ export class SchemaManager {
     });
     document.addEventListener("mousedown", ev => {
       if (state.linkCtx && !ev.target.closest("#linkmenu")) this._closeLinkMenu();
+      if (this._traceMenuDev != null && !ev.target.closest("#nodemenu")) this._closeTraceNodeMenu();
     });
     // Mobile tooltip's close cross → clear cable/trace highlight.
     document.addEventListener("schematic:tipclose", () => this._clearTrace());
@@ -1406,6 +1492,15 @@ export class SchemaManager {
   }
   _enablePanZoom() {
     const pane = $("#schempane");
+    // The link menu is pinned to VIEWPORT coordinates (position: fixed at the
+    // cursor), so the moment the canvas moves it points at whatever slid under it —
+    // and on touch, panning is how you get anywhere. Any scroll of the pane, by
+    // finger or by wheel, dismisses it. It is a two-action menu (re-thread, delete):
+    // losing it costs a tap, keeping it aimed at the wrong cable costs a cable.
+    pane.addEventListener("scroll", () => {
+      if (state.linkCtx) this._closeLinkMenu();
+      if (this._traceMenuDev != null) this._closeTraceNodeMenu();
+    }, { passive: true });
     let panning = false, sx = 0, sy = 0, sl = 0, st = 0;
     pane.addEventListener("mousedown", ev => {
       if (ev.button !== 0) return;
@@ -1420,6 +1515,19 @@ export class SchemaManager {
     // while body/model enables selection. A click off nodes clears all.
     pane.addEventListener("click", ev => {
       const node = ev.target.closest(".node");
+      // A tap on empty canvas takes the port ring down with it — the ring answers
+      // "this is the port you touched", and once you have touched something else it
+      // is answering a question nobody asked.
+      if (!ev.target.closest(".port") && this._markTappedPort) this._markTappedPort(null);
+      // Trace view: tapping a node's BODY offers to hide it. Not the root (removing
+      // it would mean closing the view) and not until the chain has actually grown,
+      // so there is always something left behind. The name and the buttons swallow
+      // their own clicks, so this only fires on the card itself.
+      if (node && state.single && (state.chain || []).length > 1 &&
+          !node.classList.contains("trace-root")) {
+        const id = Object.keys(state.nodeEls).find(k => state.nodeEls[k] === node);
+        if (id != null) this._openTraceNodeMenu(+id, ev);
+      }
       document.querySelectorAll(".node.text-sel").forEach(n => { if (n !== node) n.classList.remove("text-sel"); });
       if (node && !ev.target.closest(".port, .nm, .node-edit, .node-addip")) node.classList.toggle("text-sel");
       // Tap on empty space clears the stack highlight/dim (touch has no hover).
@@ -1504,4 +1612,4 @@ export class SchemaManager {
 }
 
 
-_mixin(SchemaManager.prototype, NodeMethods, ContourMethods, PowerMethods, WireMethods, InteractMethods);
+_mixin(SchemaManager.prototype, NodeMethods, ContourMethods, PowerMethods, WireMethods, VlanBusMethods, InteractMethods);

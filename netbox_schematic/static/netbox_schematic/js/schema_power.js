@@ -8,7 +8,7 @@ import {
 } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
+import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox, portAnchor } from "./schema_util.js";
 
 class _Mixin {
   // Draws each server room's power panels in their own row BELOW all its
@@ -203,7 +203,11 @@ class _Mixin {
       const feedP = state.ports[portKey("dcim.powerfeed", feedT.object_id)];
       const port = state.ports[portKey("dcim.powerport", portT.object_id)];
       if (!feedP || !port) continue;
-      const [fx, fy] = center(feedP.el), [px2, py] = center(port.el);
+      // Same detached-element guard as _wireEnds: the VLAN view hides power ports
+      // but keeps their state.ports entry, and a detached el measures as 0,0.
+      if (!feedP.el.isConnected || !port.el.isConnected) continue;
+      const [fx, fy] = portAnchor(feedP, ...center(feedP.el));
+      const [px2, py] = portAnchor(port, ...center(port.el));
       const midY = (fy + py) / 2;
       // Feed port is on the panel's LEFT face → the wire ALWAYS exits
       // perpendicular (90°, horizontally left) for a short stub, THEN enters the

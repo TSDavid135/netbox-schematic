@@ -61,6 +61,12 @@ class _Mixin {
     if (!port) return;   // stale port: node recreated on scope change, its dot still catches hover
     if (state.pending) return;
     if (this._traceActive) return;   // trace is pinned — hover doesn't touch it (q9)
+    // The VLAN view draws no cables, so lighting a cable's two ends here rings a
+    // far-off port with nothing visibly joining it — and only on ports that happen
+    // to be CABLED, which reads as "some ports react, others don't" with no rule
+    // behind it (it looked like tagged vs untagged; it was cable vs no cable).
+    // This cut answers L2 questions on click, so hover stays the plain CSS one.
+    if (state.viewMode === "vlan") return;
     // Radio port: no cable, highlight the radio line and far end.
     if (!port.item.cable && port.item.wireless_link) { this._hoverRadio(port, on); return; }
     if (!port.item.cable) return;
@@ -123,6 +129,25 @@ class _Mixin {
 
   async _onPortClick(kind, item, dev, dot, ev) {
     const edit = Mode.on("schema");
+    // The VLAN view owns the port click. That cut exists to edit L2 membership,
+    // so a click PICKS the port instead of tracing or starting a cable — no mode
+    // toggle in between, which is the whole point of having a dedicated view.
+    // Only an interface can hold a VLAN; a panel's transit port isn't pickable.
+    // Hover tooltips are untouched.
+    // This holds in the single-device view too. It used to be excluded — "there a
+    // port click grows the chain" — but that left the VLAN cut inert on exactly the
+    // screen a phone spends its time on: tap a port and you got a tooltip and a new
+    // node, never a bus. Growing the chain stays the physical view's job.
+    if (state.viewMode === "vlan") {
+      if (kind.otype !== "dcim.interface") return;
+      // Assigning is a WRITE, so it lives behind «Правка» like every other write
+      // on the canvas. Viewing gets the read half: the first click floats this
+      // port's buses above it (which VLANs is it on?), the second lights up every
+      // port on them (who else is there?) — two questions, two clicks.
+      if (!edit) { this._onVlanPortClick(kind, item); return; }
+      this._toggleVlanPick(kind, item, dev);
+      return;
+    }
     // Click-to-create circuit on a free wired port is REMOVED: a circuit now
     // only shows as a cloud on the «Физический» view and is set up in NetBox
     // directly (later — via «provider as node»). A free radio port in
@@ -211,6 +236,104 @@ class _Mixin {
   // the canvas), floated just above a top-side port / below a bottom-side one; its
   // arrow points where the neighbour will appear (rotated 180° for bottom ports).
   // Tapping it grows the chain along this port's cable.
+  // ── VLAN pick (VLAN view) ────────────────────────────────────────────────
+  // Selection is stored by PORT KEY, never by element: a relayout (zoom, view
+  // switch, node redraw) throws the old dots away, and a kept reference would
+  // point at a detached node — the same trap that sent the wires to the canvas
+  // corner. Elements are resolved from state.ports at paint time.
+  // View mode: the two-click read path lives in schema_vlanbus.js
+  // (_onVlanPortClick) — bus block first, then the whole bus.
+
+  _toggleVlanPick(kind, item, dev) {
+    const key = portKey(kind.otype, item.id);
+    if (!state.vlanPick) state.vlanPick = new Map();
+    if (state.vlanPick.has(key)) state.vlanPick.delete(key);
+    else state.vlanPick.set(key, { kind, item, dev });
+    this._paintVlanPick();
+  }
+  _clearVlanPick() {
+    if (state.vlanPick) state.vlanPick.clear();
+    this._paintVlanPick();
+  }
+  // Repaint outlines + the floating block. Also called after a relayout, so the
+  // selection survives zoom/pan and stays glued to the new dots.
+  _paintVlanPick() {
+    const canvas = $("#schema");
+    const picked = state.vlanPick || new Map();
+    // Outlines: clear everything, then mark what's still selected AND on screen.
+    if (canvas) canvas.querySelectorAll(".port.vlan-pick")
+      .forEach(el => el.classList.remove("vlan-pick"));
+    // Port records, not just elements — the block needs `side` to know which way
+    // to open. Map order is click order, so the last entry is the last pick.
+    const live = [];
+    for (const key of picked.keys()) {
+      const p = state.ports[key];
+      if (!p || !p.el || !p.el.isConnected) continue;
+      p.el.classList.add("vlan-pick");
+      live.push(p);
+    }
+    let bar = document.getElementById("vlanbar");
+    if (!live.length) { if (bar) bar.style.display = "none"; return; }
+    if (!canvas) return;
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "vlanbar";
+      bar.className = "portmenu";   // shared look with the link menu — one popup language
+      canvas.appendChild(bar);
+      // Click on empty space drops the selection — but never when the click is a
+      // port, the block itself, or the VLAN form the block opened.
+      document.addEventListener("pointerdown", e => {
+        if (!state.vlanPick || !state.vlanPick.size) return;
+        if (e.target.closest("#vlanbar") || e.target.closest(".port") ||
+            e.target.closest("#vlanform")) return;
+        this._clearVlanPick();
+      }, true);
+    }
+    // Wording follows the selection: "создать" only while nothing carries a VLAN
+    // yet, otherwise this is a change and should say so.
+    const items = [...picked.values()].map(v => v.item);
+    const anyVlan = items.some(it =>
+      it.untagged_vlan || (it.tagged_vlans || []).length || it.qinq_svlan);
+    const n = live.length;
+    // Same order as the link menu: dismiss on the left, the action, then the
+    // destructive one — so the two popups on this canvas read the same way round.
+    // The trash only appears when there is something to remove.
+    bar.innerHTML =
+      `<button class="x" type="button" title="Снять выбор"><i class="mdi mdi-close"></i></button>` +
+      `<button class="go" type="button"><i class="mdi mdi-tag-plus"></i> ${
+        anyVlan ? "Изменить VLAN?" : "Создать VLAN?"}</button>` +
+      (anyVlan ? `<button class="rm" type="button" title="Снять все VLAN с выбранных портов"><i class="mdi mdi-trash-can-outline"></i></button>` : "") +
+      (n > 1 ? `<span class="vb-n">${n} портов</span>` : "");
+    // Anchored to the LAST picked port, not to the average of the group: the
+    // centroid drifts away from every port as the pick spreads and can land on
+    // empty canvas or across a node. The last port is where the eye already is.
+    const last = live[live.length - 1];
+    const base = canvas.getBoundingClientRect(), z = state.zoom || 1;
+    const r = last.el.getBoundingClientRect();
+    const cx = (r.left - base.left + r.width / 2) / z;
+    const cy = (r.top - base.top + r.height / 2) / z;
+    // Above the port — except on a node's BOTTOM row, where "above" is the node
+    // body itself. Flipped below there, the same rule _showExpandBtn follows.
+    const up = last.side === "t";
+    bar.style.left = cx + "px";
+    bar.style.top = (cy + (up ? -34 : 34)) + "px";
+    // Counter-scale: the block lives inside the zoomed canvas (so it follows pan
+    // and zoom for free), but a menu shrinking with the schema would be unreadable
+    // when zoomed out. Undo the canvas scale so it always reads like the link menu.
+    bar.style.transform = `translate(-50%, -50%) scale(${1 / z})`;
+    bar.style.display = "flex";
+    bar.querySelector(".x").onclick = e => { e.stopPropagation(); this._clearVlanPick(); };
+    bar.querySelector(".go").onclick = e => {
+      e.stopPropagation();
+      this.app.vlanform.openBulk([...picked.values()], e);
+    };
+    const rm = bar.querySelector(".rm");
+    if (rm) rm.onclick = e => {
+      e.stopPropagation();
+      this.app.vlanform.clearBulk([...picked.values()]);
+    };
+  }
+
   _showExpandBtn(port, kind, item) {
     const canvas = $("#schema"); if (!canvas || !port || !port.el) return;
     let btn = document.getElementById("trace-expand");
@@ -399,6 +522,34 @@ class _Mixin {
     this.linkmenu.style.top = (ev.clientY - 42) + "px";
   }
   _closeLinkMenu() { this.linkmenu.style.display = "none"; state.linkCtx = null; }
+  // Trace view: the menu a tap on a node's BODY opens. Same `.portmenu` look as the
+  // link menu — one popup language on this canvas — and the same fixed-at-the-cursor
+  // placement, so it dies on a pan for the same reason.
+  // Named ...Trace... on purpose: `_openNodeMenu` already exists in schema_nodes.js
+  // (the ⋮ kebab: Порты / Модель / Изменить), and both files are mixed into ONE
+  // prototype — InteractMethods last, so a shared name silently REPLACED the kebab's
+  // menu with this one. Every mixin here shares a single namespace; nothing warns.
+  _openTraceNodeMenu(devId, ev) {
+    const m = $("#nodemenu");
+    if (!m) return;
+    this._traceMenuDev = devId;
+    m.style.display = "flex";
+    m.style.left = (ev.clientX - 10) + "px";
+    m.style.top = (ev.clientY - 42) + "px";
+    this._markTappedNode(state.nodeEls[devId]);
+  }
+  _closeTraceNodeMenu() {
+    const m = $("#nodemenu");
+    if (m) m.style.display = "none";
+    this._traceMenuDev = null;
+    this._markTappedNode(null);
+  }
+  // Which node the menu is about — the same question the port ring answers, so it
+  // gets the same answer: one green outline, on the node you touched.
+  _markTappedNode(el) {
+    document.querySelectorAll(".node.tap-hl").forEach(n => n.classList.remove("tap-hl"));
+    if (el && el.isConnected) el.classList.add("tap-hl");
+  }
   _farEndKey(cableId, nearOtype, nearId) {
     const cable = state.cables.find(c => c.id === cableId);
     if (!cable) return null;
@@ -429,6 +580,13 @@ class _Mixin {
   // console have no continuation → just show the link.
   _onPortDblClick(kind, item) {
     if (Mode.on("schema") || state.pending || !item.cable) return;
+    // The VLAN view has its own click language (bus → whole bus → off) and a
+    // trace would paint the PHYSICAL highlight — links, ports, nodes — straight
+    // over it. Worse, a double click always arrives right behind the second click
+    // that just widened the bus, so the trace landed on every such gesture.
+    // Now including the single view, where the same two clicks drive the bus and a
+    // double tap would additionally pull in a neighbour node nobody asked for.
+    if (state.viewMode === "vlan") return;
     // Single-view: double tap reveals the TARGET node (no API trace to build in
     // single view — only this device is on the schema).
     if (state.single) { this._revealFromPort(kind.otype, item.id); return; }

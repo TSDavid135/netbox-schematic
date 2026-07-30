@@ -19,14 +19,15 @@ export class RackManager {
     // ► left of the schema header brings it back. State SURVIVES reloads
     // (localStorage). Delegated to document — the buttons are recreated on
     // every header redraw.
-    // The racks pane is COLLAPSED by default (opened on demand — via a rack's
-    // pencil). If it was explicitly expanded before, honor that ("0").
-    if (localStorage.getItem("schematic-rackCollapsed") !== "0")
-      document.body.classList.add("rack-collapsed");
-    const setCollapsed = on => {
-      document.body.classList.toggle("rack-collapsed", on);
-      localStorage.setItem("schematic-rackCollapsed", on ? "1" : "0");
-    };
+    // The racks pane always starts COLLAPSED — it is opened on demand (a rack's
+    // pencil, or ► beside the schema header) and it costs the schema a third of the
+    // width. Remembering "expanded" across reloads meant one visit to a rack left
+    // the pane in the way on every load afterwards, with no obvious cause. The
+    // toggle still works for the session; only the memory of it is gone (and the
+    // stale key is dropped so an old "0" cannot resurrect the behaviour).
+    document.body.classList.add("rack-collapsed");
+    localStorage.removeItem("schematic-rackCollapsed");
+    const setCollapsed = on => document.body.classList.toggle("rack-collapsed", on);
     document.addEventListener("click", ev => {
       if (ev.target.closest("#rack-collapse")) setCollapsed(true);
       else if (ev.target.closest("#rack-expand")) setCollapsed(false);

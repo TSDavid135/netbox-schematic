@@ -8,7 +8,7 @@ Sites, racks, devices, ports and cables on a single interactive 2D schematic —
 watch a signal travel from a PC through patch panels to the core switch, and build
 your infrastructure with clicks instead of forms and tables.
 
-![version](https://img.shields.io/badge/version-0.69.18-2f81f7)
+![version](https://img.shields.io/badge/version-0.69.49-2f81f7)
 ![NetBox](https://img.shields.io/badge/NetBox-4.6-00d9a6)
 ![build](https://img.shields.io/badge/build_step-none-2ea043)
 ![deps](https://img.shields.io/badge/backend_deps-openpyxl-2ea043)
@@ -38,7 +38,7 @@ Switch canvases from the header (native picker on mobile).
 | **Virtualization** | 🟡 Planned | Clusters, VMs, VM interfaces, a VLAN bus. |
 | **Tunnels / VPN** | 🟡 Planned | Tunnels / L2VPN as an overlay over interfaces. |
 
-## ✨ Current version — `0.69.18`
+## ✨ Current version — `0.69.49`
 
 Everything below works today. The project is pre-1.0 and iterating quickly.
 
@@ -48,6 +48,31 @@ Everything below works today. The project is pre-1.0 and iterating quickly.
 - **Path tracing** — click an occupied port and the whole signal path lights up
   end-to-end **through patch panels** (NetBox 4.6 `PortMapping` front↔rear aware).
 - Layers, family filters, wireless links and provider circuits.
+
+**VLAN (L2)**
+- A third **VLAN** view of the schematic, next to *physical* and *wireless*: wired
+  interfaces only, with a port that carries a VLAN marked on its border — so "a
+  cable is attached" (fill) and "belongs to a VLAN" (border) stay readable at once.
+- Assign VLANs **straight on the canvas**: pick any number of ports, then set the
+  port mode (access / tagged / tagged-all / Q-in-Q), the untagged VLAN and the
+  tagged list in one dialog. Candidates come from NetBox itself
+  (`?available_on_device=`), intersected across every picked device.
+- The write is a single bulk `PATCH`, so a selection is assigned **all-or-nothing** —
+  no half-configured batch to clean up after an error. A new VLAN can be created
+  without leaving the form (scoped to the site, or global when the pick spans several).
+- **The VLAN bus**, one click deeper at a time. A member port is ringed in its VLAN's own
+  colour (derived from the VID, so it is the same on every reload) and grows a short cut
+  stub — "this port is on a bus" without touching anything. **Click** it and the bus floats
+  over it: a named rectangle per VLAN, joined to the port. **Click again** and the bar
+  stretches across every port on that bus, each of them joined to it, and every DEVICE on it
+  is outlined — so the bar's length is the VLAN's reach and the outlines are its membership,
+  readable without counting dots. Solid untagged, dashed tagged. The name
+  sits on the rectangle itself, so it reads the same on a phone as on a desktop.
+  These lines are not cables: no type, no family, no cable — just visual links.
+- **Click the bar** for the VLAN's own panel: every interface on it, grouped by device and
+  marked untagged/tagged — the canvas answers *where*, a list answers *who*.
+- In edit mode the picked ports also get a **trash** button: it strips every VLAN off them in
+  the same all-or-nothing write, after asking.
 
 **Build mode** (toggle 👁 / ✏️ in the header)
 - Create sites, locations, racks, devices (click a rack unit), cables (click two
@@ -76,8 +101,12 @@ Everything below works today. The project is pre-1.0 and iterating quickly.
 - **Tree without a mouse**: a **Select** button for same-level multi-select and
   **Move** (tap a destination — "← here?" → "Apply"); a "**+**" button on the canvas
   opens the create catalog.
+- Touch acts on the **tap itself**, not on the click a mobile browser may swallow behind its
+  hover emulation — so one tap rings the port, opens the bus, raises the sheet. The view
+  switch («Отображение») is on phones too, since it is the only route to the VLAN and
+  wireless cuts.
 
-**Excel import / export** (Patchen/Umpatchen worksheet)
+**Excel import / export** (several worksheet layouts; on import the layout is detected from the header)
 - **Import**: drop an `.xlsx` on the modal → preview ("will create: N sockets,
   panels, switches, cables") → commit. Each row becomes real objects with real
   cabling: wall socket → patch-panel front, mapped rear → switch port — so the
@@ -90,6 +119,24 @@ Everything below works today. The project is pre-1.0 and iterating quickly.
   socket and/or patch panel to the switch. Picking a single switch exports
   everything patched to it (reverse trace). Socket rows are round-trip
   compatible: they import back 1:1.
+- **The «Питание» (power) sheet** — the electrical chain as its own table: one
+  row per cable (panel + feed **or** device + outlet → device + inlet, with V/A).
+  Import creates what's missing (panels, feeds, devices, ports) and round-trips;
+  re-importing duplicates nothing and an already-cabled inlet is never silently
+  re-wired.
+- **Universal device list** — a scope inventory with a "connections" column
+  (power included). Export only.
+- **Preview before writing**: a "will create" summary, collisions with existing
+  objects (keep / overwrite) and **file inconsistencies** — duplicate ports, rows
+  missing required fields: nothing is skipped silently.
+
+**Scope audit** — walks whatever is selected in the tree and reports what's
+missing: devices with no links and **with no power**, unpatched sockets, free
+ports and outlets, **panel feeds that lead nowhere**. Changes nothing.
+
+**Built-in learning** — the version badge opens "What's new" (changelog) and
+"Learning": mechanics explained topic by topic, in Russian and English (the
+language follows the browser).
 
 **Fast loading on small servers**
 - The whole scope (devices + ports + cables + IPs) is served by **one plugin
@@ -108,24 +155,27 @@ works through them. See below.
 About **two-thirds of the way to 1.0** — the shipped work is the interactive core;
 what remains is mostly the "content" (two more canvases, network entities, platform).
 
-**✅ Shipped · v0.68 — ~2/3 to 1.0**
+**✅ Shipped · v0.69 — ~2/3 to 1.0**
 
 &nbsp;&nbsp;`▸` Infrastructure canvas &nbsp;·&nbsp; signal tracing through panels &nbsp;·&nbsp; wire routing
 &nbsp;&nbsp;`▸` Networks / IPAM &nbsp;·&nbsp; hierarchy tree + move &nbsp;·&nbsp; build mode + device catalog
-&nbsp;&nbsp;`▸` Excel **import + export** (Patchen/Umpatchen, round-trip) &nbsp;·&nbsp; one-request scope loading
+&nbsp;&nbsp;`▸` Excel **import + export** (Patchen/Umpatchen and **power**, round-trip) &nbsp;·&nbsp; one-request scope loading
+&nbsp;&nbsp;`▸` **Scope audit** (what's unconnected, power included) &nbsp;·&nbsp; **built-in learning** (RU/EN)
+&nbsp;&nbsp;`▸` **VLAN**: dedicated schematic view &nbsp;·&nbsp; on-canvas bulk assignment &nbsp;·&nbsp; **VLAN bus**
 &nbsp;&nbsp;`▸` Mobile trace explorer + tree ops &nbsp;·&nbsp; theme · docs
 
 **🔜 Toward 1.0**
 
 &nbsp;&nbsp;`▹` Universal field mapping for import/export (match columns by name, not position)
-&nbsp;&nbsp;`▹` Network entities: VLAN · IP Range · Aggregate·RIR · FHRP
+&nbsp;&nbsp;`▹` Network entities: IP Range · Aggregate·RIR · FHRP
 &nbsp;&nbsp;`▹` Virtualization canvas &nbsp;→&nbsp; Tunnels / VPN canvas
 &nbsp;&nbsp;`▹` Device-model picker on create &nbsp;·&nbsp; i18n · contextual hints · permissions &nbsp;·&nbsp; NetBox version range
 
 Priority order:
 
-1. **Wire up network entities** — start with the **VLAN** axis (unblocks
-   Virtualization / Tunnels / layers), then IP Range, Aggregate·RIR, Role, FHRP.
+1. **Wire up network entities** — the **VLAN** axis is done: its own view, on-canvas
+   assignment, and the logical **VLAN bus** that the Virtualization and Tunnels canvases
+   reuse. Next along that axis: IP Range, Aggregate·RIR, Role, FHRP.
 2. **Universal import/export field mapping** — match columns by header names
    (with synonyms), not fixed positions.
 3. **Device-model picker** — optionally pick a real vendor model on create (e.g. a
@@ -278,8 +328,13 @@ netbox-schematic/
     ├── __init__.py               — PluginConfig
     ├── navigation.py             — menu entry
     ├── views.py                  — pages + endpoints: graph (fast scope), import, export
+    ├── excel.py                  — sheet forms: column matching by name, read/write
+    ├── forms/                    — sheet definitions: patchen, power, universal
     ├── importer.py               — Excel «Patchen/Umpatchen» parser → devices + cables
-    ├── exporter.py               — reverse: scope connections → the same Excel form
+    ├── exporter.py               — reverse: scope connections → Excel (power included)
+    ├── power.py                  — the power sheet: plan, panel/feed/inlet creation, checks
+    ├── audit.py                  — scope scan: what's unconnected, free ports and outlets,
+    │                               feeds that lead nowhere
     ├── urls.py
     ├── templates/netbox_schematic/
     │   └── schematic.html        — thin shell: {% static %} + {% csrf_token %}

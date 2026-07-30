@@ -12,14 +12,17 @@ dist/
 .vscode/
 .idea/
 demo_seed.py
+gen_deploy.py
 deploy_paste.sh
 tests_paste.sh
 bench_update.sh
 stress/
-*.md
+# Дизайн-доки лежат в КОРНЕ — игнорируем только его ("/"), иначе тем же правилом
+# выпадала пользовательская дока плагина (docs/{ru,en}/learn/*.md), которая
+# обязана ехать в пакет: без неё вкладка «Обучение» пуста на свежем клоне.
+/*.md
 !README.md
 !README.ru.md
-!docs/*.md
 !CHANGELOG.md
 sample_patchen*.xlsx
 example*.xlsx
