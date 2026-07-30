@@ -7,7 +7,24 @@ import { Mode } from "./modes.js";
 import { MANUFACTURER, solutionRows } from "./solutions.js";
 import { buildDesired } from "./catalog.js";
 
-const chip = (text, cls) => `<span class="chip ${cls || ""}">${text}</span>`;
+const chip = (text, cls, style) => `<span class="chip ${cls || ""}"${style ? ` style="${style}"` : ""}>${text}</span>`;
+// One VLAN, one colour, everywhere it is named — the same VID-derived hue the bus
+// and the port ring use (SchemaManager._vlanColor). Duplicated here rather than
+// imported because device.js must not depend on the schema mixin; the formula is
+// the definition of the colour, so it lives in both places or in neither.
+const vlanHue = v => `hsl(${(((v.vid != null ? v.vid : v.id) * 47) % 360)} 70% 58%)`;
+
+// L2 membership of an interface, compact: the untagged VLAN by number plus how
+// many tagged ones ride the port. Empty for ports that carry no VLAN at all
+// (patch/socket ports never do), so the row stays as short as it is today.
+const vlanChips = it => {
+  let out = "";
+  if (it.untagged_vlan)
+    out += chip("VLAN " + it.untagged_vlan.vid, "c-vlan", "--bus:" + vlanHue(it.untagged_vlan));
+  const t = (it.tagged_vlans || []).length;
+  if (t) out += chip("+" + t + " тег.", "c-vlan tagged");
+  return out;
+};
 
 // Port-dot class by termination type — color and SHAPE match the schema (front/
 // rear/console-server/outlet — square; else circle). See .c-portdot.p-*.
@@ -135,6 +152,12 @@ export class DeviceManager {
   }
 
   // Passport header with the detail-block mode toggle (data-mode=detail).
+  // On a phone the detail panel is a bottom sheet, raised by a delegated click
+  // listener in responsive.js. Anything whose own handler calls stopPropagation —
+  // the stack badge does, so the click never reaches that listener — has to raise it
+  // itself, or the panel fills behind a closed sheet and the tap looks dead. The
+  // class is inert on desktop (the sheet only exists inside a media query).
+  _raiseSheet() { document.body.classList.add("sheet-open"); }
   _detailHead(title, sub, over) {
     return `<div class="detail-head">${modeBtn("detail", "compact ms-corner")}` +
       (over ? `<div class="crumb-over">${over}</div>` : "") +
@@ -210,7 +233,8 @@ export class DeviceManager {
         // highlights it on the schema (detail item 3).
         const linked = !!(p.item.cable || p.item.wireless_link);
         const row = mk("div", { className: "iface-row" + (linked ? " linked" : ""),
-          html: portNameHtml(p.item.name, p.otype, linked) + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
+          html: portNameHtml(p.item.name, p.otype, linked) + vlanChips(p.item)
+            + (addrs || '<span style="color:var(--muted);font-size:11px">без адреса</span>') });
         if (linked) row.addEventListener("mouseenter", () => this.app.schema._portHover(p, true));
         if (linked) row.addEventListener("mouseleave", () => this.app.schema._portHover(p, false));
         // Touch: tap a linked-port row → highlight it on the schema (single view
@@ -228,6 +252,10 @@ export class DeviceManager {
           const ab = mk("button", { text: "+IP", on: { click: ev =>
             this.app.ipform.open(dev, p.item, ev) } });
           row.appendChild(ab);
+          // L2 before L3: VLAN membership of the same port.
+          row.appendChild(mk("button", { className: "iface-vlan", title: "VLAN на порту",
+            html: `<i class="mdi mdi-lan"></i>`, on: { click: ev =>
+              this.app.vlanform.open(dev, p.item, ev) } }));
           if (!linked) {   // free port can be deleted (occupied — remove cable first)
             const db = mk("button", { className: "iface-del", title: "Удалить порт",
               html: `<i class="mdi mdi-close"></i>`, on: { click: async ev => {
@@ -275,6 +303,56 @@ export class DeviceManager {
   // Power Panel passport — click the panel name on the schema. Not a device,
   // so we clear this.current (else onChange("schema") would try to re-render
   // it as a device via show()).
+  // Detail panel for a VLAN, opened by clicking its bus bar on the schema. The bar
+  // is the only place in the UI where a VLAN is a thing you can point at, and the
+  // question it raises — "so who is actually on it?" — the canvas answers only as
+  // rings on dots you then have to hunt for. Here it is a list, grouped by device.
+  showVlanPanel(vlan, members) {
+    this._raiseSheet();
+    this.current = null;
+    this.currentStack = null;
+    this.currentPanel = null;
+    if (this.app.schema && this.app.schema._highlightStack) this.app.schema._highlightStack(null);
+    const el = $("#detail");
+    const title = ((vlan.vid != null ? "VLAN " + vlan.vid : "") + " " +
+      (vlan.name || vlan.display || "")).trim();
+    const byDev = new Map();
+    for (const m of members) {
+      const d = m.port.dev || { id: 0, name: "—" };
+      if (!byDev.has(d.id)) byDev.set(d.id, { dev: d, rows: [] });
+      byDev.get(d.id).rows.push(m);
+    }
+    const untag = members.filter(m => !m.tagged).length;
+    el.innerHTML = this._detailHead(title || "VLAN",
+      `VLAN · портов: ${members.length} · устройств: ${byDev.size}`);
+    Mode.syncButtons("detail");
+    el.appendChild(mk("div", { className: "vlan-sum",
+      html: chip("нетегированных " + untag, "c-vlan", "--bus:" + vlanHue(vlan)) +
+        chip("тегированных " + (members.length - untag), "c-vlan tagged") }));
+    if (!members.length) {
+      el.appendChild(mk("div", { className: "placeholder", text: "на этом VLAN нет портов" }));
+      return;
+    }
+    // Devices in the order the schema lays them out is not knowable here, so by
+    // name — stable, and the list is read as an inventory rather than a map.
+    for (const { dev, rows } of [...byDev.values()].sort((a, b) =>
+      String(a.dev.name).localeCompare(String(b.dev.name), "ru"))) {
+      const h = mk("h4", { text: dev.name, className: "vlan-dev" });
+      // The device name opens its own passport — the natural next question.
+      h.addEventListener("click", () => {
+        const d = (state.devices || []).find(x => x.id === dev.id);
+        if (d) this.show(d);
+      });
+      el.appendChild(h);
+      for (const m of rows) {
+        el.appendChild(mk("div", { className: "iface-row",
+          html: portNameHtml(m.port.item.name, m.port.otype, !!m.port.item.cable) +
+            chip(m.tagged ? "тег." : "без тега", m.tagged ? "c-vlan tagged" : "c-vlan",
+              m.tagged ? null : "--bus:" + vlanHue(vlan)) }));
+      }
+    }
+  }
+
   showPanel(panel) {
     this.current = null;
     this.currentStack = null;
@@ -893,6 +971,7 @@ export class DeviceManager {
   // Opened from the node badge or the passport block. Highlights members on the
   // canvas. Fetches the VC + its members fresh (accurate after edits/reload).
   async showStack(vc, fromDev) {
+    this._raiseSheet();
     this.current = null; this.currentPanel = null; this.currentStack = vc;
     const el = $("#detail");
     el.innerHTML = this._detailHead(`Стек «${vc.name || ""}»`, "загружаю…");

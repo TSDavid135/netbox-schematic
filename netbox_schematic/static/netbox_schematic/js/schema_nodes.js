@@ -11,6 +11,12 @@ import { Mode } from "./modes.js";
 import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox, parseTypeSides } from "./schema_util.js";
 import { iconForDevice } from "./solutions.js";
 
+// How far a port dot hangs OUTSIDE the node edge. It has to clear the row captions
+// («ИНТЕРФЕЙСЫ», «ПИТАНИЕ») printed just inside that edge — at -13px with a 19px dot
+// six pixels of circle sat on top of the text. Only ~3px of the dot overlaps the
+// body now, still enough to read as attached to it.
+const PORT_OUT = "-16px";
+
 class _Mixin {
   // Node name with the stack-member suffix visually separated: "SW 6002-4" →
   // "SW 6002" + a muted "-4" (the part that differs between members of one
@@ -135,7 +141,12 @@ class _Mixin {
     const MIN_W = dev._off ? 220 : 170, EDGE = (STEP - DOT) / 2 + 4;
     // netArg/editArg — mode overrides (for the SLOT pre-pass, so slot width
     // doesn't depend on the current view mode); else use the globals.
-    const net = netArg !== undefined ? netArg : state.viewMode === "net";
+    // netArg overrides the view for the SLOT pre-pass (true → net, false → phys);
+    // with no override the current view decides, including "vlan". The vlan view
+    // is a SUBSET of the physical one, so the pre-pass measuring max(phys, net)
+    // still bounds its width.
+    const view = netArg !== undefined ? (netArg ? "net" : "phys") : state.viewMode;
+    const net = view === "net";
     const edit = editArg !== undefined ? editArg : Mode.on("schema");
     const { top, bottom } = this._assignSides(dev, groups);
     const isPowerKind = k => k.otype === "dcim.powerport" || k.otype === "dcim.poweroutlet";
@@ -155,6 +166,17 @@ class _Mixin {
         .filter(x => x.items.length);
       topV = [];
       botLeftV = pick(it => this._isWirelessItem(it)); // radio → bottom
+      botRightV = [];
+    } else if (view === "vlan") {
+      // VLAN view — the whole DATA path stays, including patch panels. A panel
+      // carries no L2 itself, but it is what takes a switch port through to a
+      // socket and on to the end device; dropping it cut the chain in half and
+      // left half the wires with no visible far end. Only POWER and CONSOLE
+      // leave — they carry no L2 and are pure noise in this cut. Ports holding
+      // no VLAN are dimmed (vlan-dim in _placeDot), never removed.
+      const l2 = rows => visGroups(rows.filter(g => !isPowerKind(g.kind) && !isConsoleKind(g.kind)));
+      topV = l2(top);
+      botLeftV = l2(bottom);
       botRightV = [];
     } else {
       topV = visGroups(top);
@@ -324,7 +346,7 @@ class _Mixin {
   _placeAddWireless(node, dev, leftPx) {
     const dot = mk("div", { className: "port addport", text: "+",
       title: "Добавить wireless-интерфейс",
-      style: { left: leftPx + "px", bottom: "-13px" } });
+      style: { left: leftPx + "px", bottom: PORT_OUT } });
     dot.addEventListener("click", ev => { ev.stopPropagation(); this._addWireless(dev); });
     node.appendChild(dot);
   }
@@ -618,30 +640,83 @@ class _Mixin {
     // (assignable); the rest (physically busy, non-net) — dimmed.
     const assignable = net && edit && !used;
     const netDim = net && !isNet && !assignable;
+    // VLAN view: fade by CAPABILITY, not by content. Only an interface can hold
+    // L2, so panel front/rear ports (pure transit) fade; every switch port stays
+    // fully visible even with no VLAN yet — those are exactly the ones you came
+    // here to assign, and fading them made the whole view look greyed out.
+    // Ports that DO carry a VLAN get a ring instead (see .port.has-vlan).
+    const vlanView = state.viewMode === "vlan";
+    const canVlan = g.kind.otype === "dcim.interface";
+    const hasVlan = canVlan &&
+      !!(item.untagged_vlan || (item.tagged_vlans || []).length || item.qinq_svlan);
+    const vlanDim = vlanView && !canVlan;
     dot.className = "port " + g.kind.cls + (used ? " used" : "")
       + (isNet ? " p-net" : " p-phys")
       + (isCircuit ? " has-circuit" : "") + (isWl ? " p-wl" : "")
-      + (assignable ? " assignable" : "") + (netDim ? " net-dim" : "");
+      + (assignable ? " assignable" : "") + (netDim ? " net-dim" : "")
+      + (vlanDim ? " vlan-dim" : "") + (vlanView && hasVlan ? " has-vlan" : "");
     dot.dataset.net = isNet ? "1" : "0";
     dot.textContent = shortPortName(item.name, ordinal);
     dot.style.left = leftPx + "px";
-    dot.style[isTop ? "top" : "bottom"] = "-13px";
+    dot.style[isTop ? "top" : "bottom"] = PORT_OUT;
     // "WAN uplink" cloud over the circuit port removed: a provider can now be
     // added to the schema as its own device, so the cloud label is gone.
-    const showTip = attachTip(dot, () => this._portTip(dev, g.kind, item));
+    // The VLAN cut answers on CLICK (bus → whole bus → off) and has no tooltip: on
+    // touch the pinned tip swallowed the first tap, so a two-tap gesture cost three.
+    // Nothing is lost — the bus block that opens carries the VLAN's name and mode.
+    // Decided at SHOW time: the single-device view does not rebuild its dots on every
+    // view switch, so a bind-time decision stayed stale there and the tip came back.
+    const showTip = attachTip(dot, () => this._portTip(dev, g.kind, item),
+      () => state.viewMode === "vlan");
     dot.addEventListener("mouseenter", () => this._portHover(state.ports[portKey(g.kind.otype, item.id)], true));
     dot.addEventListener("mouseleave", () => this._portHover(state.ports[portKey(g.kind.otype, item.id)], false));
-    dot.addEventListener("click", ev => {
-      ev.stopPropagation();
-      // Touch: a repeat tap on the port re-opens the tooltip (mouseenter won't
-      // re-fire on the same element after it was dismissed).
+    // Everything a tap on a port does, in one place — because on touch it must be
+    // reachable from TWO events.
+    //   · Green ring on whatever you just touched: every port, in every view, cable
+    //     or not. The hover highlight only ever lit the two ends of a CABLE, so a
+    //     free port answered with nothing, and on touch there is no hover to fall
+    //     back on — a missed tap and an empty port looked identical.
+    //   · The tooltip is re-shown explicitly: mouseenter does not re-fire on an
+    //     element the finger never left.
+    const act = ev => {
+      this._markTappedPort(dot);
       if (matchMedia("(pointer: coarse)").matches || innerWidth <= 760) showTip(ev);
       this._onPortClick(g.kind, item, dev, dot, ev);
+    };
+    // A touchscreen browser treats the FIRST tap on an element that reacts to hover
+    // as the hover itself and SWALLOWS the click behind it — the "tap twice to
+    // activate" rule (the port has :hover rules and a mouseenter that opens the
+    // tooltip, so it qualifies). That is why the tip appeared on tap one while the
+    // ring, the bus, everything hanging off `click`, waited for a tap that never
+    // came, and why every gesture here has cost one tap more than it should.
+    // Touch is therefore driven from pointerup, which is delivered no matter what;
+    // the click that may or may not follow is swallowed by the stamp below.
+    let viaTouch = 0;
+    dot.addEventListener("pointerup", ev => {
+      if (ev.pointerType !== "touch") return;
+      ev.stopPropagation();
+      viaTouch = ev.timeStamp;
+      act(ev);
+    });
+    dot.addEventListener("click", ev => {
+      ev.stopPropagation();
+      // The synthesized click after a touch we already served — drop it, or the bus
+      // would advance two steps per tap.
+      if (viaTouch && ev.timeStamp - viaTouch < 900) return;
+      act(ev);
     });
     dot.addEventListener("dblclick", ev => { ev.stopPropagation(); ev.preventDefault(); this._onPortDblClick(g.kind, item); });
     node.appendChild(dot);
     state.ports[portKey(g.kind.otype, item.id)] =
       { el: dot, item, dev, otype: g.kind.otype, ep: g.kind.ep, side: isTop ? "t" : "b" };
+  }
+
+  // Exactly one port carries the tap ring at a time. Its own class, not `.hl`:
+  // `.hl` belongs to the hover/trace highlight, which adds and removes it in pairs,
+  // and a shared class would have the two erasing each other.
+  _markTappedPort(el) {
+    document.querySelectorAll(".port.tap-hl").forEach(p => p.classList.remove("tap-hl"));
+    if (el && el.isConnected) el.classList.add("tap-hl");
   }
 
   // Relayout of ALL nodes (view-mode / build-mode change). Ports are recreated
@@ -651,7 +726,13 @@ class _Mixin {
       const dev = state.devices.find(d => d.id === +id);
       if (dev && node._groups) this._layoutNode(dev, node);
     }
+    // The dots were just rebuilt, so their VLAN rings have to be repainted (and
+    // dropped when the relayout was a switch AWAY from the VLAN view).
+    this._paintVlanPorts();
     this.redrawWires();
+    // The dots were just rebuilt — restore the VLAN pick outlines and re-centre
+    // its block on the new elements (selection is held by key, so it survives).
+    if (this._paintVlanPick) this._paintVlanPick();
   }
 
 }

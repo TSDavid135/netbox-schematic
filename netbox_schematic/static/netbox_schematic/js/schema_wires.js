@@ -8,7 +8,7 @@ import {
 } from "./core.js";
 import { api, apiAll, setStatus } from "./api.js";
 import { Mode } from "./modes.js";
-import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox } from "./schema_util.js";
+import { wavyAlong, wavyCurve, smoothPath, cubicPath, orthoPath, hopSegment, groupByKey, shortPortName, unionBox, portAnchor } from "./schema_util.js";
 
 class _Mixin {
   // radio-links (Wireless layer / net mode)
@@ -45,7 +45,10 @@ class _Mixin {
     for (const pair of pairs) {
       const pa = state.ports[pair.a], pb = state.ports[pair.b];
       if (!pa || !pb) continue;
-      const [ax, ay] = center(pa.el), [bx, by] = center(pb.el);
+      // Same detached-element guard as _wireEnds: a wireless layer stays active
+      // when the view is switched to VLAN, where radio ports aren't laid out.
+      if (!pa.el.isConnected || !pb.el.isConnected) continue;
+      const [ax, ay] = portAnchor(pa, ...center(pa.el)), [bx, by] = portAnchor(pb, ...center(pb.el));
       const w = { a: pa, b: pb, ax, ay, bx, by,
         crossRack: this._crossRack(pa.dev.id, pb.dev.id) };
       // Detour around nodes when extend, same rack, and a straight jumper would
@@ -102,6 +105,14 @@ class _Mixin {
     // contour reflects device sizes, not shrunk nodes (small_fix: contour
     // drifted when switching to wireless).
     if (state.viewMode === "net") { this.drawRadioLinks(); return; }
+    // VLAN view: no physical cables at all. The only lines in this cut are the
+    // ones leading to an open bus block — a cable answers "what is wired to what",
+    // which the physical view answers better and which drowns out L2 membership
+    // here (highlighted cables also stole the layer colour from the bus).
+    if (state.viewMode === "vlan") {
+      this._drawVlanBusWhiskers();   // cut stubs always, full links when a bus is open
+      return;
+    }
     // Wire style: "round" — arcs; "angular" — Manhattan routing with semicircle
     // bridges at crossings (see UI buttons).
     if (state.wireStyle === "angular") this._drawAngularWires(svg, center);
@@ -125,8 +136,12 @@ class _Mixin {
     // Radio-links for the current mode/layer (drawRadioLinks decides whether to
     // draw). Don't call applyViewMode here — recursion via relayoutNodes.
     this.drawRadioLinks();
-    // Fit server-room/site contours to their inner wires (no overflow).
-    this._fitContoursToWires();
+    // Fit server-room/site contours to their inner wires (no overflow) — ONLY in
+    // the physical view, which is the geometry contours are meant to reflect.
+    // Any view that hides ports shrinks the nodes, and refitting would pull the
+    // contour onto the shrunk ones (the drift fixed for the wireless view above,
+    // which skips this by returning early — the VLAN view reaches here).
+    if (state.viewMode === "phys") this._fitContoursToWires();
   }
 
   // One wire <path> with all trimmings (family color, tooltip, hover, click
@@ -170,7 +185,16 @@ class _Mixin {
       if (aT.object_type === "dcim.powerfeed" || bT.object_type === "dcim.powerfeed") continue;
       const a = state.ports[termKey(aT)], b = state.ports[termKey(bT)];
       if (!a || !b) continue;
-      const [ax, ay] = center(a.el), [bx, by] = center(b.el);
+      // A view that hides SOME ports (VLAN drops power/console) relayouts the
+      // node but does NOT clear state.ports, so a hidden port keeps its entry
+      // with a DETACHED el — getBoundingClientRect() is all zeros there, and the
+      // wire anchored at the canvas corner instead of being skipped (that was the
+      // "everything flies to the top-left" bug). The wireless view never hit it:
+      // it returns before this pass and draws radio links only.
+      if (!a.el.isConnected || !b.el.isConnected) continue;
+      // Rim, not centre — see portAnchor. Every route already leaves the port
+      // perpendicular to its side, so this shortens the ends without re-routing.
+      const [ax, ay] = portAnchor(a, ...center(a.el)), [bx, by] = portAnchor(b, ...center(b.el));
       out.push({ c, a, b, ax, ay, bx, by,
         isPower: aT.object_type.includes("power") || bT.object_type.includes("power"),
         crossRack: this._crossRack(a.dev.id, b.dev.id),

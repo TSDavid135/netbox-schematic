@@ -11,6 +11,30 @@
 import { $, state, portKey, termKey } from "./core.js";
 import { setStatus } from "./api.js";
 
+// VLAN/SSID names are free text in NetBox and go into innerHTML below.
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// The three schema views, rendered as a segment on top of the layer list.
+const VIEWS = [
+  // Order is by label LENGTH, not by importance: the segment is one row in a 240px
+  // panel, so the longest label goes last where it has the panel edge to grow into.
+  { value: "phys", label: "Физический", icon: "mdi-lan" },
+  { value: "vlan", label: "VLAN", icon: "mdi-tag-multiple-outline" },
+  { value: "net", label: "Беспроводной", icon: "mdi-access-point-network" },
+];
+// Which view a layer belongs to. Doubles as the panel's visibility rule: the list
+// only offers layers the CURRENT view can actually draw, so every button in it
+// highlights something instead of silently relayouting the schema first. VLAN used
+// to be offered in the physical view as well — but that made the segment right
+// above it a lie, since picking a VLAN there jumped the view anyway.
+// The FIRST entry is the fallback for a programmatic _toggle from another view.
+const LAYER_VIEWS = {
+  vlan: ["vlan"], console: ["phys"], power: ["phys"],
+  wireless: ["net"], circuit: ["net"],
+};
+const LINK_LAYERS = ["console", "power", "wireless", "circuit"];
+
 // Active layer: { kind, id, portKeys:Set, badge:(port)=>string|null }.
 // null — nothing selected. Kept in state to survive schema re-render.
 export class LayerManager {
@@ -175,64 +199,92 @@ export class LayerManager {
     state._circuits = circuits;
 
     const body = host.querySelector(".ly-body");
+    // A layer only highlights what the current view draws, so the list shows only
+    // the layers of THIS view (see LAYER_VIEWS): VLAN in the VLAN cut, console and
+    // power in the physical one, radio and circuits in the wireless one.
+    const inView = kind => (LAYER_VIEWS[kind] || ["phys"]).includes(state.viewMode);
     let html = "";
 
-    // VLAN section.
-    html += `<div class="ly-sub">VLAN (подсветка портов)</div>`;
-    if (vlanList.length) {
-      html += vlanList.map(({ vlan, portKeys }) =>
-        `<button class="ly-item" type="button" data-layer="vlan" data-id="${vlan.id}">
-           <span class="ly-dot"></span>
-           <span class="ly-name">${vlan.vid != null ? "VLAN " + vlan.vid : ""} ${vlan.name || vlan.display || ""}</span>
-           <span class="ly-count">${portKeys.size}</span>
-         </button>`).join("");
-    } else {
-      html += `<div class="ly-empty">VLAN на портах группы нет</div>`;
+    // View segment ON TOP of the layer list. A view swaps the node's ports and
+    // relayouts (radio button — one is always on); a layer only highlights on top
+    // of it (toggle — usually none). Same panel, deliberately different control.
+    html += `<div id="viewswitch" title="Режим отображения схемы" data-view="${state.viewMode}">` +
+      VIEWS.map(v =>
+        `<button class="vs-btn${state.viewMode === v.value ? " active" : ""}" data-view="${v.value}"
+           ><i class="mdi ${v.icon}"></i> ${v.label}</button>`).join("") +
+      `</div>`;
+
+    // VLAN section — the VLAN cut only.
+    if (inView("vlan")) {
+      html += `<div class="ly-sub">VLAN (подсветка портов)</div>`;
+      if (vlanList.length) {
+        // The dot carries the VLAN's OWN colour, the same the canvas gives it —
+        // the list and the schema were naming the same thing two different ways.
+        html += vlanList.map(({ vlan, portKeys }) =>
+          `<button class="ly-item" type="button" data-layer="vlan" data-id="${vlan.id}">
+             <span class="ly-dot" style="border-color:${this.app.schema._vlanColor(vlan)};background:${this.app.schema._vlanColor(vlan)}"></span>
+             <span class="ly-name">${vlan.vid != null ? "VLAN " + vlan.vid : ""} ${esc(vlan.name || vlan.display || "")}</span>
+             <span class="ly-count">${portKeys.size}</span>
+           </button>`).join("");
+      } else {
+        html += `<div class="ly-empty">VLAN на портах группы нет</div>`;
+      }
     }
 
-    // Links section (console + power; then circuits/wireless).
-    html += `<div class="ly-sub">Связи</div>`;
-    if (console_.cables.size) {
-      html += `<button class="ly-item" type="button" data-layer="console" data-id="0">
-           <span class="ly-dot"></span>
-           <span class="ly-name">Console-связи</span>
-           <span class="ly-count">${console_.cables.size}</span>
-         </button>`;
-    } else {
-      html += `<div class="ly-empty">console-кабелей в группе нет</div>`;
+    // Links section: console + power in the physical view, radio + circuits in the
+    // wireless one. The header is skipped when the current view owns neither pair.
+    if (LINK_LAYERS.some(inView)) {
+      html += `<div class="ly-sub">Связи</div>`;
+    }
+    if (inView("console")) {
+      if (console_.cables.size) {
+        html += `<button class="ly-item" type="button" data-layer="console" data-id="0">
+             <span class="ly-dot"></span>
+             <span class="ly-name">Console-связи</span>
+             <span class="ly-count">${console_.cables.size}</span>
+           </button>`;
+      } else {
+        html += `<div class="ly-empty">console-кабелей в группе нет</div>`;
+      }
     }
     // Power: checkbox + total load (W) under the name, if declared.
-    if (power.keys.size) {
-      const load = power.allocated || power.maximum
-        ? `<span class="ly-meta">${power.allocated ? power.allocated + " Вт" : "?"}${power.maximum ? " / " + power.maximum + " Вт макс" : ""}</span>`
-        : "";
-      html += `<button class="ly-item" type="button" data-layer="power" data-id="0">
-           <span class="ly-dot" style="border-color:var(--power)"></span>
-           <span class="ly-name">Питание ${load}</span>
-           <span class="ly-count">${power.cables.size}</span>
-         </button>`;
-    } else {
-      html += `<div class="ly-empty">цепей питания в группе нет</div>`;
+    if (inView("power")) {
+      if (power.keys.size) {
+        const load = power.allocated || power.maximum
+          ? `<span class="ly-meta">${power.allocated ? power.allocated + " Вт" : "?"}${power.maximum ? " / " + power.maximum + " Вт макс" : ""}</span>`
+          : "";
+        html += `<button class="ly-item" type="button" data-layer="power" data-id="0">
+             <span class="ly-dot" style="border-color:var(--power)"></span>
+             <span class="ly-name">Питание ${load}</span>
+             <span class="ly-count">${power.cables.size}</span>
+           </button>`;
+      } else {
+        html += `<div class="ly-empty">цепей питания в группе нет</div>`;
+      }
     }
     // Wireless: checkbox, counter = number of radio links in the group.
-    if (wireless.pairs.length) {
-      html += `<button class="ly-item" type="button" data-layer="wireless" data-id="0">
-           <span class="ly-dot" style="border-color:var(--wireless,#b98cff)"></span>
-           <span class="ly-name">Wireless (радио)</span>
-           <span class="ly-count">${wireless.pairs.length}</span>
-         </button>`;
-    } else {
-      html += `<div class="ly-empty">радио-линков в группе нет</div>`;
+    if (inView("wireless")) {
+      if (wireless.pairs.length) {
+        html += `<button class="ly-item" type="button" data-layer="wireless" data-id="0">
+             <span class="ly-dot" style="border-color:var(--wireless,#b98cff)"></span>
+             <span class="ly-name">Wireless (радио)</span>
+             <span class="ly-count">${wireless.pairs.length}</span>
+           </button>`;
+      } else {
+        html += `<div class="ly-empty">радио-линков в группе нет</div>`;
+      }
     }
     // Circuits: checkbox, counter = number of ports exiting to a circuit.
-    if (circuits.keys.size) {
-      html += `<button class="ly-item" type="button" data-layer="circuit" data-id="0">
-           <span class="ly-dot" style="border-color:var(--circuit,#4fc3e8)"></span>
-           <span class="ly-name">Circuits (в WAN)</span>
-           <span class="ly-count">${circuits.keys.size}</span>
-         </button>`;
-    } else {
-      html += `<div class="ly-empty">circuit-выходов в группе нет</div>`;
+    if (inView("circuit")) {
+      if (circuits.keys.size) {
+        html += `<button class="ly-item" type="button" data-layer="circuit" data-id="0">
+             <span class="ly-dot" style="border-color:var(--circuit,#4fc3e8)"></span>
+             <span class="ly-name">Circuits (в WAN)</span>
+             <span class="ly-count">${circuits.keys.size}</span>
+           </button>`;
+      } else {
+        html += `<div class="ly-empty">circuit-выходов в группе нет</div>`;
+      }
     }
 
     html += `<button class="ly-clear" type="button"><i class="mdi mdi-close"></i> снять подсветку</button>`;
@@ -243,6 +295,16 @@ export class LayerManager {
       btn.addEventListener("click", () => this._toggle(btn.dataset.layer, +btn.dataset.id));
     });
     body.querySelector(".ly-clear").addEventListener("click", () => this.clear());
+    // View segment: unlike a layer it is never "off", so a click on the active
+    // one does nothing.
+    body.querySelectorAll("#viewswitch .vs-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const v = btn.dataset.view;
+        if (v === state.viewMode || !this.app.schema) return;
+        state.viewMode = v;
+        this.app.schema.applyViewMode();
+      });
+    });
 
     // Restore the active layer after a schema re-render.
     if (state.activeLayer) this._restoreActive();
@@ -255,14 +317,14 @@ export class LayerManager {
       this.clear();
       return;
     }
-    // Each layer lives in "its" view mode: wireless/circuit — network,
-    // the rest (vlan/console/power) — physical. Clicking a "foreign" layer
-    // first switches the mode (its ports are visible there), then highlights.
-    const needNet = kind === "wireless" || kind === "circuit";
-    const wantMode = needNet ? "net" : "phys";
-    if (state.viewMode !== wantMode && this.app.schema) {
-      state.viewMode = wantMode;
-      this.app.schema.applyViewMode();   // relayout nodes for the target mode
+    // A layer only highlights ports the CURRENT view actually draws, so picking a
+    // "foreign" one switches the view first (see LAYER_VIEWS). This used to happen
+    // invisibly, from a control in another block; now the segment sits right above
+    // and visibly moves — the schema relayouting is no longer a surprise.
+    const views = LAYER_VIEWS[kind] || ["phys"];
+    if (!views.includes(state.viewMode) && this.app.schema) {
+      state.viewMode = views[0];
+      this.app.schema.applyViewMode();   // relayout nodes + re-mark the segment
     }
     if (kind === "vlan")
       this.selectVlan(id);
@@ -279,6 +341,10 @@ export class LayerManager {
   // Restore the active layer after a re-render (its data may have vanished).
   _restoreActive() {
     const a = state.activeLayer;
+    // The panel only lists layers of the current view, so a highlight carried over
+    // from the previous one would keep dimming the schema with no button left to
+    // switch it off. Dropping it is also honest: the view no longer draws its ports.
+    if (!(LAYER_VIEWS[a.kind] || ["phys"]).includes(state.viewMode)) { this.clear(); return; }
     if (a.kind === "vlan") {
       if (state._vlanIndex.has(a.id)) this.selectVlan(a.id); else state.activeLayer = null;
     } else if (a.kind === "console") {
@@ -292,12 +358,26 @@ export class LayerManager {
     }
   }
 
+  // Cables touching any of the given ports. Passing these to _applyHighlight
+  // keeps the wires that lead to the layer's ports lit; without it EVERY wire
+  // is dimmed to .05 and the schema reads as switched off. Same "at least one
+  // end participates" rule as the console layer.
+  _cablesForPorts(portKeys) {
+    const cables = new Set();
+    for (const c of state.cables) {
+      const terms = [...(c.a_terminations || []), ...(c.b_terminations || [])];
+      if (terms.some(t => portKeys.has(termKey(t)))) cables.add(c.id);
+    }
+    return cables;
+  }
+
   // VLAN selection → highlight
   selectVlan(vid) {
     const entry = state._vlanIndex && state._vlanIndex.get(vid);
     if (!entry) { this.clear(); return; }
-    state.activeLayer = { kind: "vlan", id: vid, portKeys: entry.portKeys };
-    this._applyHighlight(entry.portKeys);
+    const cables = this._cablesForPorts(entry.portKeys);
+    state.activeLayer = { kind: "vlan", id: vid, portKeys: entry.portKeys, cables };
+    this._applyHighlight(entry.portKeys, cables);
     const v = entry.vlan;
     setStatus(`VLAN ${v.vid ?? ""} ${v.name || ""}: ${entry.portKeys.size} портов`, "ok");
     this._syncPanelState();
@@ -384,11 +464,20 @@ export class LayerManager {
       w.classList.toggle("layer-hl", !!keep);
       w.classList.toggle("layer-dim", !keep);
     });
+    this._applyVlanBusHighlight();
     document.body.classList.add("layer-active");
     // Node/port highlight follows the layer TYPE color (power → orange etc.),
     // not always accent. CSS reads var(--layer-color).
-    document.body.style.setProperty("--layer-color", LayerManager.LAYER_COLOR[
-      state.activeLayer && state.activeLayer.kind] || "var(--accent)");
+    const kind = state.activeLayer && state.activeLayer.kind;
+    let color = LayerManager.LAYER_COLOR[kind] || "var(--accent)";
+    // A VLAN layer takes THAT VLAN's own colour instead of the generic accent, so
+    // ring, whisker and bus rectangle are one colour for one VLAN. Accent here was
+    // the reason a highlighted port read cyan while its bus read purple.
+    if (kind === "vlan" && this.app.schema) {
+      const e = this._collectVlans().get(state.activeLayer.id);
+      if (e) color = this.app.schema._vlanColor(e.vlan);
+    }
+    document.body.style.setProperty("--layer-color", color);
   }
 
   // Re-apply active-layer classes to WIRES after the schema recreated them
@@ -397,6 +486,10 @@ export class LayerManager {
   // are touched. Otherwise zooming "reset" the layer selection (wires
   // stopped dimming). For wireless the wires are drawn by drawRadioLinks.
   reapplyToWires() {
+    // VLAN bus lines are recreated by the same redraw and are keyed by VLAN, not
+    // by cable — so they are re-marked even when no layer is active (the call
+    // below is a no-op then, which is exactly the "nothing dimmed" state).
+    this._applyVlanBusHighlight();
     const a = state.activeLayer;
     if (!a) return;
     const hlCables = a.cables;
@@ -407,12 +500,27 @@ export class LayerManager {
     });
   }
 
+  // Bus bars and bus lines carry data-vlan, so one pick dims the other VLANs the
+  // same way picking a cable family dims the other wires. They live outside the
+  // cable pass (bars are DOM nodes on the canvas, lines have their own class),
+  // hence their own sweep rather than a branch inside _applyHighlight.
+  _applyVlanBusHighlight() {
+    const a = state.activeLayer;
+    const id = a && a.kind === "vlan" ? a.id : null;
+    document.querySelectorAll(".vbus, #wires path.vlanwhisk").forEach(el => {
+      const mine = id != null && +el.dataset.vlan === id;
+      el.classList.toggle("layer-hl", mine);
+      el.classList.toggle("layer-dim", id != null && !mine);
+    });
+  }
+
   clear() {
     const wasWireless = state.activeLayer && state.activeLayer.kind === "wireless";
     state.activeLayer = null;
     Object.values(state.ports).forEach(p => p.el.classList.remove("layer-hl", "layer-dim"));
     Object.values(state.nodeEls).forEach(el => el.classList.remove("layer-hl", "layer-dim"));
     document.querySelectorAll("#wires path.wire").forEach(w => w.classList.remove("layer-dim", "layer-hl"));
+    document.querySelectorAll(".vbus, #wires path.vlanwhisk").forEach(el => el.classList.remove("layer-dim", "layer-hl"));
     document.body.classList.remove("layer-active");
     document.body.style.removeProperty("--layer-color");
     // remove drawn radio lines (drawRadioLinks draws nothing itself when the

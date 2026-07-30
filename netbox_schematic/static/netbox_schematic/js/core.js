@@ -33,7 +33,13 @@ export const state = {
   toolsCollapsed: true,   // "UI" block on the schema starts collapsed
   filterCollapsed: true,  // "Fl" block (role/cable filter) starts collapsed
   paletteCollapsed: true, // "+" palette (bottom-right corner) starts collapsed
-  viewMode: "phys",       // schema view mode: "phys" | "net" (switch on the schema)
+  // Schema view: "phys" (cables) | "net" (radio + circuits) | "vlan" (L2 — wired
+  // interfaces only). Each swaps the node's port set; the segment lives at the top
+  // of the «Отображение» panel (layers.js renderPanel).
+  viewMode: "phys",
+  // VLAN view: ports picked for assignment, Map portKey → {kind, item, dev}.
+  // Keys, not elements — a relayout replaces the dots (see _paintVlanPick).
+  vlanPick: null,
   wireStyle: "round",     // wire style: "round" (arcs) | "angular" (corners + hop bridges)
   wirePath: "short",      // angular routing: "short" (direct) | "extend" (detour around nodes)
   hiddenRoles: {},        // {roleId: true} — hidden node roles (filter, hidden via CSS)
@@ -129,7 +135,10 @@ export const UNIT_H = 22;
 export const GAP_MIN = 3;        // run of empty units at which we start collapsing
 export const GAP_H = 26;         // height of the collapsed "↕ N" strip
 export const COL_W = 350, COL_GAP = 170, NODE_GAP = 74, BOX_PAD = 16;
-export const DOT = 16, STEP = 21, EXTRA = 400;
+// DOT — port-dot diameter; STEP — pitch between dots in a row. The dot carries its
+// port NUMBER, so it is sized by the text, not by the mark: at 16px a two-digit
+// number sat wall to wall. STEP grows with it to keep the same breathing room.
+export const DOT = 19, STEP = 24, EXTRA = 400;
 
 const TR = { "а":"a","б":"b","в":"v","г":"g","д":"d","е":"e","ё":"e","ж":"zh","з":"z","и":"i","й":"y",
   "к":"k","л":"l","м":"m","н":"n","о":"o","п":"p","р":"r","с":"s","т":"t","у":"u","ф":"f","х":"h",
@@ -197,7 +206,12 @@ const tip = $("#tip");
 // Touch/narrow screen: pin the tooltip slightly BELOW center (finger doesn't
 // cover the port) and add a close button — touch has no mouseleave to dismiss it.
 const tipTouch = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 760;
-export function attachTip(el, htmlFn) {
+// `skip` — an optional predicate checked at SHOW time, not at bind time. A tooltip
+// bound once on a long-lived element must be able to go quiet when the surrounding
+// mode changes, and deciding at bind time silently goes stale on any screen that
+// doesn't rebuild its elements (which is how the VLAN cut kept its port tips in the
+// single-device view long after they were supposed to be gone).
+export function attachTip(el, htmlFn, skip) {
   const move = ev => {
     tip.style.left = Math.min(ev.clientX + 14, innerWidth - 310) + "px";
     tip.style.top = (ev.clientY + 16) + "px";
@@ -205,6 +219,7 @@ export function attachTip(el, htmlFn) {
   // Show the tooltip (returned so callers can re-open it on a repeat tap — touch
   // has no mouseenter on the second tap of the same element).
   const showTip = ev => {
+    if (skip && skip()) return;
     // No tooltip in schema edit mode (port click = link action, not info).
     if (document.body.classList.contains("schema-edit")) return;
     tip.innerHTML = htmlFn();

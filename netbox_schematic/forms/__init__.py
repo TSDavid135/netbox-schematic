@@ -9,3 +9,4 @@ Third-party plugins register their own forms from their AppConfig.ready():
 
 from . import patchen   # noqa: F401
 from . import universal  # noqa: F401
+from . import power      # noqa: F401

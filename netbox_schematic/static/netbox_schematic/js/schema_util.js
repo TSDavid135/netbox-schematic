@@ -177,3 +177,22 @@ export function writeTypeSides(comments, sides) {
   const marker = `<!-- schematic:sides ${JSON.stringify(sides)} -->`;
   return base ? base + "\n\n" + marker : marker;
 }
+
+// Where a link MEETS a port: its rim, not its centre.
+// A line anchored in the centre is drawn across the port's own number whenever the
+// wire layer sits above the ports — the «провода поверх портов» toggle, and the
+// whole VLAN view, which has to lift the layer so a link crossing a node body stays
+// visible. With the layer below (the default) the dot covers the stub anyway, so
+// this is invisible there rather than wrong.
+// A port already knows which way it faces: `side` is the node edge it sits on, and
+// every route leaves perpendicular to that edge. Moving the endpoint out along the
+// SAME normal therefore shortens the line without bending it — control points stay
+// where they were, so no route changes shape.
+export function portAnchor(port, cx, cy) {
+  const r = ((port.el && port.el.offsetWidth) || 15) / 2 + 1;
+  if (port.side === "t") return [cx, cy - r];
+  if (port.side === "b") return [cx, cy + r];
+  if (port.side === "l") return [cx - r, cy];
+  if (port.side === "r") return [cx + r, cy];
+  return [cx, cy];
+}

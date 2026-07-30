@@ -15,26 +15,47 @@
 // MAINTENANCE per release: add an entry to docs/*/CHANGELOG.md (see CHANGELOG.md header).
 
 // Learn topics (order = the tree). key ↔ docs/<lang>/learn/<key>.md.
+// The tree follows the doc language, so an English reader doesn't get Russian
+// topic names over English pages (title_en falls back to title).
 export const TOPICS = [
-  { key: "model",   title: "Модель устройства" },
-  { key: "catalog", title: "Каталог моделей" },
-  { key: "device",  title: "Характеристики устройства" },
-  { key: "cables",  title: "Кабели" },
-  { key: "tree",    title: "Иерархия локаций и устройств" },
-  { key: "schema",  title: "Схема" },
-  { key: "details", title: "Детали" },
-  { key: "edit",    title: "Режим редактирования" },
-  { key: "racks",   title: "Стойки" },
-  { key: "excel",   title: "Импорт / Экспорт" },
-  { key: "header",  title: "Шапка страницы" },
+  { key: "model",   title: "Модель устройства",          title_en: "Device model" },
+  { key: "catalog", title: "Каталог моделей",            title_en: "Model catalog" },
+  { key: "device",  title: "Характеристики устройства",  title_en: "Device specs" },
+  { key: "cables",  title: "Кабели",                     title_en: "Cables" },
+  { key: "tree",    title: "Иерархия локаций и устройств", title_en: "Locations & devices tree" },
+  { key: "schema",  title: "Схема",                      title_en: "Schema" },
+  { key: "details", title: "Детали",                     title_en: "Details panel" },
+  { key: "edit",    title: "Режим редактирования",       title_en: "Edit mode" },
+  { key: "racks",   title: "Стойки",                     title_en: "Racks" },
+  { key: "excel",   title: "Импорт / Экспорт",           title_en: "Import / Export" },
+  { key: "header",  title: "Шапка страницы",             title_en: "Page header" },
 ];
+
+// Topic caption in the reader's language.
+export const topicTitle = (t, lang) => (lang === "en" && t.title_en) || t.title;
+
+// The modal's own chrome follows the doc language too — Russian tabs over an
+// English page would be a strange half-state. The rest of the plugin's UI stays
+// Russian by project convention; this dialog is the one language-aware surface.
+const UI = {
+  badge:  { ru: "Что нового и обучение", en: "What's new and learning" },
+  log:    { ru: "Последние изменения",   en: "What's new" },
+  learn:  { ru: "Обучение",              en: "Learning" },
+  close:  { ru: "Закрыть (Esc)",         en: "Close (Esc)" },
+  load:   { ru: "загружаю…",             en: "loading…" },
+  back:   { ru: "К списку тем",          en: "Back to topics" },
+  pick:   { ru: "выбери тему слева",     en: "pick a topic on the left" },
+  oops:   { ru: "Документ не загрузился. Обнови страницу или проверь установку плагина.",
+            en: "The document failed to load. Reload the page or check the plugin install." },
+};
+const t = (key, lang) => UI[key][lang === "en" ? "en" : "ru"];
 
 // User language for docs: future in-app setting → page lang → browser. ru/en.
 export function resolveLang() {
   let l = "";
   try { l = localStorage.getItem("schematic.lang") || ""; } catch (_) {}
-  l = l || document.documentElement.lang || (navigator.language || "");
-  return /^ru/i.test(l) ? "ru" : "en";
+  try { l = l || document.documentElement.lang || navigator.language || ""; } catch (_) {}
+  return /^ru/i.test(String(l || "")) ? "ru" : "en";   // total: any odd lang value → en
 }
 
 // Tiny markdown renderer for OUR docs: #..#### headings (shifted one level down —
@@ -76,7 +97,7 @@ export class AboutUI {
     const badge = document.getElementById("pluginver");
     if (!badge) return;
     badge.classList.add("clickable");
-    badge.title = "Что нового и обучение";
+    badge.title = t("badge", resolveLang());
     badge.addEventListener("click", () => this.open());
   }
 
@@ -101,7 +122,7 @@ export class AboutUI {
     catch (_) {
       try { text = lang === "ru" ? null : await load("ru"); } catch (_) { text = null; }
     }
-    if (text == null) text = "# ¯\\_(ツ)_/¯\n\nДокумент не загрузился. Обнови страницу или проверь установку плагина.";
+    if (text == null) text = "# ¯\\_(ツ)_/¯\n\n" + t("oops", lang);
     this._cache[key] = text;
     return text;
   }
@@ -113,13 +134,14 @@ export class AboutUI {
     const el = document.createElement("div");
     el.id = "about-bg";
     el.className = "abt-bg";
+    const lang = resolveLang();
     el.innerHTML = `
       <div class="abt-modal">
         <div class="abt-head">
-          <button class="abt-tab active" data-tab="log">Последние изменения</button>
-          <button class="abt-tab" data-tab="learn">Обучение</button>
+          <button class="abt-tab active" data-tab="log">${t("log", lang)}</button>
+          <button class="abt-tab" data-tab="learn">${t("learn", lang)}</button>
           <span class="abt-ver">${ver}</span>
-          <button class="abt-close" title="Закрыть (Esc)">✕</button>
+          <button class="abt-close" title="${t("close", lang)}">✕</button>
         </div>
         <div class="abt-body"></div>
       </div>`;
@@ -138,7 +160,7 @@ export class AboutUI {
   async _renderTab(tab) {
     const body = this.el.querySelector(".abt-body");
     if (tab === "learn") { this._renderLearn(body); return; }
-    body.innerHTML = `<div class="abt-md abt-log"><p class="abt-mut">загружаю…</p></div>`;
+    body.innerHTML = `<div class="abt-md abt-log"><p class="abt-mut">${t("load", resolveLang())}</p></div>`;
     const md = await this._doc("CHANGELOG.md");
     body.innerHTML = `<div class="abt-md abt-log">${mdToHtml(md)}</div>`;
     body.scrollTop = 0;
@@ -147,17 +169,18 @@ export class AboutUI {
   // «Обучение»: topic tree left, doc right. Mobile (CSS ≤760px): the tree fills
   // the modal; picking a topic slides the doc in, «←» returns to the tree.
   _renderLearn(body) {
+    const lang = resolveLang();
     body.innerHTML = `
       <div class="abt-learn">
         <div class="abt-topics">
-          ${TOPICS.map(t => `<button class="abt-topic" data-key="${t.key}">${t.title}</button>`).join("")}
+          ${TOPICS.map(x => `<button class="abt-topic" data-key="${x.key}">${topicTitle(x, lang)}</button>`).join("")}
         </div>
         <div class="abt-doc">
           <div class="abt-doc-head">
-            <button class="abt-back" title="К списку тем"><i class="mdi mdi-arrow-left"></i></button>
+            <button class="abt-back" title="${t("back", lang)}"><i class="mdi mdi-arrow-left"></i></button>
             <span class="abt-doc-title"></span>
           </div>
-          <div class="abt-md abt-doc-body"><p class="abt-mut">выбери тему слева</p></div>
+          <div class="abt-md abt-doc-body"><p class="abt-mut">${t("pick", lang)}</p></div>
         </div>
       </div>`;
     const learn = body.querySelector(".abt-learn");
@@ -165,11 +188,11 @@ export class AboutUI {
     body.querySelectorAll(".abt-topic").forEach(b => b.addEventListener("click", async () => {
       body.querySelectorAll(".abt-topic").forEach(x => x.classList.toggle("active", x === b));
       learn.classList.add("doc");   // mobile: slide the tree away
-      const t = TOPICS.find(x => x.key === b.dataset.key);
-      body.querySelector(".abt-doc-title").textContent = t.title;
+      const topic = TOPICS.find(x => x.key === b.dataset.key);   // NB: `t` is the UI-string helper
+      body.querySelector(".abt-doc-title").textContent = topicTitle(topic, lang);
       const docBody = body.querySelector(".abt-doc-body");
-      docBody.innerHTML = `<p class="abt-mut">загружаю…</p>`;
-      docBody.innerHTML = mdToHtml(await this._doc(`learn/${t.key}.md`));
+      docBody.innerHTML = `<p class="abt-mut">${t("load", lang)}</p>`;
+      docBody.innerHTML = mdToHtml(await this._doc(`learn/${topic.key}.md`));
       docBody.scrollTop = 0;
     }));
     // Desktop nicety: open the first topic right away (mobile stays on the tree).

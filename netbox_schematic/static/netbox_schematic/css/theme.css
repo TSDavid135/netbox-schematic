@@ -20,6 +20,10 @@
   --wireless: #c39dff;   /* radio links (Wireless layer) */
   --circuit: #5cd0f2;    /* WAN uplink (Circuits layer) */
   --stack: #9b8cff;      /* VirtualChassis (switch stack) — node badge / passport */
+  /* VLAN membership — port BORDER in the VLAN view. Deliberately not a fill:
+     the fill already means "a cable is attached" for every port kind. Gold reads
+     as a tag, and power (the other warm colour) is never drawn in that view. */
+  --vlan: #f2c94c;
   --mono: Consolas, "Cascadia Mono", ui-monospace, monospace;
   /* Floating overlays (legend, UI panel) and backdrops — themeable */
   --overlay-bg: rgba(20, 24, 29, 0.92);
@@ -28,6 +32,9 @@
   --node-bg: var(--panel);
   /* Dark theme: used-port digit DARK (on light fill), free light (--text). */
   --port-ink: #10161d;
+  /* VLAN bus label: always WHITE on dark, always BLACK on light — the
+     rectangle already carries the VLAN colour, the text only has to be read. */
+  --vbus-fg: #ffffff;
   --scroll-thumb: #2a333e;
   --scroll-thumb-hover: #3a4653;
   /* Dark theme: highlight glow — darker green */
@@ -61,12 +68,14 @@
   --wireless: #7d4fb0;   /* radio links (Wireless layer) — light theme */
   --circuit: #1789b0;    /* WAN uplink (Circuits layer) — light theme */
   --stack: #5b47c0;      /* VirtualChassis (switch stack) — light theme */
+  --vlan: #a67c00;       /* VLAN membership (port border, VLAN view) — light theme */
   --overlay-bg: rgba(255, 255, 255, 0.95);
   --overlay-shadow: 0 4px 16px rgba(70, 90, 110, 0.22);
   --dev-badge-bg: rgba(28, 37, 48, 0.06);
   --node-bg: #ffffff;
   /* Light theme: used-port digit LIGHT (on saturated fill), free dark (--text). */
   --port-ink: #ffffff;
+  --vbus-fg: #000000;   /* VLAN bus label — light theme */
   /* light scrollbar — unobtrusive */
   --scroll-thumb: #c3ccd5;
   --scroll-thumb-hover: #a9b4bf;

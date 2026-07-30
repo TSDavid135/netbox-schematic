@@ -169,6 +169,8 @@ export class ImportUI {
     const fd = new FormData();
     fd.append("file", this._file());
     fd.append("action", action);
+    // "" → the backend detects the layout from the header (Патчен / Питание).
+    fd.append("form", ($("#imp-form") || {}).value || "");
     fd.append("sw_mode", ($("#imp-mode") || {}).value || "neu_else_alt");
     // Site goes with BOTH actions: preview needs it to scan existing devices
     // (conflicts + rack occupancy) in that site; commit needs it to create.
@@ -219,14 +221,24 @@ export class ImportUI {
       : "";
     // «Будет создано» first, then a collapsed conflicts bar; the full table opens
     // below the columns (#imp-conf-full). Per-row detail lives in the tree beside.
+    // Which layout the backend used (it may have SNIFFED it — show that, so an
+    // auto-detected format is never a silent surprise) and matching chips: the
+    // power sheet counts panels/sources/consumers, the patch sheet sockets/switches.
+    const fid = (d.meta && d.meta.form) || "patchen";
+    const FORM_RU = { patchen: "Patchen / Unpatchen", power: "Питание", universal: "Универсальный" };
+    const chips = fid === "power"
+      ? `<span>связей <b>${this._total}</b></span><span>щитов <b>${s.panels || 0}</b></span>` +
+        `<span>источников <b>${s.sources || 0}</b></span><span>потребителей <b>${s.consumers || 0}</b></span>`
+      : `<span>связей <b>${this._total}</b></span><span>локаций <b>${s.locations || 0}</b></span>` +
+        `<span>стоек <b>${s.racks || 0}</b></span><span>розеток <b>${s.sockets || 0}</b></span>` +
+        `<span>панелей <b>${s.panels || 0}</b></span><span>свичей <b>${s.switches || 0}</b></span>` +
+        `<span>кабелей <b>${s.cables || 0}</b></span>`;
     const pv = $("#imp-preview");
     if (pv) pv.innerHTML = warnHtml +
+      `<div class="imp-sum">Формат: <b>${esc(FORM_RU[fid] || fid)}</b>` +
+      `${($("#imp-form") || {}).value ? "" : ' <span class="imp-mut">(определён автоматически)</span>'}</div>` +
       `<div class="imp-sum">Будет создано <span class="imp-mut">(существующее не дублируется)</span>:</div>` +
-      `<div class="imp-chips">` +
-      `<span>связей <b>${this._total}</b></span><span>локаций <b>${s.locations || 0}</b></span>` +
-      `<span>стоек <b>${s.racks || 0}</b></span><span>розеток <b>${s.sockets || 0}</b></span>` +
-      `<span>панелей <b>${s.panels || 0}</b></span><span>свичей <b>${s.switches || 0}</b></span>` +
-      `<span>кабелей <b>${s.cables || 0}</b></span></div>` +
+      `<div class="imp-chips">${chips}</div>` +
       this._conflictBar();
     this._renderConflictTable();
     this._syncConfPanel();

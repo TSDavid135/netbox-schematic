@@ -142,31 +142,45 @@
   #schempane::-webkit-scrollbar, #ipam-scroll::-webkit-scrollbar { display: none; }
 
   /* Floating controls not needed on mobile. The palette STAYS (as the "+" square
-     under "UI") — on touch it taps open the add-catalog instead of dragging. */
-  #rolefilter, #layers, #viewswitch, #legend, .modeswitch.schem-topbtn { display: none !important; }
+     under "UI") — on touch it taps open the add-catalog instead of dragging.
+     «Отображение» stays too: it is the only way to reach the VLAN and wireless
+     views, and a phone is exactly where you cannot fall back to a second monitor.
+     It starts collapsed (a 36px square) and opens to a narrower body than desktop. */
+  #rolefilter, #legend, .modeswitch.schem-mid { display: none !important; }
+  #layers { width: 208px; font-size: 12.5px; }
+  #layers .ly-body { max-height: 52vh; }
+  /* Touch targets: the desktop rows are 4px-padded and land under a fingertip. */
+  #layers .ly-item, #viewswitch .vs-btn { padding-top: 7px; padding-bottom: 7px; }
 
-  /* Details (Infra/IPAM) → bottom sheet. */
-  #detail, #ipam-detail {
+  /* Details (Infra/IPAM) → bottom sheet. The SHEET is the wrapper (responsive.js):
+     a non-scrolling frame holding a fixed grip row and the panel below it. The
+     panel scrolls inside; nothing ever passes behind the grip, which is the whole
+     reason the grip is an element instead of a sticky ::before. */
+  .sheet-wrap {
+    display: flex; flex-direction: column;
     position: absolute; left: 0; right: 0; bottom: 0; top: auto;
-    width: auto; max-width: none; height: 64vh; z-index: 46;
+    width: auto; max-width: none; height: 64vh; z-index: 46; overflow: hidden;
     border-radius: 16px 16px 0 0; border: 1px solid var(--line); border-bottom: none;
     background: var(--panel); box-shadow: 0 -10px 26px rgba(0,0,0,0.45);
-    transform: translateY(101%); visibility: hidden; overflow-y: auto;
+    transform: translateY(101%); visibility: hidden;
     transition: transform 0.24s ease, visibility 0s linear 0.24s;
   }
-  /* Grab handle: STICKY bar at the top of the sheet — always visible, even when
-     details scroll (position:sticky). Opaque bg covers content below; the "handle"
-     itself is a centered strip (background-image). Height 32px gives spacing to the
-     title (was too close). Not in innerHTML → survives detail re-render. */
-  #detail::before, #ipam-detail::before {
-    content: ""; position: sticky; top: 0; z-index: 4; display: block;
-    width: 100%; height: 32px; border-radius: 16px 16px 0 0;
+  .sheet-grip {
+    display: block;   /* desktop hides it (schematic.css) — the sheet brings it back */
+    flex: 0 0 32px; border-bottom: 1px solid var(--line);
     background-color: var(--panel);
     /* The "handle" itself — a ROUNDED pill (SVG rx), not a boxy rectangle. */
     background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='6'><rect width='44' height='6' rx='3' fill='%238a95a1'/></svg>");
     background-repeat: no-repeat; background-position: center 12px;
   }
-  body.sheet-open #detail, body.sheet-open #ipam-detail { transform: translateY(0); visibility: visible;
+  /* Inside the sheet the panel is just a scrolling body — the frame owns the box. */
+  #detail, #ipam-detail {
+    position: static; width: auto; max-width: none; height: auto;
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    border: 0; border-radius: 0; box-shadow: none; background: none;
+    transform: none; visibility: visible;
+  }
+  body.sheet-open .sheet-wrap { transform: translateY(0); visibility: visible;
     transition: transform 0.24s ease; }
 
   /* Parameter windows (create/edit modal, IP assign, cable type) — at the bottom,
@@ -196,19 +210,20 @@
    handle on its LEFT edge. Portrait keeps the bottom sheet inherited above.
    Closed by tapping the scrim, Esc, or dragging it off to the right. */
 @media (min-width: 761px) and (max-width: 1024px) and (orientation: landscape) {
-  #detail, #ipam-detail {
+  /* Side sheet: the frame turns into a ROW — grip column on the left, panel right. */
+  .sheet-wrap {
+    flex-direction: row;
     left: auto; right: 0; top: 0; bottom: 0;
-    width: min(400px, 60vw); height: auto; max-width: none; padding-left: 34px;
+    width: min(400px, 60vw); height: auto; max-width: none;
     border-radius: 16px 0 0 16px;
     border: 1px solid var(--line); border-right: none; border-top: none; border-bottom: none;
     box-shadow: -12px 0 28px rgba(0,0,0,0.45);
     transform: translateX(101%);
   }
-  body.sheet-open #detail, body.sheet-open #ipam-detail { transform: translateX(0); }
+  body.sheet-open .sheet-wrap { transform: translateX(0); }
   /* Grab handle — vertical bar on the LEFT edge (a rotated pill). */
-  #detail::before, #ipam-detail::before {
-    position: absolute; top: 0; bottom: 0; left: 0; right: auto;
-    width: 26px; height: auto; border-radius: 16px 0 0 16px;
+  .sheet-grip {
+    flex: 0 0 26px; border-bottom: 0; border-right: 1px solid var(--line);
     background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='6' height='44'><rect width='6' height='44' rx='3' fill='%238a95a1'/></svg>");
     background-position: 10px center;
   }
@@ -386,8 +401,12 @@ body.tree-moving .multi-sel { opacity: 0.5; }
   body.schema-edit #palette { display: block !important; }
   /* Sticky :hover after a tap makes a plain port look "held" (its enlarge + "white
      ring" box-shadow linger). Drop them on touch — but NOT on a port in a state
-     (.hl trace / .pending selected / .aim-ok connect-target), which must keep its ring. */
-  .port:not(.hl):not(.pending):not(.aim-ok):hover { transform: none; box-shadow: none; }
+     (.hl trace / .pending selected / .aim-ok connect-target / .tap-hl just tapped),
+     which must keep its ring.
+     `.tap-hl` is why the green ring was invisible on a phone: the tap leaves the
+     port in a STICKY :hover, this rule blanked its box-shadow, and the ring only
+     showed up once the finger went somewhere else and the hover moved away. */
+  .port:not(.hl):not(.pending):not(.aim-ok):not(.tap-hl):hover { transform: none; box-shadow: none; }
 }
 
 /* ── Schema ports on touch: no text-selection, no double-tap zoom ────────────── */
